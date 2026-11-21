@@ -68,6 +68,11 @@ from schemas.review import (
 from price_updater import summarize_price_quality
 from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, assert_compliance_reviewer_ready, short_user_agent, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
 from services.audit import gate_block_audit, log, release_block_audit, restore_tenant_after_rollback
+from services.channel_envelope_gate import (
+    CHANNEL_ADVISOR_SIGNATURE,
+    record_channel_publication,
+    require_signature_envelope,
+)
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
 # CCX-P1: direkt aus services.auth (derselbe Helfer, den routers.auth nur
@@ -1961,6 +1966,14 @@ def sign_document(
     from services.signature_artifact import assert_signable_artifact
 
     assert_signable_artifact(doc)
+    # CCX P5 (Vertrag §8.4): ein Empfehlungsdokument ist nur signierbar, wenn
+    # der aktuelle Entscheid auslieferbar ist (SEALED+FRESH, FX jetzt,
+    # Parametersatz/Zielkennzahl) und -- fuer Entscheid-Dokumente -- genau
+    # dieses archivierte PDF als Artefakt dieses Envelopes ausgeliefert wurde.
+    p5_signature = require_signature_envelope(
+        db, mandate, doc, channel=CHANNEL_ADVISOR_SIGNATURE, user=current_user,
+        ip_address=_extract_client_ip(request),
+    )
     # REC-006 (Codex-Audit 2026-08-25): dieser Endpoint hatte keinerlei
     # Status-Gate -- ein zweiter Aufruf mit signed_by_advisor/signed_by_client
     # ueberschrieb klaglos Bild/Name/Zeitstempel/IP einer bereits geleisteten
@@ -2004,9 +2017,29 @@ def sign_document(
         table_name="contract_documents", record_id=doc_id, action="UPDATE",
         field_name="status", new_value=doc.status, mandate_id=mandate_id,
         ip_address=signer_ip)
+    if p5_signature is not None:
+        decision, publication = p5_signature
+        record_channel_publication(
+            db, decision, mandate=mandate, channel=CHANNEL_ADVISOR_SIGNATURE,
+            artifact_id=f"{doc.id}:{'advisor' if body.signed_by_advisor else 'client'}",
+            channel_payload_hash=publication.channel_payload_hash, render_hash=publication.render_hash,
+            user=current_user,
+        )
     db.commit()
     db.refresh(doc)
     return doc
+
+
+    ip_address = _extract_client_ip(request) if request is not None else None
+    if document_type in DECISION_ARTIFACT_DOCUMENT_TYPES:
+        return require_signable_decision_artifact(
+            db, mandate, doc, channel=channel, user=current_user, ip_address=ip_address,
+        )
+    require_channel_envelope(
+        db, mandate, channel=channel, user=current_user, ip_address=ip_address,
+        outdated_code=ReasonCode.CCX_SIGNATURE_ENVELOPE_OUTDATED,
+    )
+    return None
 
 
 # ── H8 C-2: Rechtliche Angaben + Kundeninformation (Art. 8/9 FIDLEG) ──────────

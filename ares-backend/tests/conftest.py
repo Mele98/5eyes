@@ -272,3 +272,17 @@ def _pdf_missing_glyph_guard(request):
         return
     with guard.glyph_guard(request.node.nodeid):
         yield
+
+
+@_pytest.fixture(autouse=True)
+def _ccx_p5_direct_solver_test_vector():
+    """CCX P5 / M-2: Tests, die den Optimierer direkt ohne Engine aufrufen,
+    erhalten ausdruecklich den Testvektor (tests/p5_test_vectors.py). Der
+    Produktivpfad liest ihn nie; der Fail-closed-Fall ist in
+    tests/test_ccx_p5_parameter_set.py mit geloeschtem Vektor belegt."""
+    from services.risk_parameter_set import set_test_risky_fraction
+    from tests.p5_test_vectors import P5_TEST_RISKY_FRACTION
+
+    previous = set_test_risky_fraction(P5_TEST_RISKY_FRACTION)
+    yield
+    set_test_risky_fraction(previous)

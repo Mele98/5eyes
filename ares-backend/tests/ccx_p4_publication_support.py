@@ -68,4 +68,13 @@ def assume_published_allocation(monkeypatch):
     monkeypatch.setattr(snapshots, "published_allocation_matches_snapshot", lambda *_a, **_k: True)
     monkeypatch.setattr(pdf_reports, "customer_document_watermark", lambda *_a, **_k: None)
     monkeypatch.setattr(client_portal, "customer_document_watermark", lambda *_a, **_k: None)
+    # CCX P5: derselbe Altbestand ersetzt auch das Kanal-Gate (es baut auf der
+    # Publikation auf); der P5-Gate selbst ist in tests/test_ccx_p5_channel_
+    # envelope.py gegen den echten Zustand belegt.
+    from services.channel_envelope_gate import ChannelDecision
+
+    monkeypatch.setattr(pdf_reports, "evaluate_channel_envelope", lambda *_a, **_k: ChannelDecision(applicable=False))
+    monkeypatch.setattr(portfolio_handoff, "require_channel_envelope",
+                        lambda *_a, **_k: ChannelDecision(applicable=False))
+    monkeypatch.setattr(portfolio_handoff, "record_channel_publication", lambda *_a, **_k: None)
     yield

@@ -97,6 +97,19 @@ def _draw_vorvertrag_mark(canvas: Canvas, page_width: float, page_height: float,
     canvas.restoreState()
 
 
+# CCX P5 (Vertrag §8): jedes Kunden-PDF nennt den versiegelten Beratungsentscheid,
+# aus dem seine Zahlen stammen (Pruefnummer = erste 12 Zeichen des Envelope-
+# Hashes, Fassung = Schema-Version), oder ausdruecklich, dass keiner gebunden ist.
+DECISION_NONE_TEXT = "Beratungsentscheid: keiner versiegelt"
+
+
+def decision_footer_label(decision_ref) -> str:
+    if not decision_ref or not decision_ref.get("envelope_hash"):
+        return DECISION_NONE_TEXT
+    return (f"Beratungsentscheid: {str(decision_ref['envelope_hash'])[:12]} "
+            f"· Fassung {decision_ref.get('fassung') or '1'}")
+
+
 def make_footer_callback(ctx: PDFContext, disclaimer: str | None = None):
     """Returns onPage-Callback fuer ReportLab-Build.
 
@@ -108,6 +121,7 @@ def make_footer_callback(ctx: PDFContext, disclaimer: str | None = None):
         footer_disclaimer_key(getattr(ctx, "mandate_type", None)),
     )
     audit_label = ctx.audit_hash[:12] if ctx.audit_hash else "n/a"
+    decision_label = decision_footer_label(getattr(ctx, "decision_ref", None))
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
     date_str = ctx.report_date.strftime("%d.%m.%Y")
 
@@ -147,8 +161,9 @@ def make_footer_callback(ctx: PDFContext, disclaimer: str | None = None):
         canvas.setLineWidth(0.4)
         canvas.line(12 * mm, max(11 * mm, top_y), page_width - 12 * mm, max(11 * mm, top_y))
 
-        # Zeile 2: Audit-Hash + Erzeugt-Zeit
+        # Zeile 2: Audit-Hash + Beratungsentscheid (CCX P5) + Erzeugt-Zeit
         canvas.drawString(12 * mm, 3.5 * mm, f"Audit: {audit_label}")
+        canvas.drawCentredString(page_width / 2, 3.5 * mm, decision_label)
         canvas.drawRightString(
             page_width - 12 * mm, 3.5 * mm, f"Erzeugt: {generated_at}"
         )

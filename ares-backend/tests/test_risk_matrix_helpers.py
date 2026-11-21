@@ -113,31 +113,29 @@ def test_score_raises_above_100_instead_of_clamping():
 # compute_portfolio_risky_fraction_bps
 # ---------------------------------------------------------------------------
 
-def test_risky_fraction_empty_allocation_zero():
-    assert compute_portfolio_risky_fraction_bps({}, []) == 0
+def test_risky_fraction_without_building_blocks_fails_closed():
+    """CCX P5 / M-2: ohne IC-Werte (keine BuildingBlocks) kein Resultat -- frueher
+    lieferte der Code-Fallback still 0 bzw. den Bucket-Satz."""
+    from services.risk_parameter_set import ParameterSetMissing
 
-
-def test_risky_fraction_pure_liquidity_zero():
-    # Mit leeren building_blocks ist die rf_by_bucket aus
-    # bucket_risky_fractions_from_building_blocks komplett 0 -> Resultat 0.
-    alloc = {"liquidity": 10000, "equities": 0, "bonds": 0, "real_estate": 0, "alternatives": 0}
-    assert compute_portfolio_risky_fraction_bps(alloc, []) == 0
+    for alloc in ({}, {"liquidity": 10000, "equities": 0, "bonds": 0, "real_estate": 0, "alternatives": 0}):
+        with pytest.raises(ParameterSetMissing):
+            compute_portfolio_risky_fraction_bps(alloc, [])
 
 
 # ---------------------------------------------------------------------------
 # bucket_risky_fraction_bps_from_building_blocks
 # ---------------------------------------------------------------------------
 
-def test_bucket_rf_empty_building_blocks_uses_defaults():
-    """Ohne BuildingBlocks faellt jeder Bucket auf DEFAULT_BUCKET_RISKY_FRACTION."""
-    result = bucket_risky_fraction_bps_from_building_blocks([])
-    # Liquidity ist immer 0% risky (defensiv-Default)
-    assert result["liquidity"] == 0
-    # Equities sind im Default ~100% risky -> > 0
-    assert result["equities"] > 0
-    # Alle bps-Werte im gueltigen [0, 10000] Bereich
-    for bucket in ("equities", "bonds", "real_estate", "alternatives", "liquidity"):
-        assert 0 <= result[bucket] <= 10000
+def test_bucket_rf_empty_building_blocks_fail_closed():
+    """CCX P5 / M-2: ohne BuildingBlocks kein Code-Fallback mehr, sondern
+    CCX_PARAMETER_SET_MISSING."""
+    import pytest
+
+    from services.risk_parameter_set import ParameterSetMissing
+
+    with pytest.raises(ParameterSetMissing):
+        bucket_risky_fraction_bps_from_building_blocks([])
 
 
 # ---------------------------------------------------------------------------

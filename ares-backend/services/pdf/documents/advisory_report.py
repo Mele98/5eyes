@@ -103,6 +103,7 @@ def render_advisory_report_pdf(
     advisor: User | None = None,
     *,
     watermark_mode: str = "none",
+    decision_ref: dict | None = None,
 ) -> bytes | None:
     """PDF-Bytes des Advisory-Reports für ein Mandat, oder ``None`` falls das
     Dokument unter dem Publikations-Gate nicht client-ready ist.
@@ -158,7 +159,9 @@ def render_advisory_report_pdf(
     provisional_notice = _resolve_advisory_report_provisional_notice(db, mandate)
     if provisional_notice is not None:
         payload["provisional_notice"] = provisional_notice
-    return render_advisory_report_pdf_from_payload(payload, watermark_mode=watermark_mode)
+    return render_advisory_report_pdf_from_payload(
+        payload, watermark_mode=watermark_mode, decision_ref=decision_ref,
+    )
 
 
 def _resolve_advisory_report_provisional_notice(
@@ -184,6 +187,7 @@ def _resolve_advisory_report_provisional_notice(
 
 def render_advisory_report_pdf_from_payload(
     payload: dict[str, Any], *, watermark_mode: str = "none",
+    decision_ref: dict | None = None,
 ) -> bytes:
     """Pure PDF-Render aus einem bereits berechneten Aggregator-Payload.
 
@@ -235,10 +239,13 @@ def render_advisory_report_pdf_from_payload(
     toc_section_ids = toc_collector.section_ids_by_title()
 
     out_buf, out_doc = _new_doc()
+    from services.pdf.components.footer import decision_footer_label
+
     chrome = make_advisory_page_chrome(
         mandate_number=mandate_number,
         generated_at_iso=generated_at,
         total_pages_hint=total_pages,
+        decision_label=decision_footer_label(decision_ref),  # CCX P5
     )
     out_doc.build(
         _build_all_flowables(

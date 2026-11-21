@@ -2341,3 +2341,37 @@ CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_no_delete BEFO
 CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_insert BEFORE INSERT ON allocation_active_publications FOR EACH ROW WHEN EXISTS (SELECT 1 FROM allocation_active_publications p WHERE p.id = NEW.id OR p.mandate_id = NEW.mandate_id) OR NEW.optimistic_version IS NOT 1 OR NOT EXISTS (SELECT 1 FROM allocation_publication_decisions d WHERE d.id = NEW.publication_id AND d.tenant_id = NEW.tenant_id AND d.mandate_id = NEW.mandate_id AND d.publishable = 1) BEGIN SELECT RAISE(ABORT, 'CCX_PUBLICATION_RACE'); END;
 CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_update BEFORE UPDATE ON allocation_active_publications FOR EACH ROW WHEN NEW.id IS NOT OLD.id OR NEW.tenant_id IS NOT OLD.tenant_id OR NEW.mandate_id IS NOT OLD.mandate_id OR NEW.optimistic_version IS NOT OLD.optimistic_version + 1 OR NOT EXISTS (SELECT 1 FROM allocation_publication_decisions d WHERE d.id = NEW.publication_id AND d.tenant_id = NEW.tenant_id AND d.mandate_id = NEW.mandate_id AND d.publishable = 1 AND d.publication_sequence > (SELECT o.publication_sequence FROM allocation_publication_decisions o WHERE o.id = OLD.publication_id)) BEGIN SELECT RAISE(ABORT, 'CCX_PUBLICATION_RACE'); END;
 CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_no_delete BEFORE DELETE ON allocation_active_publications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'allocation_active_publications: pointer is never deleted'); END;
+
+-- CCX-P5 Kanal-Envelope (Vertrag 2026-11-13 §8): textgleich mit
+-- database.py CHANNEL_PUBLICATION_SQLITE_TABLE_DDL / _TRIGGERS.
+CREATE TABLE IF NOT EXISTS advisory_channel_publications (
+    id                            TEXT PRIMARY KEY,
+    tenant_id                     TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id                    TEXT NOT NULL,
+    envelope_id                   TEXT NOT NULL,
+    channel                       TEXT NOT NULL CHECK(channel IN ('API','CLASSIC','REACT','PDF','ADVISOR_SIGNATURE','ONSITE_SIGNATURE','HANDOFF','ARCHIVE')),
+    artifact_id                   TEXT NOT NULL,
+    schema_version                TEXT NOT NULL CHECK(schema_version = 'ares/channel-publication/1'),
+    channel_payload_hash          TEXT NOT NULL CHECK(length(channel_payload_hash) = 64),
+    render_hash                   TEXT CHECK(render_hash IS NULL OR length(render_hash) = 64),
+    rounding_policy_version       TEXT NOT NULL,
+    bound_envelope_hash           TEXT NOT NULL CHECK(length(bound_envelope_hash) = 64),
+    parameter_contract_version    TEXT NOT NULL,
+    parameter_set_hash            TEXT NOT NULL CHECK(length(parameter_set_hash) = 64),
+    goal_metric_contract_version  TEXT NOT NULL,
+    goal_metric_payload_hash      TEXT NOT NULL CHECK(length(goal_metric_payload_hash) = 64),
+    status                        TEXT NOT NULL CHECK(status = 'PUBLISHED'),
+    created_at                    TEXT NOT NULL,
+    created_by                    TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT ck_advisory_channel_publications_render CHECK(
+        channel NOT IN ('PDF','ARCHIVE','ADVISOR_SIGNATURE','ONSITE_SIGNATURE') OR render_hash IS NOT NULL),
+    CONSTRAINT uq_advisory_channel_publications_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT uq_advisory_channel_publications_artifact UNIQUE (envelope_id, channel, artifact_id),
+    CONSTRAINT fk_advisory_channel_publications_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_advisory_channel_publications_tenant_id ON advisory_channel_publications(tenant_id);
+CREATE INDEX IF NOT EXISTS ix_advisory_channel_publications_mandate ON advisory_channel_publications(tenant_id, mandate_id);
+CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_envelope BEFORE INSERT ON advisory_channel_publications FOR EACH ROW WHEN NOT EXISTS (SELECT 1 FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id AND e.tenant_id = NEW.tenant_id AND e.mandate_id = NEW.mandate_id AND e.status = 'SEALED' AND e.envelope_hash = NEW.bound_envelope_hash) BEGIN SELECT RAISE(ABORT, 'CCX_CHANNEL_BINDING_MISSING'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_no_update BEFORE UPDATE ON advisory_channel_publications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_channel_publications is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_no_delete BEFORE DELETE ON advisory_channel_publications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_channel_publications is append-only'); END;

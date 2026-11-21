@@ -46,17 +46,28 @@ _ASSET_CLASS_TO_BUCKET = {
 }
 
 
-# Risky-Fraction Defaults pro Bucket (Advisory-Methodik-Slide 17, OWNER-DECISION OD-6
-# bestaetigt). Diese sind Bucket-aggregierte Mittelwerte aus den Sub-Asset-
-# Class Werten. Wenn der Caller spezifischere Werte aus BuildingBlock-Tabelle
-# hat, kann er DEFAULT_BUCKET_RISKY_FRACTION ueberschreiben.
-DEFAULT_BUCKET_RISKY_FRACTION = {
-    "equities": 0.80,       # Mix CH-Large 70%, CH-SM 80%, World 80%, EM 100%
-    "bonds": 0.25,          # Mix CH-IG 20%, Global Hedged 25%, HY 50%, EM 40%
-    "real_estate": 0.60,    # Mix CH 50%, World 70%
-    "alternatives": 0.60,   # Mix Gold 80%, Liquid Alts 40%, Hedge 60%
-    "liquidity": 0.00,
-}
+# CCX P5 / M-2: der fruehere Bucket-Satz DEFAULT_BUCKET_RISKY_FRACTION
+# (0.80/0.25/0.60/0.60) ist entfernt. Jeder Aufrufer liefert den kanonischen
+# Vektor (IC-Subklassenwerte x Suballokation, services/risk_parameter_set.py);
+# fehlt er, gilt CCX_PARAMETER_SET_MISSING statt eines Code-Fallbacks.
+
+
+def require_risky_fraction_per_bucket(
+    risky_fraction_per_bucket: Mapping[str, float] | None,
+) -> Mapping[str, float]:
+    """Kanonischer Risikovektor oder ``CCX_PARAMETER_SET_MISSING``."""
+    if risky_fraction_per_bucket is None:
+        from services.risk_parameter_set import ParameterSetMissing, test_risky_fraction
+
+        vector = test_risky_fraction()  # nur im Testlauf gesetzt (direkte Solver-Tests)
+        if vector is not None:
+            return vector
+        raise ParameterSetMissing(
+            "Dem Optimierer fehlt der kanonische Risikoanteil je Anlageklasse "
+            "(IC-Unterklassenwerte x Suballokation); es wird nicht gerechnet."
+        )
+    return risky_fraction_per_bucket
+
 
 # Globale Caps (Advisory-Methodik-Slide 17, OWNER-DECISION OD-6)
 MAX_REAL_ESTATE = 0.20
@@ -385,10 +396,8 @@ def validate_risky_constraint_feasibility(
     max_risky_fraction_bps: int | None,
 ) -> None:
     """Reject a structurally impossible risk cap before scenario generation."""
-    rf_map = (
-        dict(DEFAULT_BUCKET_RISKY_FRACTION)
-        if risky_fraction_per_bucket is None
-        else validate_risky_fraction_per_bucket(risky_fraction_per_bucket)
+    rf_map = validate_risky_fraction_per_bucket(
+        require_risky_fraction_per_bucket(risky_fraction_per_bucket)
     )
     cap = _validated_risky_cap_fraction(score_x10, max_risky_fraction_bps)
     minimum = minimum_achievable_risky_fraction(bounds, rf_map)
@@ -488,12 +497,10 @@ def build_risky_fraction_constraint(
     """Inequality: score_x10/10 - Σ w_i · rf_i ≥ 0
 
     score_x10: 0..100 (Score×10). 70 -> max 70% risky.
-    risky_fraction_per_bucket: optional override; default DEFAULT_BUCKET_RISKY_FRACTION
+    risky_fraction_per_bucket: kanonischer Vektor (Pflicht, CCX P5 / M-2)
     """
-    rf_map = (
-        dict(DEFAULT_BUCKET_RISKY_FRACTION)
-        if risky_fraction_per_bucket is None
-        else validate_risky_fraction_per_bucket(risky_fraction_per_bucket)
+    rf_map = validate_risky_fraction_per_bucket(
+        require_risky_fraction_per_bucket(risky_fraction_per_bucket)
     )
     rf_array = np.array([rf_map.get(b, 0.0) for b in BUCKET_ORDER], dtype=np.float64)
     cap = _validated_risky_cap_fraction(score_x10, max_risky_fraction_bps)
@@ -543,8 +550,8 @@ def bucket_risky_fractions_from_building_blocks(
     building_block_rows: Liste von BuildingBlock-Modell-Instanzen oder Mocks
         mit Attributen .asset_class (str) und .risky_fraction_bps (int).
 
-    Wenn ein Bucket keine BuildingBlocks hat (z.B. Defaultsystem ohne Liquid
-    Alternatives-Eintraege), wird auf DEFAULT_BUCKET_RISKY_FRACTION zurueckgefallen.
+    CCX P5 / M-2: hat ein Bucket keinen BuildingBlock (kein IC-Wert), gilt
+    ``CCX_PARAMETER_SET_MISSING`` -- kein Code-Fallback mehr.
 
     Konsistent zu Advisory-Methodik-Slide 17: Pro Sub-Asset-Class ist eine eigene Risky-
     Fraction definiert. Das Bucket-Aggregat ist der Mittelwert dieser Werte
@@ -567,8 +574,13 @@ def bucket_risky_fractions_from_building_blocks(
         vals = by_bucket[bucket]
         if vals:
             out[bucket] = float(sum(vals) / len(vals))
-        else:
-            out[bucket] = DEFAULT_BUCKET_RISKY_FRACTION[bucket]
+    missing = [bucket for bucket in BUCKET_ORDER if bucket not in out]
+    if missing:
+        from services.risk_parameter_set import ParameterSetMissing
+
+        raise ParameterSetMissing(
+            "Für folgende Anlageklassen fehlt jeder IC-Risikoanteil: " + ", ".join(missing) + "."
+        )
     return out
 
 
@@ -634,10 +646,8 @@ def constraint_slacks(
     binding_threshold_bps: Slack-Schwelle in bps, ab der eine Constraint als
         'bindend' gilt (default 25 bps = 0.25 Prozentpunkte).
     """
-    rf_map = (
-        dict(DEFAULT_BUCKET_RISKY_FRACTION)
-        if risky_fraction_per_bucket is None
-        else validate_risky_fraction_per_bucket(risky_fraction_per_bucket)
+    rf_map = validate_risky_fraction_per_bucket(
+        require_risky_fraction_per_bucket(risky_fraction_per_bucket)
     )
     w = np.array(
         [int((weights_bps or {}).get(bucket, 0) or 0) / 10000.0 for bucket in BUCKET_ORDER],

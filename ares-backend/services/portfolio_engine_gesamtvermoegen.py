@@ -360,7 +360,15 @@ def _external_assets_inflation_value(
     if base <= 0:
         return 0
     series = list(inflation_series_bps or [])
-    last_bps = int(series[-1]) if series else 150
+    if not series and int(years or 0) > 0:
+        # CCX P5 / M-2: frueher lokal 150 bps -- jetzt nur der CMA-Pfad.
+        from services.risk_parameter_set import ParameterSetMissing
+
+        raise ParameterSetMissing(
+            "Für die Teuerung der externen Vermögenswerte fehlt der Inflationspfad der "
+            "Kapitalmarktannahmen."
+        )
+    last_bps = int(series[-1]) if series else 0
     value = float(base)
     for idx in range(max(0, int(years or 0))):
         infl_bps = int(series[idx]) if idx < len(series) else last_bps

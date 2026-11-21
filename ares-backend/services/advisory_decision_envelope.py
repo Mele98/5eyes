@@ -261,9 +261,52 @@ VALUATION_BINDING_KIND = "holdings_valuation_snapshot"
 LEDGER_BINDING_KIND = "position_decision_ledger"
 
 
+PARAMETER_SET_BINDING_KIND = "risk_parameter_set"
+GOAL_METRIC_BINDING_KIND = "goal_metric"
+
+
+def _p5_bindings(ta: Any, parameter_set_hash: str | None, goal_metric_hash: str | None) -> list[dict[str, Any]]:
+    """CCX P5: Parametersatz (M-2) und Zielkennzahl (M-3) als Kind-Bindungen."""
+    out: list[dict[str, Any]] = []
+    if parameter_set_hash:
+        out.append({"binding_kind": PARAMETER_SET_BINDING_KIND, "ordinal": 0,
+                    "object_type": TargetAllocation.__tablename__, "object_id": str(ta.id),
+                    "object_version": None, "child_hash": parameter_set_hash})
+    if goal_metric_hash:
+        out.append({"binding_kind": GOAL_METRIC_BINDING_KIND, "ordinal": 0,
+                    "object_type": TargetAllocation.__tablename__, "object_id": str(ta.id),
+                    "object_version": None, "child_hash": goal_metric_hash})
+    return out
+
+
+def p5_decision_hashes(db: Session, *, mandate: Any, ta: Any) -> tuple[str, str]:
+    """``(parameter_set_hash, goal_metric_payload_hash)`` der Soll-Allokation,
+    fail-closed (``ParameterSetMissing`` / ``GoalMetricUncertified``)."""
+    import json as _json
+
+    from services.goal_metric_contract import build_goal_metric_payload
+    from services.risk_parameter_set import (
+        assert_release_allowed,
+        stored_risk_parameter_set,
+        verify_parameter_set,
+    )
+
+    record = stored_risk_parameter_set(ta)
+    try:
+        persisted = _json.loads(getattr(ta, "effective_constraints_json", None) or "{}").get(
+            "risky_fraction_per_bucket_bps")
+    except (TypeError, ValueError, AttributeError):
+        persisted = None
+    parameter_hash = verify_parameter_set(record, persisted_coefficients=persisted if isinstance(persisted, dict) else {})
+    assert_release_allowed(record)
+    goal_payload = build_goal_metric_payload(db, mandate=mandate, target_allocation=ta)
+    return parameter_hash, goal_payload["goal_metric_payload_hash"]
+
+
 def _bindings(
     db: Session, *, manifest: AdvisoryEffectiveInputManifest, ta: Any, run: Any,
     valuation: tuple[str, str] | None = None, ledger_hash: str | None = None,
+    p5_hashes: tuple[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     positions = db.query(RecommendationPosition).filter(RecommendationPosition.run_id == str(run.id)).all()
     # CCX-P3: Bewertungs-Snapshot (Stichtag, Quelle, FX-Basis) und Entscheid je
@@ -277,7 +320,8 @@ def _bindings(
          "object_type": PositionDecisionLedger.__tablename__, "object_id": str(run.id),
          "object_version": None, "child_hash": ledger_hash},
     ]
-    return p3 + [
+    p5 = [] if p5_hashes is None else _p5_bindings(ta, *p5_hashes)
+    return p3 + p5 + [
         {"binding_kind": MANIFEST_BINDING_KIND, "ordinal": 0,
          "object_type": AdvisoryEffectiveInputManifest.__tablename__, "object_id": str(manifest.id),
          "object_version": None, "child_hash": manifest.manifest_hash},
@@ -387,6 +431,23 @@ def seal_advisory_envelope(
             fx_basis_hash=projection.fx_basis_hash, **common)
     ledger_entries = valuation.ledger_entries
     ledger_digest = valuation.ledger_hash
+    # CCX P5 (M-2/M-3): ohne kanonischen Parametersatz und ohne zertifizierte
+    # Zielkennzahl kein Siegel -- typisiert, auditiert, kein Fallback.
+    from services.goal_metric_contract import GoalMetricUncertified
+    from services.risk_parameter_set import ParameterSetMissing
+
+    try:
+        p5_hashes = p5_decision_hashes(db, mandate=mandate, ta=ta)
+    except ParameterSetMissing as exc:
+        raise _reject(db, AdvisoryEnvelopeError(
+            ReasonCode.CCX_PARAMETER_SET_MISSING,
+            f"Der Beratungsentscheid kann nicht versiegelt werden: {exc}",
+        ), record_id=run.id, run=run.id, stage="parameter_set", **common) from exc
+    except GoalMetricUncertified as exc:
+        raise _reject(db, AdvisoryEnvelopeError(
+            ReasonCode.CCX_GOAL_METRIC_UNCERTIFIED,
+            f"Der Beratungsentscheid kann nicht versiegelt werden: {exc}",
+        ), record_id=run.id, run=run.id, stage="goal_metric", **common) from exc
     # CCX-P2: dieselbe Mandatssperre wie der Mutation Hook (PostgreSQL) --
     # eine parallele Mutation wartet bis zum Commit und invalidiert danach.
     lock_mandate_row(db, str(mandate.id))
@@ -438,7 +499,8 @@ def seal_advisory_envelope(
             valuation_hash=projection.snapshot_hash, **common) from exc
     try:
         bindings = _bindings(db, manifest=manifest, ta=ta, run=run,
-                             valuation=(snapshot.id, snapshot.snapshot_hash), ledger_hash=ledger_digest)
+                             valuation=(snapshot.id, snapshot.snapshot_hash), ledger_hash=ledger_digest,
+                             p5_hashes=p5_hashes)
         payload = {
             "schema_version": ADVISORY_ENVELOPE_SCHEMA,
             "tenant_id": tenant_id,

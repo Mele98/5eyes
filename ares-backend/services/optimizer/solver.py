@@ -47,7 +47,7 @@ from .allocation_intent import (
     preference_loss_from_array,
 )
 from .constraints import (
-    DEFAULT_BUCKET_RISKY_FRACTION,
+    require_risky_fraction_per_bucket,
     HouseMatrixBands,
     OptimizerInputError,
     bands_from_effective_bounds_bps,
@@ -1898,11 +1898,7 @@ def _minimum_risk_allocation(
     if remaining <= 1e-12:
         return _normalize_to_bounds(weights, bounds)
 
-    rf_map = (
-        DEFAULT_BUCKET_RISKY_FRACTION
-        if risky_fraction_per_bucket is None
-        else risky_fraction_per_bucket
-    )
+    rf_map = require_risky_fraction_per_bucket(risky_fraction_per_bucket)
     bucket_order = sorted(
         range(len(bounds)),
         key=lambda i: (
@@ -2278,11 +2274,7 @@ def _candidate_risky_fraction(
     risky_fraction_per_bucket: dict[str, float] | None,
 ) -> float:
     """Compute realized risky fraction for robustified candidate tie-breaks."""
-    rf_map = (
-        DEFAULT_BUCKET_RISKY_FRACTION
-        if risky_fraction_per_bucket is None
-        else risky_fraction_per_bucket
-    )
+    rf_map = require_risky_fraction_per_bucket(risky_fraction_per_bucket)
     risky_vector = np.array(
         [float(rf_map.get(bucket, 0.0)) for bucket in BUCKET_ORDER],
         dtype=np.float64,

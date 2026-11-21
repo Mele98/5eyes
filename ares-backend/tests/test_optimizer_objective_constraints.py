@@ -22,8 +22,8 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+from tests.p5_test_vectors import P5_TEST_RISKY_FRACTION as DEFAULT_BUCKET_RISKY_FRACTION  # CCX P5: Testvektor
 from services.optimizer.constraints import (
-    DEFAULT_BUCKET_RISKY_FRACTION,
     HouseMatrixBands,
     MAX_ALTERNATIVES,
     MAX_REAL_ESTATE,
@@ -750,18 +750,28 @@ def test_is_feasible_catches_risky_fraction_violation():
     assert any("ineq constraint" in r for r in reasons)
 
 
-def test_default_risky_fractions_match_reference_method_slide_17():
-    """OD-6: Werte aus Advisory-Methodik-Slide 17."""
-    assert DEFAULT_BUCKET_RISKY_FRACTION["equities"] == 0.80
-    assert DEFAULT_BUCKET_RISKY_FRACTION["bonds"] == 0.25
-    assert DEFAULT_BUCKET_RISKY_FRACTION["real_estate"] == 0.60
-    assert DEFAULT_BUCKET_RISKY_FRACTION["alternatives"] == 0.60
-    assert DEFAULT_BUCKET_RISKY_FRACTION["liquidity"] == 0.0
+def test_historic_default_risky_fractions_are_no_longer_a_production_fallback():
+    """CCX P5 / M-2: der fruehere Code-Satz (Methodik-Folie 17, 0.80/0.25/0.60/
+    0.60) ist kein Produktionswert mehr; er lebt nur noch als Testvektor."""
+    import services.optimizer.constraints as constraints
+
+    assert not hasattr(constraints, "DEFAULT_BUCKET_RISKY_FRACTION")
+    assert DEFAULT_BUCKET_RISKY_FRACTION == {
+        "equities": 0.80, "bonds": 0.25, "real_estate": 0.60, "alternatives": 0.60, "liquidity": 0.0,
+    }
 
 
 # ============================================================================
 # Phase 5.1: Building-Block-Aware Risky-Fractions
 # ============================================================================
+
+
+_OTHER_BUCKET_ROWS = (
+    SimpleNamespace(asset_class="Aktien", risky_fraction_bps=8000),
+    SimpleNamespace(asset_class="Obligationen", risky_fraction_bps=2500),
+    SimpleNamespace(asset_class="Immobilien", risky_fraction_bps=6000),
+    SimpleNamespace(asset_class="Alternative", risky_fraction_bps=6000),
+)
 
 
 def test_bucket_risky_fractions_from_building_blocks_aggregates_means():
@@ -775,6 +785,10 @@ def test_bucket_risky_fractions_from_building_blocks_aggregates_means():
         SimpleNamespace(asset_class="Obligationen", risky_fraction_bps=4000),  # 0.40
         SimpleNamespace(asset_class="Liquiditaet", risky_fraction_bps=0),
     ]
+    rows += [  # CCX P5: jeder Bucket braucht einen IC-Wert (kein Code-Fallback)
+        SimpleNamespace(asset_class="Immobilien", risky_fraction_bps=5000),
+        SimpleNamespace(asset_class="Alternative", risky_fraction_bps=6000),
+    ]
     out = bucket_risky_fractions_from_building_blocks(rows)
     # equities mean: (0.70 + 0.80 + 1.00) / 3 = 0.833...
     assert out["equities"] == pytest.approx(0.8333, abs=1e-4)
@@ -782,9 +796,7 @@ def test_bucket_risky_fractions_from_building_blocks_aggregates_means():
     assert out["bonds"] == pytest.approx(0.30, abs=1e-4)
     # liquidity = 0
     assert out["liquidity"] == 0.0
-    # real_estate, alternatives keine BuildingBlocks -> Default
-    assert out["real_estate"] == DEFAULT_BUCKET_RISKY_FRACTION["real_estate"]
-    assert out["alternatives"] == DEFAULT_BUCKET_RISKY_FRACTION["alternatives"]
+    assert out["real_estate"] == 0.50 and out["alternatives"] == 0.60
 
 
 def test_bucket_risky_fractions_handles_german_umlaut_liquiditaet():
@@ -793,17 +805,20 @@ def test_bucket_risky_fractions_handles_german_umlaut_liquiditaet():
     rows = [
         SimpleNamespace(asset_class="Liquidität", risky_fraction_bps=0),
         SimpleNamespace(asset_class="Liquiditaet", risky_fraction_bps=0),
+        *_OTHER_BUCKET_ROWS,
     ]
     out = bucket_risky_fractions_from_building_blocks(rows)
     assert out["liquidity"] == 0.0
 
 
-def test_bucket_risky_fractions_empty_rows_returns_all_defaults():
-    """Keine BuildingBlocks -> alle Defaults."""
+def test_bucket_risky_fractions_empty_rows_fail_closed():
+    """CCX P5 / M-2: keine BuildingBlocks -> CCX_PARAMETER_SET_MISSING (frueher
+    stiller Code-Fallback auf den Bucket-Satz)."""
     from services.optimizer.constraints import bucket_risky_fractions_from_building_blocks
-    out = bucket_risky_fractions_from_building_blocks([])
-    for bucket in BUCKET_ORDER:
-        assert out[bucket] == DEFAULT_BUCKET_RISKY_FRACTION[bucket]
+    from services.risk_parameter_set import ParameterSetMissing
+
+    with pytest.raises(ParameterSetMissing):
+        bucket_risky_fractions_from_building_blocks([])
 
 
 def test_bucket_risky_fractions_ignores_unknown_asset_class():
@@ -811,12 +826,12 @@ def test_bucket_risky_fractions_ignores_unknown_asset_class():
     from services.optimizer.constraints import bucket_risky_fractions_from_building_blocks
     rows = [
         SimpleNamespace(asset_class="Krypto-Yield-Farming", risky_fraction_bps=10000),
-        SimpleNamespace(asset_class="Aktien", risky_fraction_bps=8000),
+        SimpleNamespace(asset_class="Liquiditaet", risky_fraction_bps=0),
+        *_OTHER_BUCKET_ROWS,
     ]
     out = bucket_risky_fractions_from_building_blocks(rows)
     assert out["equities"] == 0.80
-    # andere Buckets fallen auf Default zurueck
-    assert out["liquidity"] == DEFAULT_BUCKET_RISKY_FRACTION["liquidity"]
+    assert out["liquidity"] == 0.0
 
 
 def test_bucket_risky_fractions_skips_none_values():
@@ -824,6 +839,8 @@ def test_bucket_risky_fractions_skips_none_values():
     from services.optimizer.constraints import bucket_risky_fractions_from_building_blocks
     rows = [
         SimpleNamespace(asset_class="Aktien", risky_fraction_bps=None),
+        SimpleNamespace(asset_class="Liquiditaet", risky_fraction_bps=0),
+        *_OTHER_BUCKET_ROWS[1:],
         SimpleNamespace(asset_class="Aktien", risky_fraction_bps=8000),
     ]
     out = bucket_risky_fractions_from_building_blocks(rows)

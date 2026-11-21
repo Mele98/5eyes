@@ -43,6 +43,12 @@ from schemas.portfolio_handoff import (
     PortfolioHandoffResponse,
 )
 from services.audit import gate_block_audit, log, release_block_audit
+from core.reason_codes import ReasonCode
+from services.channel_envelope_gate import (
+    CHANNEL_HANDOFF as P5_CHANNEL_HANDOFF,
+    record_channel_publication,
+    require_channel_envelope,
+)
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor, set_tenant_context
 from services.portfolio_handoff import (
     HoldingsValuationIncompleteError,
@@ -101,7 +107,7 @@ def _get_handoff_or_404(mandate_id: str, handoff_id: str, db: Session, current_u
 
 
 def _assert_run_is_published(db: Session, mandate: Mandate, run: RecommendationRun, user: User,
-                             ip_address: str | None) -> None:
+                             ip_address: str | None):
     """CCX-P4: Handoff nur fuer die gueltig publizierte Soll-Allokation und
     einen Lauf genau dieser Allokation (sonst CCX_ALLOCATION_NOT_PUBLISHABLE)."""
     state = require_published_allocation(
@@ -113,6 +119,13 @@ def _assert_run_is_published(db: Session, mandate: Mandate, run: RecommendationR
             "message": "Diese Empfehlung gehört nicht zur publizierten Soll-Allokation.",
             "channel": CHANNEL_HANDOFF,
         })
+    # CCX P5 (Vertrag §8): Handoff nur aus dem auslieferbaren Envelope -- FX
+    # jetzt frisch, Parametersatz und Zielkennzahl gebunden; sonst 409
+    # (CCX_HANDOFF_ENVELOPE_OUTDATED bzw. FX-Code) mit Ursache.
+    return require_channel_envelope(
+        db, mandate, channel=P5_CHANNEL_HANDOFF, user=user, ip_address=ip_address,
+        outdated_code=ReasonCode.CCX_HANDOFF_ENVELOPE_OUTDATED,
+    )
 
 
 def _atomically_close_handoff_or_409(
@@ -306,7 +319,7 @@ def create_portfolio_handoff(
     )
     # CCX-P4: nur die publizierte, frische Soll-Allokation (Approval-Binding,
     # Envelope SEALED+FRESH) und genau ihr Lauf werden weitergeleitet.
-    _assert_run_is_published(db, mandate, run, current_user, _extract_client_ip(request))
+    p5_decision = _assert_run_is_published(db, mandate, run, current_user, _extract_client_ip(request))
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible
 
@@ -355,6 +368,12 @@ def create_portfolio_handoff(
         updated_at=now,
     )
     db.add(handoff)
+    db.flush()
+    # CCX P5: Kanalzeile HANDOFF (Payload = Hash der gespeicherten Handelsliste).
+    record_channel_publication(
+        db, p5_decision, mandate=mandate, channel=P5_CHANNEL_HANDOFF, artifact_id=str(handoff.id),
+        channel_payload_hash=str(snapshot_sha256), render_hash=None, user=current_user,
+    )
     log(
         db,
         user_id=current_user.id,

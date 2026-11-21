@@ -364,8 +364,16 @@ def _compute_goal_score(
 def _inflate_real_goal_target_rappen(target_rappen: int, years: int, inflation_series_bps: list[int] | None) -> int:
     target = max(1, int(target_rappen or 0))
     factor = 1.0
-    series = list(inflation_series_bps or [150])
-    last_bps = int(series[-1] if series else 150)
+    series = list(inflation_series_bps or [])
+    if not series and int(years or 0) > 0:
+        # CCX P5 / M-2: frueher lokal 150 bps -- eine zweite, nirgends
+        # freigegebene Inflationsannahme. Jetzt nur der CMA-Pfad.
+        from services.risk_parameter_set import ParameterSetMissing
+
+        raise ParameterSetMissing(
+            "Für die Teuerung des Ziels fehlt der Inflationspfad der Kapitalmarktannahmen."
+        )
+    last_bps = int(series[-1]) if series else 0
     for idx in range(max(0, int(years or 0))):
         infl_bps = int(series[idx]) if idx < len(series) else last_bps
         factor *= 1 + (infl_bps / 10000)
