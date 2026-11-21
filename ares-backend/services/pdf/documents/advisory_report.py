@@ -38,14 +38,14 @@ from models.mandates import Mandate
 from models.users import User
 from services.backtest_stress import STRESS_REPLAY_SCOPE_LABEL
 from services.cost_disclosure import build_cost_disclosure
-from services.advisory_report import compute_advisory_report
+from services.advisory_report import _build_suitability_compliance, compute_advisory_report
 from services.pdf.fonts import register_editorial_fonts
 from services.pdf.components.advisory_page_chrome import (
     AdvisoryNumberedCanvas,
     _format_swiss_datetime,
     make_advisory_page_chrome,
 )
-from services.pdf.components.compliance_audit import render_compliance_audit_section
+from services.pdf.components.compliance_audit import customer_suitability_text, render_compliance_audit_section
 from services.pdf.components.kostenausweis import build_kostenausweis_flowables
 from services.pdf.components.unterschrift import make_unterschrift_section
 from services.pdf.components.table_of_contents import (
@@ -180,6 +180,14 @@ def _resolve_advisory_report_provisional_notice(
     from services.pdf.provisional_notice import resolve_pdf_provisional_notice
 
     return resolve_pdf_provisional_notice(db, mandate)
+
+
+def suitability_compliance_for_mandate(db: Session, mandate: Mandate) -> dict[str, Any]:
+    """KN7: Suitability-Audit des Mandats, genau wie Sektion 19 ihn erhaelt
+    (services.advisory_report._build_suitability_compliance, fail-closed:
+    Fehler -> ``audit_degraded``). Der Beratungsentscheid nutzt dieselbe Quelle,
+    damit beide Dokumente dieselbe Pruefgrundlage nennen."""
+    return _build_suitability_compliance(db, mandate) or {}
 
 
 def render_advisory_report_pdf_from_payload(
@@ -3065,8 +3073,6 @@ def _build_suitability_summary_flowables(
     erfasster Pruefdatensatz zeigt «Eignung gegeben» nur, wenn Sektion 19 die
     Geeignetheitspruefung ebenfalls bestaetigt (Status ``ok``).
     """
-    from services.pdf.components.compliance_audit import customer_suitability_text
-
     status, status_text = customer_suitability_text(suitability_compliance or {})
     out: list[Any] = []
     out.append(Paragraph("Sektion 27", styles["kicker"]))

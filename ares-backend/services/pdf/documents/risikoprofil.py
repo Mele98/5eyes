@@ -7,9 +7,9 @@ from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 
 from services.pdf.base import PDFContext, RisikoprofilData
 from services.pdf.components.eignungspruefung import make_eignungspruefung_section
-from services.pdf.components.customer_reference import customer_reference_text, short_reference
 from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.unterschrift import make_unterschrift_section
+from core.customer_terms import customer_reference_text, short_reference
 from core.presentation_rounding import format_amount_minor
 from services.pdf.styles import (
     COLOR_BORDER,

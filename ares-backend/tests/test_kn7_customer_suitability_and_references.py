@@ -57,7 +57,7 @@ def test_internal_id_rule_detects_the_old_output():
 
 
 def test_customer_reference_text_shortens_ids_and_hashes():
-    from services.pdf.components.customer_reference import customer_reference_text, short_reference
+    from core.customer_terms import customer_reference_text, short_reference
 
     out = customer_reference_text(f"{DECISION_ID} · SHA-256 {DECISION_HASH} · Hash verifiziert")
     assert out == f"{DECISION_ID[:8]} · Prüfsumme {DECISION_HASH[:8]} · Hash verifiziert"
@@ -165,9 +165,9 @@ def test_contract_signoff_exempt_clients_from_real_audit():
 
 def test_contract_signoff_builder_passes_the_audit_basis(monkeypatch):
     """Verdrahtung: der Router liest die Pruefgrundlage aus demselben Audit wie
-    Sektion 19 (services.advisory_report._build_suitability_compliance)."""
+    Sektion 19 (services.pdf.documents.advisory_report.suitability_compliance_for_mandate
+    -> services.advisory_report._build_suitability_compliance)."""
     import routers.pdf_reports as pr
-    import services.advisory_report as ar
 
     strategy = SimpleNamespace(
         recommendation_status=None, optimizer_reasoning="Ausrichtung", allocation_preferences={},
@@ -179,7 +179,7 @@ def test_contract_signoff_builder_passes_the_audit_basis(monkeypatch):
     monkeypatch.setattr(pr, "_build_protokoll_data",
                         lambda *_a, **_k: SimpleNamespace(entries=[], latest_recommendation_summary=None))
     monkeypatch.setattr(pr, "_latest_target_allocation", lambda *_a, **_k: None)
-    monkeypatch.setattr(ar, "_build_suitability_compliance", lambda *_a, **_k: _audit("Execution-only"))
+    monkeypatch.setattr(pr, "suitability_compliance_for_mandate", lambda *_a, **_k: _audit("Execution-only"))
     data = pr._build_contract_signoff_data(SimpleNamespace(mandate_number="M-1"), None)
     assert (data.suitability_basis, data.suitability_is_compliant, data.suitability_audit_degraded) == (
         "execution_only_exempt", True, False)

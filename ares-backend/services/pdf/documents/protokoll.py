@@ -13,6 +13,7 @@ from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 from services.pdf.base import PDFContext
 from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.unterschrift import make_unterschrift_section
+from core.customer_terms import customer_reference_text
 from core.presentation_rounding import format_amount_minor
 from services.pdf.styles import (
     COLOR_BORDER,
@@ -234,8 +235,6 @@ def _customer_sustainability_line(line):
     Audit-Log, Archivbindung (``bound_preference_decision_hash``) und Daten."""
     label, text = line
     if str(label) == "Nachweis":
-        from services.pdf.components.customer_reference import customer_reference_text
-
         return label, "Prüfsumme " + customer_reference_text(str(text))
     return line
 

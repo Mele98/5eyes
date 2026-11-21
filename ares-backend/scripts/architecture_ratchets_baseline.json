@@ -19,7 +19,7 @@
     "routers.auth": 15,
     "routers.client_portal": 4,
     "routers.clients": 12,
-    "routers.pdf_reports": 45,
+    "routers.pdf_reports": 44,
     "routers.portfolio_handoff": 1,
     "routers.profiling": 1,
     "routers.protocol_bausteine": 5,
@@ -526,7 +526,7 @@
   "leaf_content_sha256": {
     "core": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "core.band_rule": "6004ad71ee0179d60a3d5c3b047b61300705d62116a0a8b9a96afc4097a561e2",
-    "core.customer_terms": "3ff63b02d2083e4b7f15ded0ec9b6f9d51146397927ad2208b380d464bd4d507",
+    "core.customer_terms": "42709f35af44742f66b9d00321e959c2b7b83a953426237894754760742c062f",
     "core.db_integrity": "b2221c8d06a7cb27e782d6ab1db7f765d699b166392a90f67c9d1769ae28fe58",
     "core.depletion_display": "e42c4b6f62d8cfa1d52261573fa586ece142dd57a5f33569664e0de1ed185c10",
     "core.evidence": "107ad66eeb7424fd9b9ea3c4786e895e2350aa1061fc43e35ae9b65033b93ae6",

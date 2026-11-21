@@ -1,6 +1,7 @@
 """Customer sign-off document for the final advisory decision."""
 from __future__ import annotations
 
+from core.customer_terms import customer_suitability_text
 from core.preference_labels import method_label
 from reportlab.lib import colors
 from reportlab.lib.units import mm
@@ -358,8 +359,6 @@ _ACK_WITHOUT_CHECK = (
 
 def _suitability_status(data: ContractSignoffData) -> tuple[str, str, str]:
     """(Status, Kundentext, Grundlage) -- dieselbe Regel wie Sektion 19."""
-    from services.pdf.components.compliance_audit import customer_suitability_text
-
     basis = str(getattr(data, "suitability_basis", None) or "").strip()
     status, text = customer_suitability_text({
         "suitability_basis": basis,
