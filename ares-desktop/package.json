@@ -72,6 +72,7 @@
       "frontend/vendor/**/*",
       "frontend/reporting/dist/**/*",
       "!frontend/reporting/dist/**/*.map",
+      "!**/*.map",
       "!frontend/reporting/node_modules/**/*",
       "!frontend/reporting/src/**/*",
       "!frontend/reporting/public/**/*",

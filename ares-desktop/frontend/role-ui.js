@@ -144,10 +144,12 @@
     }
   }
 
-  function ensureInboxButton(show) {
+  function ensureInboxButton(show, current) {
     var btn = document.getElementById('btn-publication-inbox');
     if (!btn && show) {
-      var anchor = document.getElementById('btn-logout');
+      // Admin: in der Administration (Compliance) -- die Kopfzeile bleibt frei
+      // (Schritte bei 1024 px klickbar, N-918-03). Pruefperson: Kopfzeile.
+      var anchor = (current === 'admin' && document.getElementById('asec-audit')) || document.getElementById('btn-logout');
       if (!anchor || !anchor.parentNode) return;
       btn = document.createElement('button');
       btn.id = 'btn-publication-inbox';
@@ -158,7 +160,7 @@
       btn.addEventListener('click', openInbox);
       anchor.parentNode.insertBefore(btn, anchor);
     }
-    if (btn) btn.style.display = show ? 'inline-block' : 'none';
+    if (btn) btn.style.display = show ? '' : 'none';
   }
 
   var lastRole = null;
@@ -170,7 +172,7 @@
     ensurePmNote();
     document.body.classList.toggle('ares-role-readonly', current === 'readonly');
     document.body.classList.toggle('ares-role-pm', current === 'portfolio_management');
-    ensureInboxButton(current === 'admin' || current === 'compliance_reviewer');
+    ensureInboxButton(current === 'admin' || current === 'compliance_reviewer', current);
   }
 
   window.AresRoleUi = { apply: apply, openInbox: openInbox, writeSelector: WRITE_SELECTOR };
