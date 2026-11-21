@@ -20,9 +20,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from config import settings
+from config import build_sha, effective_version, settings
 from database import SchemaNotReadyError, database_healthcheck, get_db
-from core.build_info import build_sha, effective_version
 from price_updater import get_price_runtime_status
 
 router = APIRouter(prefix="/health", tags=["Health"])

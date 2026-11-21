@@ -9,8 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import KekStoreError, ensure_tenant_master_kek, refuse_owner_db_settings, require_tenant_master_kek, settings
-from core.build_info import build_sha, effective_version
+from config import KekStoreError, build_sha, effective_version, ensure_tenant_master_kek, refuse_owner_db_settings, require_tenant_master_kek, settings
 from core.logging_setup import configure_logging
 from core.middleware import (
     MaxBodySizeMiddleware,
@@ -338,6 +337,7 @@ if __name__ == '__main__':
     # H-180 (EXE-01): Import-Selbsttest des gepackten Artefakts fuer den
     # Packaging-Smoke; startet keinen Server und oeffnet keine Datenbank.
     if '--self-test-imports' in sys.argv[1:]:
-        from packaging_selftest import main as _self_test_imports
-        sys.exit(_self_test_imports())
+        import importlib  # dynamisch: kein Laufzeit-Import im Produktpfad (PyInstaller: hidden-import)
+
+        sys.exit(importlib.import_module('packaging_selftest').main())
     run()
