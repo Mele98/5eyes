@@ -1,0 +1,1424 @@
+{
+ "identity_only_writes": {
+  "POST /auth/2fa/disable": "Selbstbedienung des eigenen Kontos (Logout, Passwort, 2FA); Handler prueft is_self bzw. eigenes Konto.",
+  "POST /auth/2fa/enable": "Selbstbedienung des eigenen Kontos (Logout, Passwort, 2FA); Handler prueft is_self bzw. eigenes Konto.",
+  "POST /auth/2fa/recovery/regenerate": "Selbstbedienung des eigenen Kontos (Logout, Passwort, 2FA); Handler prueft is_self bzw. eigenes Konto.",
+  "POST /auth/2fa/setup": "Selbstbedienung des eigenen Kontos (Logout, Passwort, 2FA); Handler prueft is_self bzw. eigenes Konto.",
+  "POST /auth/change-password": "Selbstbedienung des eigenen Kontos (Logout, Passwort, 2FA); Handler prueft is_self bzw. eigenes Konto.",
+  "POST /auth/logout": "Selbstbedienung des eigenen Kontos (Logout, Passwort, 2FA); Handler prueft is_self bzw. eigenes Konto.",
+  "POST /privacy/egress-manifest/approve": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/incidents": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/incidents/{incident_id}/artifacts/{artifact_id}/verify": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/incidents/{incident_id}/assessment": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/incidents/{incident_id}/close": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/incidents/{incident_id}/edoeb-notification": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/incidents/{incident_id}/evidence": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/incidents/{incident_id}/notification-decision": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/incidents/{incident_id}/notification-note": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/incidents/{incident_id}/remediation": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/incidents/{incident_id}/subject-notification": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/incidents/{incident_id}/subject-notification-decision": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/legal-holds": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/legal-holds/{hold_id}/approve": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/legal-holds/{hold_id}/extend": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/legal-holds/{hold_id}/release": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/policies/{policy_id}/approve": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/processing-register/approve": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/subject-requests": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/subject-requests/{request_id}/action": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/subject-requests/{request_id}/decision": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/subject-requests/{request_id}/delivery": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/subject-requests/{request_id}/export": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/subject-requests/{request_id}/extension": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/subject-requests/{request_id}/identity": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/subject-requests/{request_id}/withdraw": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /tax/estimate": "Zustandslose Steuerschaetzung ohne Persistenz; keine Kundendaten aus der DB.",
+  "PUT /users/{user_id}/password": "Selbstbedienung des eigenen Kontos (Logout, Passwort, 2FA); Handler prueft is_self bzw. eigenes Konto."
+ },
+ "routes": {
+  "DELETE /clients/{client_id}": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "DELETE /clients/{client_id}/cashflows/{cf_id}": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "DELETE /clients/{client_id}/wealth-positions/{wp_id}": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "DELETE /jurisdictions/{code}/home-bias-defaults/{row_id}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "DELETE /mandates/{mandate_id}/goals/{goal_id}": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "DELETE /mandates/{mandate_id}/recommendations/{run_id}/positions/{position_id}/holding": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "DELETE /me/calendar-feed-token": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "DELETE /privacy/roles/{designation_id}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "DELETE /product-universe/{entry_id}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "DELETE /products/sustainability/attributes/{attribute_id}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "DELETE /products/sustainability/standards/{category}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "DELETE /products/sustainability/standards/{category}/pending": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "DELETE /protocol-bausteine/{baustein_id}": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "DELETE /users/{user_id}/invite": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "DELETE /wealth-inflows/{inflow_id}": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "GET /": [],
+  "GET /admin/market-data/status": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/optimizer-policies": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/optimizer-policies/{policy_id}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/prices/mapping-gaps": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/prices/status": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/system/annual-returns": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/system/asset-class-prices/status": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/system/audit-log": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/system/audit-log/verification-status": [
+   "get_current_user",
+   "require_audit_chain_verifier"
+  ],
+  "GET /admin/system/audit-log/verify": [
+   "get_current_user",
+   "require_audit_chain_verifier"
+  ],
+  "GET /admin/system/backups": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/system/compliance": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/system/db/integrity": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/system/logs/recent": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/system/market-data/provider-health": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/system/market-data/purge-history": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/system/optimizer-mode": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/system/paths": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /admin/system/shadow-comparison-aggregate": [
+   "get_current_user",
+   "require_super_admin"
+  ],
+  "GET /admin/system/shadow-comparison/{mandate_id}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /auth/2fa/recovery/status": [
+   "get_current_user"
+  ],
+  "GET /auth/2fa/status": [
+   "get_current_user"
+  ],
+  "GET /auth/bootstrap-status": [],
+  "GET /auth/invite/{token}": [],
+  "GET /auth/me": [
+   "get_current_user"
+  ],
+  "GET /building-blocks/current": [
+   "get_current_user",
+   "require_reference_data_reader"
+  ],
+  "GET /calendar/reviews.ics": [],
+  "GET /capital-market-assumptions/current": [
+   "get_current_user",
+   "require_reference_data_reader"
+  ],
+  "GET /client-portal/mandates/{mandate_id}/report": [
+   "get_current_user",
+   "require_client"
+  ],
+  "GET /client-portal/me": [
+   "get_current_user",
+   "require_client"
+  ],
+  "GET /clients": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}/cashflow-projection": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}/cashflow-summary": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}/cashflows": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}/cashflows-derived": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}/data-export": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "GET /clients/{client_id}/due-diligence": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}/knowledge": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}/kyc-confirmations": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}/mandates": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}/nationalities": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}/opt-history": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}/representations": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}/tax-residencies": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}/wealth-inflows": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}/wealth-positions": [
+   "get_current_user"
+  ],
+  "GET /clients/{client_id}/wealth-summary": [
+   "get_current_user"
+  ],
+  "GET /cma-policies": [
+   "get_current_user",
+   "require_reference_data_reader"
+  ],
+  "GET /cma-policies/model-status": [
+   "get_current_user",
+   "require_reference_data_reader"
+  ],
+  "GET /cma-policies/{policy_row_id}": [
+   "get_current_user",
+   "require_reference_data_reader"
+  ],
+  "GET /compliance/kyc-approvals": [
+   "get_current_user",
+   "require_compliance_approver"
+  ],
+  "GET /compliance/kyc-review-policies": [
+   "get_current_user",
+   "require_staff"
+  ],
+  "GET /compliance/legal-profile": [
+   "get_current_user",
+   "require_staff"
+  ],
+  "GET /dashboard/active-triggers": [
+   "get_current_user"
+  ],
+  "GET /dashboard/summary": [
+   "get_current_user"
+  ],
+  "GET /fx-rates/current": [
+   "get_current_user"
+  ],
+  "GET /health": [],
+  "GET /health/db": [],
+  "GET /health/live": [],
+  "GET /health/ready": [],
+  "GET /house-matrix/{score}": [
+   "get_current_user",
+   "require_reference_data_reader"
+  ],
+  "GET /jurisdictions": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "GET /jurisdictions/{code}": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "GET /jurisdictions/{code}/home-bias-defaults": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "GET /mandates/{mandate_id}": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/advisory-envelopes/current": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/advisory-envelopes/current/freshness": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/advisory-log": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/advisory-log/{log_id}": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/advisory-report": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/allocation-publication": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "GET /mandates/{mandate_id}/backtest/ab": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/backtest/strategy": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/backtest/stress-replays": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/client-onboarding/status": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/conflict-disclosures": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/conflicts": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/cost-disclosure/ex-ante": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/depot-check": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/depot-snapshots/{snapshot_id}/stress-replays": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/documents": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/documents/{doc_id}/pdf": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/financial-coverage-attestation": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/goals": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/goals/{goal_id}/revision-decisions": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/ist-projection-basis": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/onsite-signature/{transaction_id}": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "GET /mandates/{mandate_id}/optimizer-runs": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/planning-assumptions": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/planning-assumptions/current": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/portfolio-data/assessment": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/portfolio-handoffs": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/protocol-bausteine": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/recommendations": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/recommendations/current/payload": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/recommendations/{run_id}/eligibility-overrides": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "GET /mandates/{mandate_id}/recommendations/{run_id}/holdings": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/recommendations/{run_id}/payload": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/recommendations/{run_id}/portfolio-handoff-preview": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/recommendations/{run_id}/positions": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/report-notes": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/reports/advisory-report.pdf": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/reports/anlagestrategie.pdf": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/reports/assetallocation.pdf": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/reports/backtest.pdf": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/reports/contract-signoff.pdf": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/reports/cost-disclosure.pdf": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/reports/depotcheck.pdf": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/reports/kundeninformation.pdf": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/reports/portfolio.pdf": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/reports/protokoll.pdf": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/reports/risikoprofil.pdf": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/reports/vertrag.pdf": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/risk-assessments": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/risk-assessments/current": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/risk-capacity-plausibility": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/risk-capacity-plausibility/evaluations": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/strategy-option-coverage": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/strategy-snapshots": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/strategy-snapshots/latest/drift": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/suitability-checks": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/sustainability-preferences": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/sustainability-preferences/exclusion-options": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/target-allocation/current": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/target-allocation/current/analysis-integrity": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "GET /mandates/{mandate_id}/target-allocation/current/payload": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/target-allocation/published": [
+   "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/triggers": [
+   "get_current_user"
+  ],
+  "GET /onsite-signature/policy": [
+   "get_current_user"
+  ],
+  "GET /optimizer-policies": [
+   "get_current_user",
+   "require_reference_data_reader"
+  ],
+  "GET /optimizer-policies/current": [
+   "get_current_user",
+   "require_reference_data_reader"
+  ],
+  "GET /privacy/egress-counts": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /privacy/egress-events": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /privacy/egress-manifest": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /privacy/egress-status": [
+   "get_current_user"
+  ],
+  "GET /privacy/erasure-cases/{case_id}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /privacy/incidents": [
+   "get_current_user"
+  ],
+  "GET /privacy/incidents/gate": [
+   "get_current_user"
+  ],
+  "GET /privacy/incidents/{incident_id}": [
+   "get_current_user"
+  ],
+  "GET /privacy/legal-holds": [
+   "get_current_user"
+  ],
+  "GET /privacy/owner-fields": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /privacy/policies": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /privacy/processing-register": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /privacy/processing-register/export": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /privacy/roles": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /privacy/status": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /privacy/subject-requests": [
+   "get_current_user"
+  ],
+  "GET /privacy/subject-requests/{request_id}": [
+   "get_current_user"
+  ],
+  "GET /product-universe": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /products": [
+   "get_current_user",
+   "require_staff"
+  ],
+  "GET /products/eligibility-drafts": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /products/export/csv": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /products/import/csv/template": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /products/market-data/status": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /products/sustainability/attributes": [
+   "get_current_user",
+   "require_staff"
+  ],
+  "GET /products/sustainability/attributes/export": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /products/sustainability/catalog": [
+   "get_current_user",
+   "require_staff"
+  ],
+  "GET /products/sustainability/standards": [
+   "get_current_user",
+   "require_staff"
+  ],
+  "GET /products/{product_id}/sustainability-attributes": [
+   "get_current_user",
+   "require_staff"
+  ],
+  "GET /protocol-bausteine": [
+   "get_current_user",
+   "require_staff"
+  ],
+  "GET /reporting": [],
+  "GET /reporting/{full_path:path}": [],
+  "GET /sustainability-preferences/definition": [
+   "get_current_user"
+  ],
+  "GET /tax/jurisdictions": [
+   "get_current_user"
+  ],
+  "GET /tenants": [
+   "get_current_user",
+   "require_super_admin"
+  ],
+  "GET /tenants/me": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /tenants/{tenant_id}": [
+   "get_current_user",
+   "require_super_admin"
+  ],
+  "GET /users": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "GET /users/{user_id}/adviser-registration": [
+   "get_current_user"
+  ],
+  "PATCH /products/sustainability/attributes/{attribute_id}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /admin/optimizer-policies": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /admin/optimizer-policies/{policy_id}/activate": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /admin/optimizer-policies/{policy_id}/clone": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /admin/prices/refresh": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /admin/system/annual-returns/backfill": [
+   "get_current_user",
+   "require_admin_or_platform_scope_for_global_reference_data"
+  ],
+  "POST /admin/system/asset-class-prices/backfill": [
+   "get_current_user",
+   "require_admin_or_platform_scope_for_global_reference_data"
+  ],
+  "POST /admin/system/audit-log/anchor/export": [
+   "get_current_user",
+   "require_audit_chain_verifier"
+  ],
+  "POST /admin/system/audit-log/anchor/verify": [
+   "get_current_user",
+   "require_audit_chain_verifier"
+  ],
+  "POST /admin/system/clients/{client_id}/purge-demo": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /admin/system/db/backup": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /admin/system/db/optimize": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /admin/system/foundation-example": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /admin/system/foundation-example/purge": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /admin/system/fx-rates/refresh-now": [
+   "get_current_user",
+   "require_admin_or_platform_scope_for_global_reference_data"
+  ],
+  "POST /admin/system/market-data/provider-health/reset": [
+   "get_current_user",
+   "require_admin_or_platform_scope_for_global_reference_data"
+  ],
+  "POST /admin/system/market-data/purge-now": [
+   "get_current_user",
+   "require_admin_or_platform_scope_for_global_reference_data"
+  ],
+  "POST /admin/system/market-data/refresh-now": [
+   "get_current_user",
+   "require_admin_or_platform_scope_for_global_reference_data"
+  ],
+  "POST /admin/system/recommendation-runs/cleanup": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /admin/system/support-bundle": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /auth/2fa/disable": [
+   "get_current_user"
+  ],
+  "POST /auth/2fa/enable": [
+   "get_current_user"
+  ],
+  "POST /auth/2fa/recovery/regenerate": [
+   "get_current_user"
+  ],
+  "POST /auth/2fa/setup": [
+   "get_current_user"
+  ],
+  "POST /auth/admin/revoke-all-sessions": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /auth/bootstrap-admin": [],
+  "POST /auth/change-password": [
+   "get_current_user"
+  ],
+  "POST /auth/invite/accept": [],
+  "POST /auth/login": [],
+  "POST /auth/logout": [
+   "get_current_user"
+  ],
+  "POST /auth/password-reset/confirm": [],
+  "POST /auth/password-reset/request": [],
+  "POST /auth/refresh": [],
+  "POST /capital-market-assumptions/{id}/approve": [
+   "get_current_user",
+   "require_portfolio_management"
+  ],
+  "POST /client-portal/mandates/{mandate_id}/risk-profile/sign": [
+   "get_current_user",
+   "require_client"
+  ],
+  "POST /client-portal/onsite-signature/{transaction_id}/confirm": [
+   "get_current_user",
+   "require_client"
+  ],
+  "POST /clients": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /clients/{client_id}/cashflows": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /clients/{client_id}/client-login": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /clients/{client_id}/erase": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /clients/{client_id}/knowledge": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /clients/{client_id}/kyc-confirmations": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /clients/{client_id}/kyc-confirmations/{confirmation_id}/approve": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /clients/{client_id}/mandates": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /clients/{client_id}/nationalities": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /clients/{client_id}/opt-history": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /clients/{client_id}/representations": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /clients/{client_id}/representations/{representation_id}/revoke": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /clients/{client_id}/tax-residencies": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /clients/{client_id}/wealth-inflows": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /clients/{client_id}/wealth-positions": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /cma-policies": [
+   "get_current_user",
+   "require_portfolio_management"
+  ],
+  "POST /cma-policies/{policy_row_id}/activate": [
+   "get_current_user",
+   "require_portfolio_management"
+  ],
+  "POST /cma-policies/{policy_row_id}/approve": [
+   "get_current_user",
+   "require_portfolio_management"
+  ],
+  "POST /cma-policies/{policy_row_id}/retire": [
+   "get_current_user",
+   "require_portfolio_management"
+  ],
+  "POST /cma-policies/{policy_row_id}/revoke": [
+   "get_current_user",
+   "require_portfolio_management"
+  ],
+  "POST /cma-policies/{policy_row_id}/validate": [
+   "get_current_user",
+   "require_portfolio_management"
+  ],
+  "POST /compliance/kyc-approvals/{confirmation_id}/decision": [
+   "get_current_user",
+   "require_compliance_approver"
+  ],
+  "POST /compliance/kyc-review-policies": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /compliance/kyc-review-policies/{policy_row_id}/activate": [
+   "get_current_user",
+   "require_compliance_approver"
+  ],
+  "POST /jurisdictions/{code}/cma/compute-candidate": [
+   "get_current_user",
+   "require_portfolio_management"
+  ],
+  "POST /jurisdictions/{code}/home-bias-defaults": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /mandates/{mandate_id}/advisory-log": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/advisory-log/from-report-generation": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/allocation-publication": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/client-information/deliveries": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/conflicts": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/conflicts/{conflict_id}/acknowledge": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/conflicts/{conflict_id}/attach-document": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/conflicts/{conflict_id}/disclose": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/conflicts/{conflict_id}/mitigate": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/depot-snapshots": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/depot-snapshots/{snapshot_id}/depot-check": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/documents": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/documents/{doc_id}/onsite-signature": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/documents/{doc_id}/sign": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/financial-coverage-attestations": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/goals": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/goals/calculate-max-pension-spending": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/goals/{goal_id}/revision-decisions": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/onsite-signature/{transaction_id}/abort": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/onsite-signature/{transaction_id}/challenge": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/onsite-signature/{transaction_id}/deliver": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/onsite-signature/{transaction_id}/finalize": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/onsite-signature/{transaction_id}/identity-check": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/onsite-signature/{transaction_id}/witness": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/planning-assumptions": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/portfolio-handoffs/{handoff_id}/cancel": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/portfolio-handoffs/{handoff_id}/mark-executed": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/portfolio/refresh-prices": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/recommendations": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/recommendations/generate": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/recommendations/{run_id}/eligibility-overrides": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/recommendations/{run_id}/eligibility-overrides/{override_id}/approve": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/recommendations/{run_id}/portfolio-handoffs": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/recommendations/{run_id}/positions": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/risk-assessments": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/risk-assessments/{ra_id}/override": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/risk-profile/sign": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/strategy-snapshots": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/suitability-checks": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/sustainability-preferences": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/target-allocation": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/target-allocation/generate": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/target-allocation/sensitivity": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/triggers": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/triggers/system-refresh": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /me/calendar-feed-token": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /privacy/egress-manifest/approve": [
+   "get_current_user"
+  ],
+  "POST /privacy/erasure-cases": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /privacy/erasure-cases/{case_id}/execute": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /privacy/erasure-cases/{case_id}/refresh": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /privacy/incidents": [
+   "get_current_user"
+  ],
+  "POST /privacy/incidents/{incident_id}/artifacts/{artifact_id}/verify": [
+   "get_current_user"
+  ],
+  "POST /privacy/incidents/{incident_id}/assessment": [
+   "get_current_user"
+  ],
+  "POST /privacy/incidents/{incident_id}/close": [
+   "get_current_user"
+  ],
+  "POST /privacy/incidents/{incident_id}/edoeb-notification": [
+   "get_current_user"
+  ],
+  "POST /privacy/incidents/{incident_id}/evidence": [
+   "get_current_user"
+  ],
+  "POST /privacy/incidents/{incident_id}/notification-decision": [
+   "get_current_user"
+  ],
+  "POST /privacy/incidents/{incident_id}/notification-note": [
+   "get_current_user"
+  ],
+  "POST /privacy/incidents/{incident_id}/remediation": [
+   "get_current_user"
+  ],
+  "POST /privacy/incidents/{incident_id}/subject-notification": [
+   "get_current_user"
+  ],
+  "POST /privacy/incidents/{incident_id}/subject-notification-decision": [
+   "get_current_user"
+  ],
+  "POST /privacy/legal-holds": [
+   "get_current_user"
+  ],
+  "POST /privacy/legal-holds/{hold_id}/approve": [
+   "get_current_user"
+  ],
+  "POST /privacy/legal-holds/{hold_id}/extend": [
+   "get_current_user"
+  ],
+  "POST /privacy/legal-holds/{hold_id}/release": [
+   "get_current_user"
+  ],
+  "POST /privacy/policies": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /privacy/policies/baseline": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /privacy/policies/{policy_id}/approve": [
+   "get_current_user"
+  ],
+  "POST /privacy/processing-register/approve": [
+   "get_current_user"
+  ],
+  "POST /privacy/retention-expiry": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /privacy/roles": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /privacy/subject-requests": [
+   "get_current_user"
+  ],
+  "POST /privacy/subject-requests/{request_id}/action": [
+   "get_current_user"
+  ],
+  "POST /privacy/subject-requests/{request_id}/decision": [
+   "get_current_user"
+  ],
+  "POST /privacy/subject-requests/{request_id}/delivery": [
+   "get_current_user"
+  ],
+  "POST /privacy/subject-requests/{request_id}/export": [
+   "get_current_user"
+  ],
+  "POST /privacy/subject-requests/{request_id}/extension": [
+   "get_current_user"
+  ],
+  "POST /privacy/subject-requests/{request_id}/identity": [
+   "get_current_user"
+  ],
+  "POST /privacy/subject-requests/{request_id}/withdraw": [
+   "get_current_user"
+  ],
+  "POST /product-universe": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/eodhd/apply": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/eodhd/auto-apply": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/eodhd/resolve": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/import": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/import/csv": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/openfigi/apply": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/openfigi/auto-apply": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/openfigi/resolve": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/sustainability/attributes/approve": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/sustainability/attributes/import": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/sustainability/attributes/import/csv": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/sustainability/attributes/{attribute_id}/approve": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/sustainability/attributes/{attribute_id}/retire": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/sustainability/standards/{category}/approve": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/{product_id}/eligibility-rule/approve": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/{product_id}/sustainability-attributes": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /protocol-bausteine": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /tax/estimate": [
+   "get_current_user"
+  ],
+  "POST /tenants": [
+   "get_current_user",
+   "require_super_admin"
+  ],
+  "POST /users": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /users/invite": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /users/{user_id}/compromise": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /users/{user_id}/invite/resend": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "PUT /admin/optimizer-policies/{policy_id}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "PUT /admin/optimizer-policies/{policy_id}/house-matrix": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "PUT /admin/system/annual-returns/{year}/{asset_class}": [
+   "get_current_user",
+   "require_admin_or_platform_scope_for_global_reference_data"
+  ],
+  "PUT /admin/system/optimizer-mode": [
+   "get_current_user",
+   "require_admin_or_platform_scope_for_global_reference_data"
+  ],
+  "PUT /capital-market-assumptions": [
+   "get_current_user",
+   "require_portfolio_management"
+  ],
+  "PUT /clients/{client_id}": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /clients/{client_id}/cashflows/{cf_id}": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /clients/{client_id}/due-diligence": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /clients/{client_id}/wealth-positions/{wp_id}": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /cma-policies/{policy_row_id}/components": [
+   "get_current_user",
+   "require_portfolio_management"
+  ],
+  "PUT /compliance/legal-profile": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "PUT /fx-rates": [
+   "get_current_user",
+   "require_advisor_or_platform_scope_for_global_reference_data"
+  ],
+  "PUT /jurisdictions/{code}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "PUT /jurisdictions/{code}/home-bias-defaults/{row_id}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "PUT /mandates/{mandate_id}": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /mandates/{mandate_id}/advisory-log/{log_id}": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /mandates/{mandate_id}/goals/order": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /mandates/{mandate_id}/goals/{goal_id}": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /mandates/{mandate_id}/planning-assumptions": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /mandates/{mandate_id}/protocol-bausteine": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /mandates/{mandate_id}/recommendations/{run_id}/finalize": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /mandates/{mandate_id}/recommendations/{run_id}/positions/{position_id}/holding": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /mandates/{mandate_id}/report-notes": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /mandates/{mandate_id}/triggers/{trigger_id}/frequency": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /mandates/{mandate_id}/triggers/{trigger_id}/resolve": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /privacy/owner-fields/{field_key}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "PUT /product-universe/{entry_id}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "PUT /products/sustainability/standards/{category}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "PUT /products/{product_id}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "PUT /products/{product_id}/market-override": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "PUT /protocol-bausteine/{baustein_id}": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "PUT /tenants/me": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "PUT /tenants/{tenant_id}": [
+   "get_current_user",
+   "require_super_admin"
+  ],
+  "PUT /tenants/{tenant_id}/users/{user_id}/assign": [
+   "get_current_user",
+   "require_super_admin"
+  ],
+  "PUT /users/{user_id}": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "PUT /users/{user_id}/adviser-registration": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "PUT /users/{user_id}/password": [
+   "get_current_user"
+  ],
+  "PUT /wealth-inflows/{inflow_id}": [
+   "get_current_user",
+   "require_advisor"
+  ]
+ }
+}
