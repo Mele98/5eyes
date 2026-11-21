@@ -30,7 +30,8 @@ Downgrade (fail-closed): liegt irgendeine Zeile vor, bricht der Downgrade ab
 (freigegebene Owner-Inhalte und Kundenbestaetigungen sind Nachweise).
 
 Revision ID: c7e1a9d3f5b2
-Revises: c2546c196134 (CCX-P5; nach Merge von r5/kern-integration b814a406 linearisiert)
+Revises: 74e3e973ea09 (CCX-P5b; nach Merge von r5/kern-integration ca5da413 linearisiert,
+vorher c2546c196134 CCX-P5)
 Create Date: 2026-11-21
 """
 from __future__ import annotations
@@ -42,7 +43,7 @@ from alembic import context, op
 
 
 revision: str = "c7e1a9d3f5b2"
-down_revision: Union[str, Sequence[str], None] = "c2546c196134"
+down_revision: Union[str, Sequence[str], None] = "74e3e973ea09"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

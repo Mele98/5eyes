@@ -23,6 +23,7 @@ Alle Bezeichnungen sind Ares-eigen.
 Bezug: docs/planning/2026-05-24-sprint-u-p21-advisory-report-backend.md
 """
 from __future__ import annotations
+from core.goal_metric_contract import canonical_goal_rows
 
 from core.holdings_rule import ist_partially_derived
 
@@ -1158,7 +1159,8 @@ def _load_goal_achievability_view(ta) -> tuple[list[dict], dict | None]:
         return [], None
     if not isinstance(parsed, list):
         return [], None
-    return split_goal_achievability(parsed)
+    # P5b / N-925-03: Anzeige aus dem kanonischen M-3-Payload.
+    return split_goal_achievability(canonical_goal_rows([r for r in parsed if isinstance(r, dict)], ta))
 
 
 def _plan_solvency_payload(plan_row: dict | None) -> dict[str, Any] | None:

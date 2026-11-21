@@ -1618,7 +1618,7 @@ CHANNEL_PUBLICATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
     """CREATE TABLE IF NOT EXISTS advisory_channel_publications (
     id                            TEXT PRIMARY KEY,
     tenant_id                     TEXT NOT NULL REFERENCES tenants(id),
-    mandate_id                    TEXT NOT NULL,
+    mandate_id                    TEXT NOT NULL REFERENCES mandates(id),
     envelope_id                   TEXT NOT NULL,
     channel                       TEXT NOT NULL CHECK(channel IN ('API','CLASSIC','REACT','PDF','ADVISOR_SIGNATURE','ONSITE_SIGNATURE','HANDOFF','ARCHIVE')),
     artifact_id                   TEXT NOT NULL,
@@ -1634,6 +1634,7 @@ CHANNEL_PUBLICATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
     status                        TEXT NOT NULL CHECK(status = 'PUBLISHED'),
     created_at                    TEXT NOT NULL,
     created_by                    TEXT NOT NULL REFERENCES users(id),
+    channel_sequence              INTEGER NOT NULL CHECK(channel_sequence >= 1),
     CONSTRAINT ck_advisory_channel_publications_render CHECK(
         channel NOT IN ('PDF','ARCHIVE','ADVISOR_SIGNATURE','ONSITE_SIGNATURE') OR render_hash IS NOT NULL),
     CONSTRAINT uq_advisory_channel_publications_tenant_id UNIQUE (tenant_id, id),
@@ -1645,6 +1646,9 @@ CHANNEL_PUBLICATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
     "ON advisory_channel_publications(tenant_id)",
     "CREATE INDEX IF NOT EXISTS ix_advisory_channel_publications_mandate "
     "ON advisory_channel_publications(tenant_id, mandate_id)",
+    # P5b (N-925-08, Vertrag §1 "monotone Version"): laufende Nummer je Mandat.
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_advisory_channel_publications_sequence "
+    "ON advisory_channel_publications(mandate_id, channel_sequence)",
 )
 
 CHANNEL_PUBLICATION_SQLITE_TRIGGERS: tuple[str, ...] = (
@@ -1660,6 +1664,20 @@ CHANNEL_PUBLICATION_SQLITE_TRIGGERS: tuple[str, ...] = (
     "CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_no_delete "
     "BEFORE DELETE ON advisory_channel_publications FOR EACH ROW "
     "BEGIN SELECT RAISE(ABORT, 'advisory_channel_publications is append-only'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_sequence BEFORE INSERT ON advisory_channel_publications FOR EACH ROW "
+    "WHEN NEW.channel_sequence IS NOT (SELECT COALESCE(MAX(p.channel_sequence), 0) + 1 "
+    "FROM advisory_channel_publications p WHERE p.mandate_id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_CHANNEL_SEQUENCE_RACE'); END",
+)
+
+# P5b: Nachtrag der laufenden Nummer fuer Bestandszeilen in Einfuegereihenfolge
+# (der append-only-UPDATE-Trigger wird dafuer kurz entfernt und neu angelegt).
+CHANNEL_SEQUENCE_BACKFILL_SQL = (
+    "UPDATE advisory_channel_publications SET channel_sequence = ("
+    "SELECT COUNT(*) FROM advisory_channel_publications q "
+    "WHERE q.mandate_id = advisory_channel_publications.mandate_id "
+    "AND (q.created_at < advisory_channel_publications.created_at "
+    "OR (q.created_at = advisory_channel_publications.created_at AND q.id <= advisory_channel_publications.id)))"
 )
 
 # Mandanten-Guard (mandates.tenant_id): wie P1/P3/P4 nicht im Bootstrap-Schema.
@@ -2558,8 +2576,21 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             for ddl in ALLOCATION_PUBLICATION_SQLITE_TENANT_GUARDS:
                 conn.execute(text(ddl))
         # CCX-P5 (2026-11-21): Kanalzeilen (idempotent; neue Tabelle, kein Backfill).
-        for ddl in CHANNEL_PUBLICATION_SQLITE_TABLE_DDL + CHANNEL_PUBLICATION_SQLITE_TRIGGERS:
+        # P5b: Bestandstabellen ohne channel_sequence -> Spalte + Nachtrag in
+        # Einfuegereihenfolge (vor Index/Trigger); der mandate_id-FK steht im
+        # DDL neuer Installationen, im Bestand bindet der Tenant-Guard das Mandat.
+        conn.execute(text(CHANNEL_PUBLICATION_SQLITE_TABLE_DDL[0]))
+        channel_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(advisory_channel_publications)"))}
+        if "channel_sequence" not in channel_cols:
+            conn.execute(text("ALTER TABLE advisory_channel_publications ADD COLUMN channel_sequence INTEGER"))
+            # append-only-Trigger kurz entfernen (die Schleife unten legt ihn neu an)
+            conn.execute(text("DROP TRIGGER IF EXISTS trg_advisory_channel_publications_no_update"))
+            conn.execute(text(CHANNEL_SEQUENCE_BACKFILL_SQL))
+        for ddl in CHANNEL_PUBLICATION_SQLITE_TABLE_DDL[1:] + CHANNEL_PUBLICATION_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
+        # P5b: IC-Freigabe der Risikoparameter je Policy (leer bis zur Freigabe).
+        for column in ("ic_release_ref", "ic_released_at"):
+            ensure_column(conn, "optimizer_policies", column, "TEXT")
         if 'tenant_id' in {row[1] for row in conn.execute(text("PRAGMA table_info(mandates)"))}:
             for ddl in CHANNEL_PUBLICATION_SQLITE_TENANT_GUARDS:
                 conn.execute(text(ddl))

@@ -4,6 +4,7 @@ Spec: docs/planning/2026-05-17-sprint-5-pdf-engine.md §4 Phase 2
 Sprint 11 Phase 5: Logging + Fallback-Sektionen + Portfolio-PDF
 """
 from __future__ import annotations
+from core.goal_metric_contract import canonical_goal_rows
 
 import base64
 import dataclasses
@@ -131,8 +132,22 @@ from services.pdf.base import (
 router = APIRouter(tags=["PDF Reports"])
 
 
+_P5_DECISION_CACHE = "p5_channel_decision"
+
+
+def _channel_decision(db: Session, mandate: Mandate, *, refresh: bool = False):
+    """N-925-08: das Kanal-Gate je PDF-Aufruf genau EINMAL auswerten (Kontext,
+    Entwurfsentscheid und Archiv lesen dasselbe Ergebnis). ``refresh`` beim
+    Kontextaufbau (erster Schritt jeder Route)."""
+    cache = db.info.setdefault(_P5_DECISION_CACHE, {})
+    key = str(mandate.id)
+    if refresh or key not in cache:
+        cache[key] = evaluate_channel_envelope(db, mandate)
+    return cache[key]
+
+
 def _build_pdf_context(mandate: Mandate, current_user: User, db: Session, *,
-                       draft_check: bool = True) -> PDFContext:
+                       draft_check: bool = True, allocation_free: bool = False) -> PDFContext:
     """Sammelt PDFContext-Daten aus Mandant + Client + User.
 
     Mandate-Anzeige: <Client.name> [<mandate_number>] — falls Client
@@ -168,7 +183,10 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session, *,
         # N-897-12: ohne jede KYC-Bestaetigung als Entwurf vor Vertragsabschluss.
         watermark_mode="vorvertrag" if draft_check and kyc_release_is_draft(db, mandate) else "none",
         # CCX P5: Pruefnummer des auslieferbaren, versiegelten Entscheids (Fuss).
-        decision_ref=evaluate_channel_envelope(db, mandate).footer_ref(),
+        # N-925R-02: Dokumente ohne Allokation (Risikoprofil, Vertrag,
+        # Kundeninformation) tragen keinen Entscheid-Fuss.
+        decision_ref=({"allocation_free": True} if allocation_free
+                      else _channel_decision(db, mandate, refresh=True).footer_ref()),
     )
 
 
@@ -182,7 +200,7 @@ def _mark_unpublished(ctx: PDFContext, db: Session, mandate: Mandate) -> PDFCont
         # CCX P5: publiziert heisst noch nicht auslieferbar -- FX jetzt,
         # Parametersatz und Zielkennzahl muessen zum versiegelten Entscheid
         # passen. Sonst 409 mit Ursache (kein Entwurf, kein Fallback).
-        decision = evaluate_channel_envelope(db, mandate)
+        decision = _channel_decision(db, mandate)
         if decision.applicable and not decision.ok:
             require_channel_envelope(db, mandate, channel=CHANNEL_PDF, user=None, decision=decision)
         return dataclasses.replace(ctx, decision_ref=decision.footer_ref())
@@ -1227,7 +1245,9 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
             try:
                 parsed = json.loads(raw_achievability)
                 if isinstance(parsed, list):
-                    goal_achievability = [item for item in parsed if isinstance(item, dict)]
+                    # P5b / N-925-03: Anzeige aus dem kanonischen M-3-Payload.
+                    goal_achievability = canonical_goal_rows(
+                        [item for item in parsed if isinstance(item, dict)], ta_obj)
             except (TypeError, ValueError) as exc:
                 logger.warning(
                     "Stored goal_achievability_json invalid for TA %s: %s",
@@ -1389,7 +1409,7 @@ def _archive_final(ctx: PDFContext, db: Session, **kwargs):
     # spaeter signierbar.
     ref = getattr(ctx, "decision_ref", None) or {}
     if doc is not None and ref.get("envelope_hash") and target_allocation_id:
-        decision = evaluate_channel_envelope(db, mandate)
+        decision = _channel_decision(db, mandate)
         if decision.ok and decision.envelope_hash == ref["envelope_hash"]:
             record_channel_publication(
                 db, decision, mandate=mandate, channel=CHANNEL_PDF, artifact_id=str(doc.id),
@@ -1547,7 +1567,7 @@ def get_risikoprofil_pdf(
     # sperrt typisiert CCX_FX_BASIS_* vor dem Rendern); keine Soll-Allokation,
     # daher kein Publish-Gate (Aufrufgraph-Waechter ALLOCATION_FREE_PDF_ROUTES).
     advisory_wealth_rappen = _advisory_wealth_from_capture(mandate, db)
-    ctx = _build_pdf_context(mandate, current_user, db)
+    ctx = _build_pdf_context(mandate, current_user, db, allocation_free=True)
 
     # Risikoprofil-Daten aus dem juengsten RiskAssessment laden (defensiv)
     risk_label = "Nicht definiert"
@@ -1981,7 +2001,7 @@ def get_vertrag_pdf(
     # H12 N-910-11 / N-909-20: allokationsfrei; die FX-Pruefung steckt in der
     # Vermoegensangabe (_advisory_wealth_from_capture), vor dem Rendern.
     data = _build_vertrag_data(mandate, document_id, db)
-    ctx = _build_pdf_context(mandate, current_user, db)
+    ctx = _build_pdf_context(mandate, current_user, db, allocation_free=True)
     # H-179 V-1: der Beratungsvertrag traegt die Klauseln der freigegebenen
     # Vertragsvorlage des Mandatstyps und deren Pruefwert. Ohne Freigabe, ohne
     # Ort oder mit offenen L2/L3-Punkten ist er ein Entwurf (Wasserzeichen,
@@ -3847,7 +3867,7 @@ def get_kundeninformation_pdf(
     # N-890-07: eigene Fusszeile der Kundeninformation (H7-Footer je
     # Dokument-/Mandatstyp), nicht "Dokumentation der Anlageberatung".
     ctx = dataclasses.replace(
-        _build_pdf_context(mandate, current_user, db, draft_check=False),
+        _build_pdf_context(mandate, current_user, db, draft_check=False, allocation_free=True),
         mandate_type=CLIENT_INFORMATION_DOCUMENT_TYPE,
     )
     data = dataclasses.replace(
@@ -3855,7 +3875,10 @@ def get_kundeninformation_pdf(
         privacy_lines=privacy["lines"],
         depot_bank_inducement_lines=_depot_bank_inducement_lines(inducement),
     )
-    content_hash = content_hash_for(data)
+    # N-925R-02: Fussformat ist Teil des Archivschluessels -- Fassungen mit dem
+    # frueheren Entscheid-Fuss (alte Pruefnummer) werden nicht wiedergegeben.
+    content_hash = hashlib.sha256(
+        f"{content_hash_for(data)}|footer:allocation_free/1".encode("utf-8")).hexdigest()
     existing = (
         db.query(ContractDocument)
         .filter(

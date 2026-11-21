@@ -165,14 +165,20 @@ def test_tax_domicile_change_makes_publication_stale(session_factory):
 def test_decision_sealed_with_full_row_stays_current_until_the_row_changes(session_factory, monkeypatch):
     """Uebergang: Bestand (Kante ueber die ganze Kundenzeile) wird nicht entwertet."""
     import services.effective_input_manifest as manifest
+    from models.clients import Client
 
     original = manifest._columns
     # KN4-B / N-917R3-06: Uebergang nur fuer Altsiegel -- hier wird ein Altsiegel
     # simuliert, also gilt es als vor dem Stichtag versiegelt.
     monkeypatch.setattr(manifest, "LEGACY_PROJECTION_SEALED_BEFORE", "9999-12-31T00:00:00.000Z")
-    # Altsiegel: ganze Zeile inkl. Beruf und Mandantengrenze (vor KN-B und KN3-B).
+    # Altsiegel: ganze KUNDENzeile inkl. Beruf (vor KN-B) und Mandantengrenze
+    # (vor KN3-B). P5b-CI-Fix: die Ausnahme-Markierung galt vor KN-B nur fuer
+    # die Kundenzeile. Spaeter neu eingefuehrte, von Anfang an ausgenommene
+    # Spalten (P5b: optimizer_policies.ic_release_ref/ic_released_at) hat nie
+    # ein Altsiegel gebunden -- sie hier mitzubinden simulierte einen Bestand,
+    # den es nicht gibt.
     monkeypatch.setattr(manifest, "_columns", lambda model, include_exempt=False, include_boundary=False:
-                        original(model, include_exempt=True, include_boundary=True))
+                        original(model, include_exempt=include_exempt or model is Client, include_boundary=True))
     _advisor, _approver, mid, _aid, _run, decision = _published(session_factory, "kn-leg")
     monkeypatch.setattr(manifest, "_columns", original)
     assert _status(session_factory, mid, decision.envelope_id) == (("SEALED", "FRESH"), "PUBLISHED", None)

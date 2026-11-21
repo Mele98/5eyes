@@ -34,6 +34,12 @@ class OptimizerPolicy(Base):
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+    # P5b (N-925-08 / M-4): IC-Freigabe der Risikoparameter dieser Policy --
+    # leer, bis das Anlagekomitee freigibt (nie vorbelegt). Nicht Teil des
+    # Abhaengigkeits-Hashs (Siegel bleiben beim Nachtrag der Spalten aktuell);
+    # der Freigabestatus ist im Parametersatz jeder Allokation gebunden.
+    ic_release_ref = Column(String, info={"advisory_hash_exempt": True})
+    ic_released_at = Column(String, info={"advisory_hash_exempt": True})
 
     building_blocks = relationship("BuildingBlock", back_populates="policy")
     house_matrix_entries = relationship("HouseMatrix", back_populates="policy")

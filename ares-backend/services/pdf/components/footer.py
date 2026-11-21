@@ -159,7 +159,8 @@ def make_footer_callback(ctx: PDFContext, disclaimer: str | None = None):
 
         # Zeile 2: Audit-Hash + Beratungsentscheid (CCX P5) + Erzeugt-Zeit
         canvas.drawString(12 * mm, 3.5 * mm, f"Audit: {audit_label}")
-        canvas.drawCentredString(page_width / 2, 3.5 * mm, decision_label)
+        if decision_label:
+            canvas.drawCentredString(page_width / 2, 3.5 * mm, decision_label)
         canvas.drawRightString(
             page_width - 12 * mm, 3.5 * mm, f"Erzeugt: {generated_at}"
         )

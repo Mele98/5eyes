@@ -190,6 +190,9 @@ Korrektur der bestehenden Apportionierung, keine neue Funktion; Hinweis in kn5-u
 H-179 L2/L3 Vertragsschicht (2026-11-21): neuer Teil ``owner-content.js`` (Budget = Stand
 bei Einfuehrung, 298/18904; Fixrunde 1 N-927-01 Freigabe-Ansicht der Pruefperson: 324/20182); im Monolithen nur die Einbindung (+42 B, gleiche Zeile) und
 der Vorgabe-Ort «Zürich» der Vertragsmaske entfernt (Ort = Pflichtfeld): 1622472 B.
+P5b-CI-Fix (H-185, CTO-Entscheid): refreshStrategyData rechnet bei 409/anderen Ladefehlern
+nicht mehr still neu (nur bei 404) -> Monolith gesenkt auf 26417/1622445.
+Merge H-179 + P5b (ca5da413): Monolith aus dem Tree gemessen 26417/1622460.
 """
 from __future__ import annotations
 
@@ -198,9 +201,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26418
+MONOLITH_MAX_LINES = 26417
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1622472
+MONOLITH_MAX_BYTES = 1622460
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).

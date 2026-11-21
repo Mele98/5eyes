@@ -21435,9 +21435,8 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
       finalizeStrategyOutputs(currentAllocation,null,false,'Aktuelle Strategie geladen: '+new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}));
       return true;
     }catch(e){
-      if(!(e&&String(e.status||'')==='404')&&!(e&&String(e.status||'')==='409')){
-        updateStrategyStatus('Aktuelle Strategie konnte nicht geladen werden. Engine berechnet neu...',false);
-      }
+      if(e&&e.status==409){strategyState.dirty=true;return false;}
+      if(!(e&&e.status==404)){updateStrategyStatus('Aktuelle Strategie konnte nicht geladen werden.',true);return false;}
     }finally{
       strategyState.loading=false;
     }

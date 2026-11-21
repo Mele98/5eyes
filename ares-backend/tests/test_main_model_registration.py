@@ -78,7 +78,11 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # H-179 L2/L3 (2026-11-21): vier neue Tabellen (owner_content_versions,
 # owner_content_approvals, advice_rationales, w033_client_declarations),
 # keine bestehende Tabelle umbenannt/entfernt.
-GOLDEN_SORTED_TABLES_SHA256 = "19983e5e674605b4e73491308d0e7aaf03b575a34b46b64655c3a814e84dc77a"
+# P5b (N-925-08): gleiche 113 Tabellen; nur die topologische Reihenfolge
+# verschiebt sich durch den neuen FK advisory_channel_publications.mandate_id
+# -> mandates. Aus dem Tree neu berechnet.
+# Merge H-179 + P5b: 117 Tabellen, aus dem Tree neu berechnet.
+GOLDEN_SORTED_TABLES_SHA256 = "8646fc0d669e2430cdd34b3e48475143e7b2eae7102c036e4a3597e27b6ce0e9"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -211,7 +215,12 @@ GOLDEN_SORTED_TABLES_SHA256 = "19983e5e674605b4e73491308d0e7aaf03b575a34b46b6465
 # /{row_id}/approve), /mandates/{id}/contract-layer, .../advice-rationale,
 # .../w033-declarations und Schemas OwnerContentCreate/OwnerContentApprove/
 # AdviceRationaleCreate/W033DeclarationCreate; kein bestehender Pfad geaendert.
-GOLDEN_OPENAPI_SHA256 = "ddfe91083e005127c7afb659fc731eb1757301dfbef1b3dbcca21aa259fe47b4"
+# P5b (N-925-04): nur additiv -- TargetAllocationResponse.decision_envelope/
+# risk_parameter_set, AllocationPublicationOverviewResponse.decision_envelope,
+# Schemas DecisionEnvelopeReference/ChannelPublicationReference; kein Pfad und
+# kein bestehendes Feld geaendert (Feld-Diff api/openapi.json, export_openapi.py).
+# Merge H-179 + P5b: beide additiv, aus dem Tree neu berechnet.
+GOLDEN_OPENAPI_SHA256 = "753b537bc91c7934de692ca802de6656c20f275dcd9379faaffab9b8b0e249e6"
 
 _PROBE = """
 import hashlib, json

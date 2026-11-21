@@ -357,6 +357,33 @@ class TargetAllocationCreate(BaseModel):
         return self
 
 
+class ChannelPublicationReference(BaseModel):
+    """P5b / N-925-04: eine Kanalzeile des Beratungsentscheids."""
+    channel: str
+    artifact_id: str
+    channel_sequence: int
+    channel_payload_hash: str
+    render_hash: Optional[str] = None
+    parameter_set_hash: str
+    goal_metric_payload_hash: str
+    created_at: str
+
+
+class DecisionEnvelopeReference(BaseModel):
+    """P5b / N-925-04 (Vertrag §8 Tier 1): Envelope-Bezug der Soll-Allokation
+    fuer API, Classic und React -- Pruefnummer und Fassung nur fuer einen
+    auslieferbaren Entscheid; sonst Zustand und Grund."""
+    state: Literal["deliverable", "sealed_not_deliverable", "none"]
+    reason_code: Optional[str] = None
+    pruefnummer: Optional[str] = None
+    fassung: Optional[int] = None
+    envelope_hash: Optional[str] = None
+    parameter_set_hash: Optional[str] = None
+    goal_metric_payload_hash: Optional[str] = None
+    ic_release_status: Optional[str] = None
+    channel_publications: list[ChannelPublicationReference] = Field(default_factory=list)
+
+
 class TargetAllocationResponse(BaseResponse):
     id: str
     mandate_id: str
@@ -425,6 +452,9 @@ class TargetAllocationResponse(BaseResponse):
     # nicht mehr gueltige PUBLICATION_INVALID. ``approved_by``/``approved_at``
     # unten sind Altfelder der Tabelle und keine Freigabe.
     publication_status: str = "DRAFT"
+    # P5b / N-925-04: Envelope-Bezug und gespeicherter Risikoparametersatz (M-2).
+    decision_envelope: Optional[DecisionEnvelopeReference] = None
+    risk_parameter_set: Optional[dict] = None
     policy_id: str
     set_by: str
     set_at: str
@@ -1878,6 +1908,7 @@ class AllocationPublicationOverviewResponse(BaseModel):
     prepared_by: Optional[str] = None
     active_publication: AllocationPublicationStateResponse
     freshness: Optional[PublicationFreshnessResponse] = None
+    decision_envelope: Optional[DecisionEnvelopeReference] = None
 
 
 class AllocationPublishRequest(BaseModel):

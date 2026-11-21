@@ -26,6 +26,9 @@ API. Danach wird jeder Kunden-PDF-Endpunkt abgerufen und der Text ausgelesen.
 * KN7 / N-928-01/-02: keine UUID und keine Hex-Folge ab 16 Zeichen in
   Kunden-PDFs (allgemeine Regel); Sektion 19 und 27 des Advisory-Reports
   widersprechen sich zur Eignungspruefung nie.
+* KN8 / N-929-01: der Fall «Bestand + ESG» hat einen Beratungsprotokoll-
+  Eintrag, damit Sektion 16 (Pruefsumme, Pruefergebnis) durch alle Waechter
+  laeuft.
 
 Kein Browser. Eigener CI-Job «KN3-B Kunden-PDF-Waechter» (das Budget des
 Frontend-Jobs ist ausgeschoepft); lokal mit ``ARES_KN3_PDF_GUARD=1``.
@@ -235,6 +238,19 @@ HOLDINGS_ESG_CASE = {
         "tiltReasons": {"tobacco": ESG_DEVIATION_REASON},
     },
     "holdings": True,
+    # KN8 / N-929-01: ein Beratungsprotokoll-Eintrag, damit Sektion 16 des
+    # Advisory-Reports (Pruefsumme + Pruefergebnis) im Waechter steht.
+    "advisory_log": True,
+}
+
+# KN8: fiktiver Protokolleintrag ueber die echte API (Pflichtfelder U-FINMA-2.1).
+ADVISORY_LOG_ENTRY = {
+    "entry_type": "Jahresreview", "title": "Jahresgespräch (fiktiv)",
+    "description": "Strategie, Risikoprofil und Bestand besprochen; keine Änderung beschlossen (fiktiv).",
+    "decision": "Kein Handlungsbedarf", "entry_datetime": "2026-11-20T10:00:00.000Z",
+    "duration_minutes": 45, "communication_channel": "persoenlich", "language": "de",
+    "topics": ["Strategie", "Risikoprofil"], "risk_warnings_given": ["Marktrisiko"],
+    "cost_disclosure_given": True, "status": "Empfohlen",
 }
 
 
@@ -326,6 +342,10 @@ def _seed_case(api, db_path, advisor_id, case):
     assert status == 200, body
     recorded = _record_holdings(api, db_path, mid) if case.get("holdings") else 0
     _finalize_and_publish(api, db_path, mid)
+    if case.get("advisory_log"):
+        status, body = api("POST", f"/mandates/{mid}/advisory-log", ADVISORY_LOG_ENTRY)
+        assert status == 201, body
+        assert body["integrity_hash"] and body["integrity_verified"] is True, body
     return {"mid": mid, "generate": generate, "holdings": recorded}
 
 
@@ -765,6 +785,12 @@ def test_no_uuid_or_long_hex_in_customer_pdfs(rendered_all):
     # Positivkontrolle: die Kurzform steht da (Protokoll: Nachhaltigkeits-Nachweis).
     protokoll = " ".join(_texts(rendered_all)[("verzehr", "protokoll")].split())
     assert re.search(r"Prüfsumme Definition [0-9a-f]{8} · Erfassung [0-9a-f]{8}", protokoll), protokoll[-1200:]
+    # KN8 / N-929-01: Sektion 16 mit Protokolleintrag (Fall «Bestand + ESG») --
+    # 8-stellige Pruefsumme und das echte Pruefergebnis des Dienstes.
+    advisory = " ".join(_texts(rendered_all)[("bestand_esg", "advisory-report")].split())
+    assert "AKTIVE EINTRÄGE 1" in advisory, advisory[-2500:]
+    assert re.search(r"INTEGRITÄT Prüfsumme [0-9a-f]{8} · verifiziert", advisory), advisory[-2500:]
+    assert "Persönlich" in advisory
 
 
 def test_sections_19_and_27_never_contradict_in_live_cases(rendered_all):

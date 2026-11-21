@@ -1469,12 +1469,21 @@ def test_beratungsprotokoll_shows_latest_entry_details():
 
 
 def test_beratungsprotokoll_shows_integrity_marker():
+    # KN8 / N-929-01: dieser Test pinnte das feste «verifiziert» -- die Fixture
+    # hat kein ``integrity_verified``. Jetzt: ohne Pruefergebnis «nicht geprüft»,
+    # «verifiziert» nur mit integrity_verified=True (Details:
+    # test_kn8_protocol_integrity_display.py).
     pypdf = pytest.importorskip("pypdf")
     payload = _make_minimal_payload()
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = reader.pages[15].extract_text() or ""
-    assert "verifiziert" in text.lower()
+    assert "nicht geprüft" in text
+    assert "verifiziert" not in text.lower()
+    payload["beratungsprotokoll"]["latest_entry"]["integrity_verified"] = True
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    text = pypdf.PdfReader(__import__("io").BytesIO(pdf)).pages[15].extract_text() or ""
+    assert "verifiziert" in text.lower() and "nicht geprüft" not in text
 
 
 def test_beratungsprotokoll_shows_mismatch_banner_when_active():

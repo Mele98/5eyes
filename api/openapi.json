@@ -1710,6 +1710,16 @@
             "title": "Can Publish",
             "type": "boolean"
           },
+          "decision_envelope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionEnvelopeReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "envelope_hash": {
             "anyOf": [
               {
@@ -6078,6 +6088,61 @@
         "title": "CashflowYearRow",
         "type": "object"
       },
+      "ChannelPublicationReference": {
+        "description": "P5b / N-925-04: eine Kanalzeile des Beratungsentscheids.",
+        "properties": {
+          "artifact_id": {
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "channel_payload_hash": {
+            "title": "Channel Payload Hash",
+            "type": "string"
+          },
+          "channel_sequence": {
+            "title": "Channel Sequence",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "goal_metric_payload_hash": {
+            "title": "Goal Metric Payload Hash",
+            "type": "string"
+          },
+          "parameter_set_hash": {
+            "title": "Parameter Set Hash",
+            "type": "string"
+          },
+          "render_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Render Hash"
+          }
+        },
+        "required": [
+          "channel",
+          "artifact_id",
+          "channel_sequence",
+          "channel_payload_hash",
+          "parameter_set_hash",
+          "goal_metric_payload_hash",
+          "created_at"
+        ],
+        "title": "ChannelPublicationReference",
+        "type": "object"
+      },
       "ClientCreate": {
         "properties": {
           "advisor_id": {
@@ -9666,6 +9731,109 @@
           "consent_text_hash"
         ],
         "title": "CustomerConfirmRequest",
+        "type": "object"
+      },
+      "DecisionEnvelopeReference": {
+        "description": "P5b / N-925-04 (Vertrag §8 Tier 1): Envelope-Bezug der Soll-Allokation\nfuer API, Classic und React -- Pruefnummer und Fassung nur fuer einen\nauslieferbaren Entscheid; sonst Zustand und Grund.",
+        "properties": {
+          "channel_publications": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelPublicationReference"
+            },
+            "title": "Channel Publications",
+            "type": "array"
+          },
+          "envelope_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Envelope Hash"
+          },
+          "fassung": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fassung"
+          },
+          "goal_metric_payload_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Metric Payload Hash"
+          },
+          "ic_release_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ic Release Status"
+          },
+          "parameter_set_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameter Set Hash"
+          },
+          "pruefnummer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pruefnummer"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "state": {
+            "enum": [
+              "deliverable",
+              "sealed_not_deliverable",
+              "none"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "DecisionEnvelopeReference",
         "type": "object"
       },
       "DriftResult": {
@@ -27200,6 +27368,16 @@
             "title": "Created At",
             "type": "string"
           },
+          "decision_envelope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionEnvelopeReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "effective_constraints_json": {
             "anyOf": [
               {
@@ -27414,6 +27592,17 @@
               }
             ],
             "title": "Risk Budget Bps At Generation"
+          },
+          "risk_parameter_set": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Parameter Set"
           },
           "risky_fraction_bps": {
             "anyOf": [

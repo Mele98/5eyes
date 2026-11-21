@@ -61,8 +61,10 @@ CHANNEL_SIGNATURE = "signature"
 _SIGNATURE_ENVELOPE_GATE: dict = {}
 
 
-def register_signature_envelope_gate(require, record, advisor_channel: str) -> None:
+def register_signature_envelope_gate(require, record, advisor_channel: str, replay=None) -> None:
     _SIGNATURE_ENVELOPE_GATE.update(require=require, record=record, advisor_channel=advisor_channel)
+    if replay is not None:
+        _SIGNATURE_ENVELOPE_GATE["replay"] = replay
 
 
 def _signature_gate(name: str):
@@ -82,6 +84,13 @@ def require_signature_envelope(db: Session, mandate: Any, document: Any, *, chan
     Dokumente ohne Entscheidbezug; sonst 409 (``CCX_SIGNATURE_ENVELOPE_OUTDATED``
     bzw. FX-Code)."""
     return _signature_gate("require")(db, mandate, document, channel=channel, user=user, ip_address=ip_address)
+
+
+def verify_archive_replay(db: Session, document: Any, pdf_bytes: bytes):
+    """P5b / N-925-04 (§8.3): Archiv-Wiedergabe nur bei Bytes-Hash-Gleichheit
+    mit der Kanalzeile; Rueckgabe = Envelope-Bezug (Pruefnummer, Fassung) oder
+    ``None`` fuer Dokumente ohne Kanalzeile (Wiedergabe wie bisher)."""
+    return _signature_gate("replay")(db, document, pdf_bytes)
 
 
 def record_signature_publication(db: Session, binding, *, mandate: Any, artifact_id: str, user: Any,

@@ -43,6 +43,7 @@ Keine Fachwirkung auf Engine, Optimizer oder Monte Carlo.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from dataclasses import dataclass, field, replace
@@ -982,6 +983,8 @@ _CHANNEL_CAUSES: dict[str, str] = {
         "Beratungsdaten wurden seit der Versiegelung geändert. Bitte neu berechnen, finalisieren und publizieren.",
     ReasonCode.CCX_FRESHNESS_UNKNOWN.value:
         "Die Aktualität des Beratungsentscheids ist nicht belegt. Bitte neu finalisieren.",
+    ReasonCode.CCX_ENVELOPE_MISSING.value:
+        "Der versiegelte Beratungsentscheid ist nicht auffindbar. Bitte neu finalisieren und publizieren.",
     ReasonCode.CCX_FX_BASIS_STALE.value:
         "Ein Wechselkurs des versiegelten Entscheids ist veraltet. Bitte einen aktuellen Kurs erfassen.",
     ReasonCode.CCX_FX_BASIS_MISSING.value:
@@ -1021,6 +1024,10 @@ class ChannelDecision:
     parameter_set_hash: str | None = None
     goal_metric_payload_hash: str | None = None
     ic_release_status: str | None = None
+    # N-925R-02: ein Entscheid ist versiegelt (auch wenn nicht auslieferbar).
+    sealed: bool = False
+    # N-925-08: monotone Fassung = laufende Nummer der Versiegelung im Mandat.
+    fassung: int | None = None
     drift: tuple = field(default=(), repr=False, compare=False)
 
     @property
@@ -1036,10 +1043,11 @@ class ChannelDecision:
         IC-Status des Risikoparametersatzes der Soll-Allokation (N-925-05)."""
         ic = {"ic_release_status": self.ic_release_status} if self.ic_release_status else {}
         if not self.ok:
-            return ic or None
-        version = str(self.schema_version or "").rsplit("/", 1)[-1]
+            # N-925R-02: versiegelt, aber nicht auslieferbar != keiner versiegelt.
+            state = {"decision_state": "sealed_not_deliverable"} if self.sealed else {}
+            return {**ic, **state} or None
         return {"envelope_hash": str(self.envelope_hash), "schema_version": str(self.schema_version),
-                "fassung": version, **ic}
+                "fassung": str(self.fassung or 1), **ic}
 
 
 def _channel_blocked(code: Any, **kw: Any) -> ChannelDecision:
@@ -1056,7 +1064,12 @@ def evaluate_channel_envelope(db: Session, mandate: Any) -> ChannelDecision:
         ta = None
     record = stored_risk_parameter_set(ta) if ta is not None else None
     status = record.get("ic_release_status") if isinstance(record, dict) else None
-    return replace(decision, ic_release_status=str(status) if status else None)
+    tenant_id = mandate_tenant(mandate)
+    sealed = current_sealed_envelope(db, tenant_id, str(mandate.id)) if tenant_id else None
+    own = db.get(AdvisoryDecisionEnvelope, str(decision.envelope_id)) if decision.envelope_id else None
+    fassung = _envelope_fassung(db, own) if own is not None else None
+    return replace(decision, ic_release_status=str(status) if status else None,
+                   sealed=sealed is not None, fassung=fassung)
 
 
 def _evaluate_channel_envelope(db: Session, mandate: Any) -> ChannelDecision:
@@ -1073,7 +1086,12 @@ def _evaluate_channel_envelope(db: Session, mandate: Any) -> ChannelDecision:
         if str(code) not in _CHANNEL_CAUSES:
             code = ReasonCode.CCX_ALLOCATION_NOT_PUBLISHABLE
         return _channel_blocked(code, envelope_id=state.envelope_id, target_allocation_id=str(ta.id), drift=state.drift)
-    envelope = db.get(AdvisoryDecisionEnvelope, str(state.envelope_id))
+    envelope = db.get(AdvisoryDecisionEnvelope, str(state.envelope_id)) if state.envelope_id else None
+    if envelope is None:
+        # P5b-CI-Fix: publiziert ohne auffindbaren Entscheid -> typisiert
+        # blockiert (nie AttributeError/500 in Anzeige- oder PDF-Pfaden).
+        return _channel_blocked(ReasonCode.CCX_ENVELOPE_MISSING, envelope_id=state.envelope_id,
+                                target_allocation_id=str(ta.id))
     base = {"envelope_id": envelope.id, "envelope_hash": envelope.envelope_hash,
             "schema_version": envelope.schema_version, "target_allocation_id": str(ta.id)}
     rows = db.query(AdvisoryEnvelopeBinding).filter(
@@ -1185,7 +1203,13 @@ def record_channel_publication(
                               "Das Artefakt wurde für diesen Entscheid bereits mit anderem Inhalt ausgeliefert.",
                               http_status=409, extra={"channel": channel})
         return existing
+    # P5b (Vertrag §1 "monotone Version"): laufende Nummer je Mandat; ein
+    # paralleles Schreiben derselben Nummer scheitert am Unique-Index.
+    last = db.query(AdvisoryChannelPublication.channel_sequence).filter(
+        AdvisoryChannelPublication.mandate_id == str(mandate.id),
+    ).order_by(AdvisoryChannelPublication.channel_sequence.desc()).first()
     row = AdvisoryChannelPublication(
+        channel_sequence=int(last[0] or 0) + 1 if last else 1,
         id=new_uuid(), tenant_id=mandate_tenant(mandate), mandate_id=str(mandate.id),
         envelope_id=decision.envelope_id, channel=channel, artifact_id=str(artifact_id),
         schema_version=CHANNEL_PUBLICATION_SCHEMA, channel_payload_hash=channel_payload_hash,
@@ -1271,8 +1295,100 @@ def require_signature_envelope(
     return None
 
 
+_RENDER_CHANNELS = ("PDF", "ARCHIVE", "ADVISOR_SIGNATURE", "ONSITE_SIGNATURE")
+
+
+def _envelope_fassung(db: Session, envelope: AdvisoryDecisionEnvelope) -> int | None:
+    """Laufende Nummer der Versiegelung im Mandat (monoton, N-925-08)."""
+    if not envelope.sealed_at:
+        return None
+    return db.query(AdvisoryDecisionEnvelope).filter(
+        AdvisoryDecisionEnvelope.tenant_id == envelope.tenant_id,
+        AdvisoryDecisionEnvelope.mandate_id == envelope.mandate_id,
+        AdvisoryDecisionEnvelope.status.in_(("SEALED", "SUPERSEDED")),
+        AdvisoryDecisionEnvelope.sealed_at <= envelope.sealed_at,
+    ).count()
+
+
+def verify_archive_replay(db: Session, document: Any, pdf_bytes: bytes) -> dict | None:
+    """P5b / N-925-04 (Vertrag §8.3 Punkt 2): ein archiviertes Entscheid-
+    Artefakt wird nur wiedergegeben, wenn die gespeicherten Bytes genau den
+    ``render_hash`` seiner Kanalzeile(n) tragen, der gebundene Envelope mit
+    diesem Hash existiert und die Rundungsfassung der Zeile die des Envelopes
+    ist. Nicht neu gerechnet, nicht neu gerendert; FRESH ist fuer die
+    Wiedergabe nicht verlangt (Nachweis "was wurde gezeigt")."""
+    rows = db.query(AdvisoryChannelPublication).filter(
+        AdvisoryChannelPublication.mandate_id == str(document.mandate_id),
+        AdvisoryChannelPublication.artifact_id == str(document.id),
+        AdvisoryChannelPublication.channel.in_(_RENDER_CHANNELS),
+    ).order_by(AdvisoryChannelPublication.channel_sequence).all()
+    if not rows:
+        return None
+    digest = hashlib.sha256(pdf_bytes).hexdigest()
+    reference: dict | None = None
+    for row in rows:
+        if row.render_hash != digest or str(getattr(document, "checksum_sha256", "") or digest) != digest:
+            raise DomainError(ReasonCode.CCX_SEALED_ARTIFACT_HASH_MISMATCH,
+                              "Das archivierte Dokument weicht vom versiegelten Artefakt ab.", http_status=409)
+        envelope = db.query(AdvisoryDecisionEnvelope).filter(
+            AdvisoryDecisionEnvelope.tenant_id == row.tenant_id,
+            AdvisoryDecisionEnvelope.id == row.envelope_id,
+        ).first()
+        if envelope is None or envelope.envelope_hash != row.bound_envelope_hash \
+                or str(envelope.mandate_id) != str(row.mandate_id):
+            raise DomainError(ReasonCode.CCX_SEALED_ARTIFACT_ENVELOPE_MISMATCH,
+                              "Der Beratungsentscheid des archivierten Dokuments ist nicht nachweisbar.",
+                              http_status=409)
+        try:
+            rounding = json.loads(envelope.canonical_payload_json or "{}").get("rounding_policy_version")
+        except (TypeError, ValueError):
+            rounding = None
+        if str(rounding or "") != str(row.rounding_policy_version or ""):
+            raise DomainError(ReasonCode.CCX_RENDER_POLICY_MISMATCH,
+                              "Die Rundungsfassung des archivierten Dokuments passt nicht zum Entscheid.",
+                              http_status=409)
+        reference = {"pruefnummer": str(row.bound_envelope_hash)[:12],
+                     "fassung": _envelope_fassung(db, envelope), "envelope_hash": str(row.bound_envelope_hash)}
+    return reference
+
+
+def decision_envelope_reference(db: Session, mandate: Any) -> dict:
+    """P5b / N-925-04 (Tier 1 API/Classic/React): Envelope-Bezug der
+    Soll-Allokation fuer die Anzeige -- Pruefnummer, Fassung, Zustand, die
+    gebundenen P5-Hashes und die Kanalzeilen des Entscheids."""
+    decision = evaluate_channel_envelope(db, mandate)
+    if decision.ok:
+        state = "deliverable"
+    elif decision.sealed:
+        state = "sealed_not_deliverable"
+    else:
+        state = "none"
+    rows = []
+    if decision.envelope_id:
+        rows = [{
+            "channel": row.channel, "artifact_id": row.artifact_id, "channel_sequence": row.channel_sequence,
+            "channel_payload_hash": row.channel_payload_hash, "render_hash": row.render_hash,
+            "parameter_set_hash": row.parameter_set_hash, "goal_metric_payload_hash": row.goal_metric_payload_hash,
+            "created_at": row.created_at,
+        } for row in db.query(AdvisoryChannelPublication).filter(
+            AdvisoryChannelPublication.envelope_id == str(decision.envelope_id),
+        ).order_by(AdvisoryChannelPublication.channel_sequence).all()]
+    return {
+        "state": state,
+        "reason_code": None if decision.ok else decision.reason_code,
+        "pruefnummer": str(decision.envelope_hash)[:12] if decision.ok and decision.envelope_hash else None,
+        "fassung": decision.fassung if decision.ok else None,
+        "envelope_hash": decision.envelope_hash if decision.ok else None,
+        "parameter_set_hash": decision.parameter_set_hash if decision.ok else None,
+        "goal_metric_payload_hash": decision.goal_metric_payload_hash if decision.ok else None,
+        "ic_release_status": decision.ic_release_status,
+        "channel_publications": rows,
+    }
+
+
 release_gate.register_signature_envelope_gate(
     require_signature_envelope, record_channel_publication, CHANNEL_ADVISOR_SIGNATURE,
+    replay=verify_archive_replay,
 )
 
 

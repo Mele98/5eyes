@@ -74,6 +74,8 @@ def test_import_clock_treats_a_date_string_like_a_date():
     noon = datetime(2026, 11, 21, 12, 0, tzinfo=timezone.utc)
     assert _instant("2026-11-21") == _instant(date(2026, 11, 21)) == noon
     assert _instant("2026-11-21T23:30:00+00:00") == datetime(2026, 11, 21, 23, 30, tzinfo=timezone.utc)
+    # KN8 / N-929-03: Rand-Leerzeichen aendern nichts (vorher ValueError).
+    assert _instant(" 2026-11-21 ") == noon
 
 
 @pytest.mark.parametrize("instant", BOUNDARY_INSTANTS, ids=lambda i: i.strftime("%m%d-%H%MZ"))
