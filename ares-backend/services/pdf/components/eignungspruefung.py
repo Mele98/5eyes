@@ -205,7 +205,16 @@ def _answer_text(
     return "Nicht beantwortet"
 
 
+# KN6 / N-917R5-03: Die Erfassungsmaske speichert die Anlagehorizont-Antwort
+# (Frage 8) mit dem internen Zusatz «· Matrix-Faktor» (gespeicherte Daten,
+# bleiben unverändert). Im Kunden-PDF steht nur die Antwort.
+_INTERNAL_ANSWER_SUFFIXES = (" · Matrix-Faktor", " - Matrix-Faktor")
+
+
 def _clean_answer_label(question_number: int, label: str) -> str:
+    for suffix in _INTERNAL_ANSWER_SUFFIXES:
+        if label.endswith(suffix):
+            label = label[: -len(suffix)].rstrip()
     if question_number not in (1, 2):
         return label
     if ":" not in label:

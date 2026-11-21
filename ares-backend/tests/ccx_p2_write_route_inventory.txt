@@ -1,0 +1,34 @@
+# CCX-P2: schreibende Routen auf Abhaengigkeitsmodellen (AST, gepinnt).
+# Jede Route schreibt ueber die ORM-Session -> zentraler Mutation Hook
+# (models/snapshots.py). Neue Route: pruefen und hier aufnehmen.
+routers/allocation.py::activate_optimizer_policy -> OptimizerPolicy
+routers/allocation.py::clone_optimizer_policy -> OptimizerPolicy
+routers/allocation.py::create_optimizer_policy -> HouseMatrix,OptimizerPolicy
+routers/allocation.py::replace_house_matrix_rows -> HouseMatrix,OptimizerPolicy
+routers/allocation.py::update_cma -> CapitalMarketAssumption
+routers/clients.py::add_opt_history -> Client
+routers/clients.py::create_client -> Client
+routers/clients.py::delete_client -> Client
+routers/clients.py::update_client -> Client
+routers/jurisdiction.py::approve_capital_market_assumption -> CapitalMarketAssumption
+routers/mandates.py::create_mandate -> Mandate
+routers/mandates.py::update_mandate -> Mandate
+routers/profiling.py::create_risk_assessment -> RiskAssessment,RiskAssessmentAnswer
+routers/profiling.py::create_sustainability_preference -> InvestmentPreferenceDecision
+routers/profiling.py::override_risk_assessment -> RiskAssessment,RiskOverrideDecision
+routers/review.py::delete_position_holding -> RecommendationHolding
+routers/review.py::upsert_position_holding -> RecommendationHolding
+routers/wealth.py::create_cashflow -> Cashflow
+routers/wealth.py::create_goal -> Goal
+routers/wealth.py::create_planning_assumptions -> PlanningAssumption
+routers/wealth.py::create_wealth_inflow -> WealthInflow
+routers/wealth.py::create_wealth_position -> WealthPosition
+routers/wealth.py::delete_cashflow -> Cashflow
+routers/wealth.py::delete_goal -> Goal
+routers/wealth.py::delete_wealth_inflow -> WealthInflow
+routers/wealth.py::delete_wealth_position -> WealthPosition
+routers/wealth.py::update_cashflow -> Cashflow
+routers/wealth.py::update_goal -> Goal
+routers/wealth.py::update_wealth_inflow -> WealthInflow
+routers/wealth.py::update_wealth_position -> WealthPosition
+routers/wealth.py::upsert_planning_assumptions -> PlanningAssumption

@@ -136,7 +136,7 @@ def test_pdf_fee_block_renderbar_wenn_strategy_fee_gesetzt():
     # Strategie-Zeile vorhanden
     assert "Strategie (SOLL)" in blob
     # Fee-pct formatiert (1.00%)
-    assert "1.00%" in blob
+    assert "1.00 %" in blob  # G7: gemeinsamer Formatter
 
 
 def test_pdf_fee_block_renderbar_wenn_benchmark_fee_gesetzt():
@@ -162,7 +162,7 @@ def test_pdf_fee_block_renderbar_wenn_benchmark_fee_gesetzt():
     flow = build_backtest_flowables(ctx, data)
     blob = _flowable_text_blob(flow)
     assert "Benchmark" in blob
-    assert "0.30%" in blob
+    assert "0.30 %" in blob  # G7: gemeinsamer Formatter
 
 
 def test_helper_path_end_rappen_robust():

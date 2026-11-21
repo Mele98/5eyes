@@ -4,36 +4,132 @@ Spec: docs/planning/2026-05-17-sprint-5-pdf-engine.md §4 Phase 2
 Sprint 11 Phase 5: Logging + Fallback-Sektionen + Portfolio-PDF
 """
 from __future__ import annotations
+from core.goal_metric_contract import canonical_goal_rows
 
+import base64
+import dataclasses
 import hashlib
 import json
 import logging
+import re
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from database import get_db
-from models.clients import Client
+from database import annual_returns_release_required, get_db
+from core.preference_labels import preference_label
+from models.clients import Client, ClientRepresentation
 
 logger = logging.getLogger(__name__)
 from core.http_filenames import content_disposition
 from models.mandates import Mandate
+from models.review import ConflictOfInterestDisclosure, ContractDocument, Product
 from models.users import User
-from routers.auth import _extract_client_ip
-from services.auth import get_current_user, get_mandate_for_user_or_404
-from services.document_archive import archive_generated_pdf, content_hash_for
+from services.audit import release_block_audit
+from services.auth import extract_client_ip as _extract_client_ip
+from services.auth import get_current_user, get_mandate_for_user_or_404, set_tenant_context
+from services.advisory_decision_envelope import decision_freshness_for_allocation, persist_freshness_drift
+# CCX-P4: Kunden-PDFs lesen nur den publizierten Stand -- ein Entwurf traegt das
+# Wasserzeichen "Entwurf -- Soll-Allokation nicht publiziert" und wird nie als
+# finale (signierbare) Fassung archiviert.
+from services.allocation_publication_gate import (
+    AllocationVersionConflict,
+    assert_report_allocation_matches,
+    customer_document_watermark,
+)
+from services.document_archive import (
+    archive_generated_pdf,
+    content_hash_for,
+    current_preference_binding,
+)
+from services.cost_disclosure import build_cost_disclosure, fee_agreement_missing
+from core import sustainability_preference as sustainability
+from core.reason_codes import DomainError, ReasonCode
+from services.portfolio_engine_payload import ESG_CUSTOMER_CLAIM_LABELS
+from services.recommendation_release_gate import (
+    firm_display_name,
+    assert_run_evidence as _assert_run_evidence,
+    assert_sustainability_preference_floor as _assert_floor,
+    current_run_id as _current_run_id,
+    document_strategy_binding as _document_binding,
+    preference_state as _preference_state,
+)
+from services.audit import gate_block_audit
+# H-179 L2/L3: Vertragsvorlage, Datenschutzabschnitt, Zuwendungen der Depotbank,
+# Gruende der Empfehlung (Art. 15 FIDLEG), W033-Restinhalte.
+from services.recommendation_release_gate import (
+    CONTRACT_DOCUMENT_TYPE,
+    DEPOT_BANK_REQUIRED_MANDATE_TYPES,
+    RATIONALE_MANDATE_TYPES,
+    contract_layer_findings,
+    contract_template_binding,
+    contract_template_state,
+    depot_bank_inducement_state,
+    latest_advice_rationale,
+    ADVICE_RATIONALE_ERASED,
+    ADVICE_RATIONALE_ERASED_TEXT,
+    ADVICE_RATIONALE_TAMPERED,
+    PROTOCOL_BIB_KEY,
+    approved_text,
+    privacy_section_state,
+    resolve_owner_content,
+    w033_state,
+)
+# CCX-P3-FX (N-909-01/-13): strikte FX-Basis und Druckpruefung ueber die Druck-Fassade.
+from services.print_fx_gate import assert_print_fx_basis_current, load_fx_basis
+from services.allocation_publication_gate import (
+    CHANNEL_PDF,
+    evaluate_channel_envelope,
+    record_channel_publication,
+    require_channel_envelope,
+)
+from services.portfolio_engine import run_exclusion_evidence_status
+from sqlalchemy import text as sql_text
 from services.pdf import ReportLabRenderer
+# KN7: Advisory-Report-Dokument auf Modulebene (vorher funktionslokal in
+# get_advisory_report_pdf); liefert auch den Suitability-Audit fuer den
+# Beratungsentscheid -- keine neue Import-Kante.
+from services.pdf.documents.advisory_report import (
+    PROTOCOL_TEXT_TAMPERED,
+    AdvisoryLogIntegrityFailed,
+    assert_shown_entries_intact,
+    conflict_text_view,
+    customer_protocol_entry,
+    render_advisory_report_pdf,
+    suitability_compliance_for_mandate,
+)
+from services.recommendation_release_gate import (
+    CLIENT_INFORMATION_DOCUMENT_TYPE,
+    CLIENT_INFORMATION_REGIME_UNSUPPORTED,
+    CLIENT_INFORMATION_SEAT_REGIMES,
+    CLIENT_INFORMATION_TEMPLATE_VERSION,
+    CLIENT_INFORMATION_TENANT_DATA_MISSING,
+    CHANNEL_CLIENT_PDF,
+    CHANNEL_SIGNATURE,
+    SUPERVISION_LABELS,
+    assert_kyc_review_release_eligible,
+    kyc_release_is_draft,
+    legal_profile_hash,
+    legal_profile_missing_fields,
+    load_tenant_legal_profile,
+    mandate_tenant_id,
+)
+from core.presentation_rounding import format_amount_minor, format_bps_as_pct, presentation_amounts
 from services.recommendation_run_resolver import (
     NO_CURRENT_RECOMMENDATION_MARKER,
     resolve_current_recommendation_run,
 )
 from services.pdf.base import (
+    depletion_note,
+    resolve_pdf_jurisdiction,
     AnlagestrategieData,
     BacktestData,
     ContractSignoffData,
     CostDisclosurePDFData,
     DepotCheckData,
+    KundeninformationData,
     PDFContext,
     PortfolioData,
     ProtokollData,
@@ -44,22 +140,30 @@ from services.pdf.base import (
 router = APIRouter(tags=["PDF Reports"])
 
 
-def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDFContext:
+_P5_DECISION_CACHE = "p5_channel_decision"
+
+
+def _channel_decision(db: Session, mandate: Mandate, *, refresh: bool = False):
+    """N-925-08: das Kanal-Gate je PDF-Aufruf genau EINMAL auswerten (Kontext,
+    Entwurfsentscheid und Archiv lesen dasselbe Ergebnis). ``refresh`` beim
+    Kontextaufbau (erster Schritt jeder Route)."""
+    cache = db.info.setdefault(_P5_DECISION_CACHE, {})
+    key = str(mandate.id)
+    if refresh or key not in cache:
+        cache[key] = evaluate_channel_envelope(db, mandate)
+    return cache[key]
+
+
+def _build_pdf_context(mandate: Mandate, current_user: User, db: Session, *,
+                       draft_check: bool = True, allocation_free: bool = False) -> PDFContext:
     """Sammelt PDFContext-Daten aus Mandant + Client + User.
 
     Mandate-Anzeige: <Client.name> [<mandate_number>] — falls Client
     nicht ladbar (Test-Setup) Fallback auf mandate_number.
     """
-    # FX-Fund 1: Berater-gepflegte DB-FX-Rates fuer ALLE Waehrungsumrechnungen dieses
-    # Reports aktivieren (via ContextVar), statt der hardcodierten DEFAULT_FX_RATES.
-    # Gemeinsamer Einstiegspunkt aller PDF-Endpoints -> eine Stelle statt ~14 Caller.
-    # Fuer CHF-Basis-Reports ist die Umrechnung ohnehin Identity (kein Effekt).
-    from services.currency.converter import set_active_fx_source
-    from services.currency.fx_rates import FXRateSource
-    try:
-        set_active_fx_source(FXRateSource.from_db(db))
-    except Exception:
-        set_active_fx_source(None)  # sicherer Fallback auf DEFAULT_FX_RATES
+    # CCX-P3-FX (N-909-01): keine Request-weite Ersatzkurs-Quelle mehr. PDF-
+    # Datenaufbereitungen rechnen mit der strikten, gebundenen FX-Basis
+    # (services.fx_basis.load_fx_basis) und sperren typisiert vor dem Rendern.
 
     client = db.query(Client).filter(Client.id == mandate.client_id).first()
     client_name = _client_display_name(client) if client else None
@@ -70,11 +174,9 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDF
         mandate_name = mandate_number or f"Mandat {mandate.id}"
 
     advisor_name = getattr(current_user, "full_name", None) or getattr(current_user, "email", None) or "Berater"
-    advisor_org = (
-        getattr(current_user, "organization", None)
-        or getattr(current_user, "org_name", None)
-        or advisor_name
-    )
+    # KN3-B / E2E3-04: Firmenkopf aus den Firmenangaben des Mandanten, nie der
+    # Beratername (der erscheint als eigene Berater-Zeile bzw. als Autor).
+    advisor_org = firm_display_name(db, mandate)
     base_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
     return PDFContext(
         mandate_name=mandate_name,
@@ -84,7 +186,48 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDF
         audit_hash=_audit_hash_for_mandate(mandate),
         locale="de-CH",
         base_currency=base_currency,
+        mandate_type=getattr(mandate, "mandate_type", None),
+        jurisdiction=resolve_pdf_jurisdiction(mandate),
+        # N-897-12: ohne jede KYC-Bestaetigung als Entwurf vor Vertragsabschluss.
+        watermark_mode="vorvertrag" if draft_check and kyc_release_is_draft(db, mandate) else "none",
+        # CCX P5: Pruefnummer des auslieferbaren, versiegelten Entscheids (Fuss).
+        # N-925R-02: Dokumente ohne Allokation (Risikoprofil, Vertrag,
+        # Kundeninformation) tragen keinen Entscheid-Fuss.
+        decision_ref=({"allocation_free": True} if allocation_free
+                      else _channel_decision(db, mandate, refresh=True).footer_ref()),
     )
+
+
+def _mark_unpublished(ctx: PDFContext, db: Session, mandate: Mandate) -> PDFContext:
+    """CCX-P4: ein Kunden-PDF, das die Soll-Allokation traegt, ist nur final,
+    wenn genau diese Allokation gueltig publiziert ist (tiefe Pruefung inkl.
+    Frische). Sonst Entwurf: Wasserzeichen und nie archiviert (``_archive_final``
+    legt nur ``watermark_mode == "none"`` ab) -- damit auch nicht signierbar."""
+    mode = customer_document_watermark(db, mandate)
+    if mode is None:
+        # CCX P5: publiziert heisst noch nicht auslieferbar -- FX jetzt,
+        # Parametersatz und Zielkennzahl muessen zum versiegelten Entscheid
+        # passen. Sonst 409 mit Ursache (kein Entwurf, kein Fallback).
+        decision = _channel_decision(db, mandate)
+        if decision.applicable and not decision.ok:
+            require_channel_envelope(db, mandate, channel=CHANNEL_PDF, user=None, decision=decision)
+        return dataclasses.replace(ctx, decision_ref=decision.footer_ref())
+    ic = {k: v for k, v in (ctx.decision_ref or {}).items() if k == "ic_release_status"}
+    return dataclasses.replace(ctx, watermark_mode=mode, decision_ref=ic or None)
+
+
+def _mark_fee_draft(ctx: PDFContext) -> PDFContext:
+    """EXE-P (H-187) / N-935-03/-04: ohne Gebuehrenvereinbarung ist ein Kunden-
+    PDF mit Kostenteil ein Entwurf (Wasserzeichen ``gebuehren``, nie archiviert).
+    Wie bei den uebrigen Entwuerfen keine Pruefnummer im Fuss, nur der
+    IC-Vermerk; ein Dokument ohne Allokation behaelt seinen Fuss ohne Entscheid.
+    Ein bereits gesetzter Entwurfsmodus hat Vorrang."""
+    if (getattr(ctx, "watermark_mode", "none") or "none") != "none":
+        return ctx
+    ref = ctx.decision_ref or {}
+    if not ref.get("allocation_free"):
+        ref = {k: v for k, v in ref.items() if k == "ic_release_status"} or None
+    return dataclasses.replace(ctx, watermark_mode="gebuehren", decision_ref=ref or None)
 
 
 def _attach_provisional_notice(ctx: PDFContext, db: Session, mandate: Mandate) -> PDFContext:
@@ -221,7 +364,6 @@ def _target_allocation_bands(ta_obj) -> dict[str, tuple[int, int]]:
 
 def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict], dict[str, int], int]:
     from models.wealth import WealthPosition
-    from services.currency.converter import convert_rappen
     from services.wealth_position_semantics import canonical_assignment
 
     # FX-DRIFT-001 (Audit-Finding, 2026-10-07): diese Beratungsvermoegen-Tabelle
@@ -249,6 +391,10 @@ def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict
     # mit einem fruehen Legacy-Label (z.B. "Beratungsvermoegen" ohne Umlaut)
     # haette hier gefehlt, obwohl die SAA-Engine sie korrekt zuordnet.
     rows = [row for row in rows if canonical_assignment(getattr(row, "assignment", None)) == "Beratungsvermögen"]
+    # CCX-P3-FX (N-909-01): strikte Basis (belegte, frische Kurse; Ersatzkurs =
+    # fehlend) -> FxBasisError CCX_FX_BASIS_* vor dem Rendern/Archivieren.
+    basis = load_fx_basis(db, target_currency, {getattr(r, "currency", None) for r in rows},
+                          tenant_id=getattr(mandate, "tenant_id", None))
     split_fields = {
         "equities": ("alloc_equities_bps", "Aktien"),
         "bonds": ("alloc_bonds_bps", "Obligationen"),
@@ -261,7 +407,7 @@ def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict
     total = 0
     for row in rows:
         raw_value = int(getattr(row, "current_value_rappen", 0) or 0)
-        value = int(round(convert_rappen(raw_value, str(getattr(row, "currency", "") or "CHF"), target_currency)))
+        value = basis.convert(raw_value, getattr(row, "currency", None)).converted_amount_minor
         if value <= 0:
             continue
         total += value
@@ -293,6 +439,165 @@ def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict
     return positions, current_bps, total
 
 
+def _advisory_wealth_from_capture(mandate: Mandate, db: Session) -> int | None:
+    """H12 N-910-11 (CTO-/Codex-Entscheid): Beratungsvermoegen fuer Risikoprofil
+    und allgemeinen Vertrag aus der Vermoegenserfassung -- aktive Positionen mit
+    Zuordnung Beratungsvermoegen, in Mandats-Basiswaehrung ueber die strikte
+    FX-Basis (P3; Ersatzkurs/veraltet -> ``CCX_FX_BASIS_*`` vor dem Rendern).
+    Dieselbe Summe wie ``advisory_wealth_at_generation_rappen`` der Engine
+    (positive Werte, auch externe Vorsorge), aber zum Druckzeitpunkt statt zum
+    Generierungszeitpunkt. Ohne Positionen: ``None`` (keine Zeile)."""
+    _positions, _bps, total = _advisory_wealth_positions(mandate, db)
+    return total or None
+
+
+def _largest_remainder_split(total: int, weights: list[int], labels: list[str]) -> list[int]:
+    """Ganzzahlige Aufteilung nach Largest Remainder (Hamilton), Tie-Break
+    groesseres Gewicht, dann Label -- dieselbe Regel wie
+    services.sub_allocation_apportionment.apportion_bps, hier nur fuer die
+    Franken-Rundung der PDF-Darstellung (bewusst lokal: keine zusaetzliche
+    Modulabhaengigkeit des Routers, Architektur-Ratsche)."""
+    clean = [max(0, int(w)) for w in weights]
+    weight_sum = sum(clean)
+    total = int(total)
+    if weight_sum <= 0 or total <= 0:
+        return [0] * len(clean)
+    floors = [total * w // weight_sum for w in clean]
+    remainders = [total * w % weight_sum for w in clean]
+    order = sorted(range(len(clean)), key=lambda i: (-remainders[i], -clean[i], str(labels[i]), i))
+    for i in order[: total - sum(floors)]:
+        floors[i] += 1
+    return floors
+
+
+def _generation_date_label(created_at) -> str:
+    """N-858-8: Generierungsdatum in Europe/Zurich (created_at ist UTC)."""
+    from zoneinfo import ZoneInfo
+
+    raw = str(created_at or "").strip()
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return raw[:10] or "Generierung"
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(ZoneInfo("Europe/Zurich")).strftime("%d.%m.%Y")
+
+
+def _strategy_basis_from_allocation(
+    ta_obj, engine_payload: dict | None, current_advisory_wealth_rappen: int | None, currency: str = "CHF",
+) -> dict:
+    """Pruefrunde #858 N-858-2: Strategiebasis und Reserve aus EINEM Zeitpunkt.
+
+    ``build_target_payload_from_allocation`` rechnet ``strategy_base_rappen``
+    mit dem AKTUELLEN Beratungsvermoegen, das PDF zeigt aber das Vermoegen bei
+    Generierung. Die Differenz beider Werte als Reserve war nach einer
+    Vermoegensaenderung falsch (bei Anstieg still 0). Quelle ist deshalb der
+    gespeicherte Generierungs-Snapshot der TargetAllocation
+    (``external_reserve_at_generation_rappen``); nur Altbestaende ohne
+    Snapshot fallen auf die Payload-Reserve zurueck. Weicht das aktuelle
+    Beratungsvermoegen ab, wird darauf ausdruecklich hingewiesen.
+    """
+    payload = engine_payload if isinstance(engine_payload, dict) else {}
+    current = int(current_advisory_wealth_rappen or 0)
+    # I-02 (Integrationsprobe 2026-11-07): ein Snapshot von 0 ist ein Betrag,
+    # kein fehlender Wert -- nur None (Altbestand) faellt aufs aktuelle
+    # Beratungsvermoegen zurueck (wie N-858-11).
+    snapshot = getattr(ta_obj, "advisory_wealth_at_generation_rappen", None)
+    advisory = int(snapshot) if snapshot is not None else current
+    has_basis = snapshot is not None or bool(advisory)
+    stored = getattr(ta_obj, "external_reserve_at_generation_rappen", None)
+    reserve = int(stored) if stored is not None else int(payload.get("external_reserve_rappen") or 0)
+    reserve = min(max(0, reserve), max(0, advisory))
+    ccy = str(currency or "CHF").upper()  # N-858-6: Mandatswaehrung, nicht fest CHF
+    amount = lambda r: format_amount_minor(r, ccy)  # noqa: E731  (G7: Half-up statt round())
+    notes = []
+    if advisory and reserve >= advisory:
+        # N-858-7: alles in der Reserve -- Basis 0 sichtbar machen statt die
+        # Reserve still auf 0 zu setzen.
+        notes.append(
+            f"Die Liquiditätsreserve ({amount(reserve)}) umfasst das ganze Beratungsvermögen: "
+            "keine investierbare Strategiebasis."
+        )
+    if has_basis and current and abs(current - advisory) >= 100:
+        date_label = _generation_date_label(getattr(ta_obj, "created_at", None))
+        notes.append(
+            f"Strategie berechnet auf Beratungsvermögen {amount(advisory)} per {date_label}; "
+            f"aktuelles Beratungsvermögen {amount(current)}. Für aktuelle Beträge die "
+            "Anlagestrategie neu berechnen."
+        )
+    note = " ".join(notes) or None
+    return {
+        "advisory_wealth_rappen": advisory if has_basis else None,
+        "strategy_base_rappen": advisory - reserve if has_basis else None,
+        "external_reserve_rappen": reserve,
+        "note": note,
+    }
+
+
+def _strategy_presentation_amounts(
+    advisory_wealth_rappen: int | None,
+    strategy_base_rappen: int | None,
+    target_alloc_bps: dict[str, int],
+    raw_sub_allocations: list | None,
+) -> dict:
+    """Live-Test 2026-11 H2/H3: EINE Rechenbasis fuer alle Betraege im PDF.
+
+    Die SAA-Gewichte beziehen sich auf die Strategiebasis (Beratungsvermoegen
+    minus externe Liquiditaetsreserve, ``portfolio_engine.
+    _investable_advisory_wealth_rappen``) -- so rechnen App-Buckets und
+    Produktempfehlung. Das PDF rechnete Hauptklassen dagegen auf dem vollen
+    Beratungsvermoegen und Subklassen aus der Produktempfehlung (andere
+    Basis, EM im CH-Produkt). Reine Darstellung: Gewichte bleiben unveraendert.
+
+    Rundung in ganzen Franken nach Largest Remainder, damit Subklassen exakt
+    auf die Klasse, Klassen exakt auf die Strategiebasis und Strategiebasis +
+    Reserve exakt auf das Beratungsvermoegen summieren.
+    """
+    advisory = max(0, int(advisory_wealth_rappen or 0))
+    # N-858-7: None = keine Angabe (Rueckfall auf das Beratungsvermoegen),
+    # 0 = alles in der Reserve (Basis 0, Reserve = Beratungsvermoegen).
+    base = advisory if strategy_base_rappen is None else max(0, int(strategy_base_rappen))
+    if base > advisory:
+        base = advisory
+    # G7: dieselbe Regel wie die App (core.presentation_rounding.presentation_amounts):
+    # Half-up auf ganze Franken (vorher round() = Banker's Rounding), Klassen per
+    # Largest Remainder auf die Strategiebasis.
+    buckets = [b for b, bps in (target_alloc_bps or {}).items() if int(bps or 0) > 0]
+    units = presentation_amounts(advisory, base, [int(target_alloc_bps[b]) for b in buckets], buckets)
+    advisory_chf, base_chf, reserve_chf = units["advisory_units"], units["base_units"], units["reserve_units"]
+    bucket_chf = units["bucket_units"]
+    bucket_amounts = {b: chf * 100 for b, chf in zip(buckets, bucket_chf)}
+
+    by_bucket: dict[str, list[dict]] = {}
+    for item in raw_sub_allocations or []:
+        if not isinstance(item, dict):
+            continue
+        bucket = _bucket_key(item.get("asset_class"))
+        bps = int(item.get("target_weight_bps") or 0)
+        sub = str(item.get("sub_asset_class") or "").strip()
+        if not bucket or not sub or bps <= 0:
+            continue
+        by_bucket.setdefault(bucket, []).append({
+            "asset_class": bucket, "sub_asset_class": sub, "target_weight_bps": bps,
+        })
+    sub_allocations: list[dict] = []
+    for bucket, rows in by_bucket.items():
+        total_chf = bucket_amounts.get(bucket, 0) // 100
+        split = _largest_remainder_split(
+            total_chf, [r["target_weight_bps"] for r in rows], [r["sub_asset_class"] for r in rows],
+        )
+        for row, chf in zip(rows, split):
+            sub_allocations.append({**row, "target_amount_rappen": chf * 100})
+
+    return {
+        "bucket_amounts_rappen": bucket_amounts,
+        "strategy_base_rappen": base_chf * 100 if advisory else None,
+        "external_reserve_rappen": reserve_chf * 100,
+        "sub_allocations": sub_allocations,
+    }
+
+
 def _other_wealth_positions(mandate: Mandate, db: Session) -> list[dict]:
     """Nicht-Beratungsvermoegen-Positionen fuer die Anlagestrategie-PDF's
     "Anderes Vermoegen"-Tabelle. Analoges FX-DRIFT-001/P2-3-Fix wie
@@ -301,8 +606,7 @@ def _other_wealth_positions(mandate: Mandate, db: Session) -> list[dict]:
     sie direkt unit-testbar ist, ohne die volle Strategie-Decision-Anchor-
     Pipeline (TargetAllocation/CMA/RiskAssessment) mitzuseeden."""
     from models.wealth import WealthPosition
-    from services.currency.converter import convert_rappen
-    from services.wealth_position_semantics import canonical_assignment
+    from services.wealth_position_semantics import canonical_assignment, is_liability_assignment
 
     other_wealth_positions: list[dict] = []
     client_id = getattr(mandate, "client_id", None)
@@ -322,17 +626,24 @@ def _other_wealth_positions(mandate: Mandate, db: Session) -> list[dict]:
         wp for wp in rows
         if canonical_assignment(getattr(wp, "assignment", None)) != "Beratungsvermögen"
     ]
+    # CCX-P3-FX (N-909-01): strikte Basis, sonst typisierte Sperre.
+    basis = load_fx_basis(db, target_currency, {getattr(wp, "currency", None) for wp in rows},
+                          tenant_id=getattr(mandate, "tenant_id", None))
     for wp in rows:
         raw_amt = int(getattr(wp, "current_value_rappen", 0) or 0)
-        amt = int(round(convert_rappen(
-            raw_amt, str(getattr(wp, "currency", "") or "CHF"), target_currency,
-        )))
+        amt = basis.convert(raw_amt, getattr(wp, "currency", None)).converted_amount_minor
         if amt == 0:
             continue
         other_wealth_positions.append({
             "label": str(getattr(wp, "label", "—") or "—"),
             "amount_rappen": amt,
             "kind": str(getattr(wp, "position_type", "") or ""),
+            # Live-Test 2026-11 H1: Betraege sind immer >= 0, die Richtung
+            # laeuft ueber das Assignment (LIABILITY-PUBLICATION-001). Ohne
+            # dieses Flag summierte die PDF-Tabelle eine Hypothek als Aktivum
+            # (ETW 500k + Hypothek 300k = "Total Anderes Vermoegen 800k"
+            # statt netto 200k wie in der App).
+            "is_liability": bool(is_liability_assignment(getattr(wp, "assignment", None))),
         })
     return other_wealth_positions
 
@@ -373,11 +684,6 @@ def _assert_report_allocation_context(
     # (FieldInfo) statt None -- nur echte Zeichenketten sind ein Token.
     if not isinstance(expected_allocation_id, str) or not expected_allocation_id.strip():
         return
-    from services.allocation_concurrency import (
-        AllocationVersionConflict,
-        assert_report_allocation_matches,
-    )
-
     try:
         current = _latest_target_allocation(mandate, db)
         assert_report_allocation_matches(current, expected_allocation_id)
@@ -399,7 +705,7 @@ def _require_strategy_decision_anchors(mandate: Mandate, db: Session):
     if int(getattr(allocation, "context_artifacts_required", 0) or 0) != 1:
         raise ValueError(
             "Die aktuelle Soll-Allokation ist ein Legacy-Artefakt ohne "
-            "vollstaendige Entscheidungskontexte; bitte Strategie neu berechnen."
+            "vollständige Entscheidungskontexte; bitte Strategie neu berechnen."
         )
 
     policy_id = str(getattr(allocation, "policy_id", "") or "").strip()
@@ -436,7 +742,7 @@ def _require_strategy_decision_anchors(mandate: Mandate, db: Session):
     if assessment is None:
         raise ValueError(
             "Das von der Soll-Allokation referenzierte Risikoprofil fehlt oder "
-            "gehoert nicht zu diesem Mandat; bitte Strategie neu berechnen."
+            "gehört nicht zu diesem Mandat; bitte Strategie neu berechnen."
         )
     if int(getattr(assessment, "is_current", 0) or 0) != 1:
         raise ValueError(
@@ -460,10 +766,39 @@ def _require_strategy_decision_anchors(mandate: Mandate, db: Session):
     if snapshot_cma is None:
         raise ValueError(
             "Der von der Soll-Allokation referenzierte CMA-Snapshot fehlt; "
-            "aktuelle Ersatzannahmen sind unzulaessig. Bitte Strategie neu "
+            "aktuelle Ersatzannahmen sind unzulässig. Bitte Strategie neu "
             "berechnen."
         )
     return allocation, policy, assessment, snapshot_cma
+
+
+def _mc_has_distribution(mc: dict) -> bool:
+    """N-873-04: Der MC-Erzeuger liefert fuer leere bzw. einelementige
+    Stichproben den Platzhalter 0 (``_percentile([])``, ``_stddev_bps`` bei
+    < 2 Werten). Bei weniger als zwei Pfaden oder Horizont < 1 Jahr ist eine
+    0 also kein gerechneter Wert. Altpayloads ohne diese Angaben gelten als
+    vollstaendig (keine Aussage moeglich)."""
+    for key, minimum in (("simulations", 2), ("horizon_years", 1)):
+        raw = mc.get(key)
+        if raw is None:
+            continue
+        try:
+            if int(raw) < minimum:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
+def _optional_mc_bps(mc: dict, key: str) -> int | None:
+    """MC-Kennzahl in bps; None nur bei fehlendem Wert, 0 bleibt 0 (N-858-12).
+    Ohne auswertbare Verteilung (N-873-04) ist jede Kennzahl None."""
+    if not _mc_has_distribution(mc):
+        return None
+    raw = mc.get(key)
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    return int(raw)
 
 
 def _knowledge_map_from_json(raw) -> dict[str, bool]:
@@ -518,20 +853,20 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     )
     target_alloc_bps = _target_allocation_weights(ta_obj)
     bucket_bands = _target_allocation_bands(ta_obj)
-    advisory_wealth = (
+    # N-858-11: ein Generierungs-Snapshot von 0 ist ein Betrag (Strategie auf 0
+    # gerechnet); nur ein fehlender Snapshot (None, Altbestand) faellt zurueck.
+    _snapshot = getattr(ta_obj, "advisory_wealth_at_generation_rappen", None)
+    advisory_wealth = int(_snapshot) if _snapshot is not None else (
         int(getattr(ta_obj, "advisory_wealth_at_generation_rappen", 0) or 0)
         or current_advisory_wealth
         or None
     )
-    if advisory_wealth:
-        for bucket, bps in target_alloc_bps.items():
-            bucket_amounts[bucket] = int(advisory_wealth * bps / 10000)
     prefs_raw = getattr(ta_obj, "preferences_json", None)
     if prefs_raw:
         parsed_prefs = json.loads(prefs_raw)
         if not isinstance(parsed_prefs, dict):
             raise ValueError(
-                "Die gespeicherten Strategie-Praeferenzen sind ungueltig; "
+                "Die gespeicherten Strategie-Präferenzen sind ungültig; "
                 "bitte Strategie neu berechnen."
             )
         allocation_preferences = parsed_prefs
@@ -564,11 +899,28 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     # ---- CMA-Werte aus Engine-Payload (echtes √(w'Σw) via _portfolio_volatility_bps) ----
     if not isinstance(engine_payload, dict):
         raise ValueError(
-            "Die Strategie-Engine lieferte kein gueltiges Ergebnis; bitte "
+            "Die Strategie-Engine lieferte kein gültiges Ergebnis; bitte "
             "Strategie neu berechnen."
         )
     cma_return = int(engine_payload.get("expected_return_bps", 0) or 0)
     cma_vol = int(engine_payload.get("expected_volatility_bps", 0) or 0)
+
+    # Live-Test 2026-11 H2/H3: Betraege auf der Strategiebasis der Engine
+    # (Gewichte beziehen sich auf Beratungsvermoegen minus externe Reserve),
+    # Reserve separat, Subklassen aus der SAA-Sub-Allokation.
+    # N-858-2: Basis und Reserve aus dem Generierungs-Snapshot, nicht aus dem
+    # live gerechneten Payload (anderer Zeitpunkt).
+    strategy_basis = _strategy_basis_from_allocation(
+        ta_obj, engine_payload, current_advisory_wealth,
+        currency=str(getattr(mandate, "base_currency", "CHF") or "CHF"),
+    )
+    presentation_amounts = _strategy_presentation_amounts(
+        strategy_basis["advisory_wealth_rappen"],
+        strategy_basis["strategy_base_rappen"],
+        target_alloc_bps,
+        engine_payload.get("sub_allocations"),
+    )
+    bucket_amounts = presentation_amounts["bucket_amounts_rappen"]
 
     # ---- Risk-Assessment ----
     risk_score_x10 = None
@@ -838,15 +1190,23 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     current_cagr_bps = None
     target_vol_1y_bps = None
     current_vol_1y_bps = None
+    projection_end_year_label = None
+    target_depletion_note = current_depletion_note = None
     if engine_payload is not None:
         mc = engine_payload.get("monte_carlo") or {}
+        _mc_labels = mc.get("year_labels")
+        if isinstance(_mc_labels, list) and _mc_labels:
+            projection_end_year_label = str(_mc_labels[-1])
         try:
-            max_dd_bps = int(mc.get("target_max_drawdown_p50_bps", 0) or 0) or None
-            var_95_bps = int(mc.get("target_var_95_1y_bps", 0) or 0) or None
-            median_cagr_bps = int(mc.get("target_annualized_return_p50_bps", 0) or 0) or None
-            current_cagr_bps = int(mc.get("current_annualized_return_p50_bps", 0) or 0) or None
-            target_vol_1y_bps = int(mc.get("target_volatility_1y_bps", 0) or 0) or None
-            current_vol_1y_bps = int(mc.get("current_volatility_1y_bps", 0) or 0) or None
+            # N-858-12: 0 bps ist ein gueltiger gerechneter Wert (z. B. reine
+            # Liquiditaet: Drawdown 0, VaR 0) und darf nicht als "keine
+            # Angabe" erscheinen. Nur ein fehlender Wert ist None.
+            max_dd_bps = _optional_mc_bps(mc, "target_max_drawdown_p50_bps")
+            var_95_bps = _optional_mc_bps(mc, "target_var_95_1y_bps")
+            median_cagr_bps = _optional_mc_bps(mc, "target_annualized_return_p50_bps")
+            current_cagr_bps = _optional_mc_bps(mc, "current_annualized_return_p50_bps")
+            target_vol_1y_bps = _optional_mc_bps(mc, "target_volatility_1y_bps")
+            current_vol_1y_bps = _optional_mc_bps(mc, "current_volatility_1y_bps")
 
             # Die SOLL-Endwerte netten die externe Reserve aus dem investierten
             # Kapital heraus (Optimizer-Konvention) -- fuer eine mit dem
@@ -875,6 +1235,9 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
             current_median_end_rappen = _last("current_p50_series_rappen")
             current_p90_end_rappen = _last("current_p90_series_rappen")
             current_p10_end_rappen = _last("current_p10_series_rappen")
+            # E2E2-03: Verzehr im mittleren Verlauf -> Kennzahlen nicht aussagekraeftig.
+            target_depletion_note = depletion_note(_mc_labels, mc.get("target_p50_series_rappen"), reserve_rappen)
+            current_depletion_note = depletion_note(_mc_labels, mc.get("current_p50_series_rappen"))
         except (TypeError, ValueError) as exc:
             logger.warning(
                 "PDF MC-metrics parse failed for mandate %s: %s",
@@ -904,7 +1267,9 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
             try:
                 parsed = json.loads(raw_achievability)
                 if isinstance(parsed, list):
-                    goal_achievability = [item for item in parsed if isinstance(item, dict)]
+                    # P5b / N-925-03: Anzeige aus dem kanonischen M-3-Payload.
+                    goal_achievability = canonical_goal_rows(
+                        [item for item in parsed if isinstance(item, dict)], ta_obj)
             except (TypeError, ValueError) as exc:
                 logger.warning(
                     "Stored goal_achievability_json invalid for TA %s: %s",
@@ -930,6 +1295,10 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         knowledge_instruments=knowledge_instruments,
         bucket_bands_bps=bucket_bands,
         bucket_amounts_rappen=bucket_amounts,
+        strategy_base_rappen=presentation_amounts["strategy_base_rappen"],
+        external_reserve_rappen=presentation_amounts["external_reserve_rappen"],
+        sub_allocations=presentation_amounts["sub_allocations"],
+        strategy_basis_note=strategy_basis["note"],
         products=products,
         recommendation_status=recommendation_status,
         goal_analysis=goal_analysis,
@@ -955,10 +1324,20 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         current_annualized_return_p50_bps=current_cagr_bps,
         target_volatility_1y_bps=target_vol_1y_bps,
         current_volatility_1y_bps=current_vol_1y_bps,
+        projection_end_year_label=projection_end_year_label,
+        target_depletion_note=target_depletion_note,
+        current_depletion_note=current_depletion_note,
         band_house_deviations=list(band_disclosure["deviations"]),
         band_house_profile=band_disclosure["profile"],
         band_deviation_reason=band_disclosure["reason"],
     )
+
+
+def _assert_client_pdf_fx_basis(db: Session, mandate: Mandate) -> None:
+    """CCX-P3-FX (N-909-13): Kundendokumente mit eingefrorenen Betraegen
+    pruefen beim Druck die heutige strikte FX-Basis, solange der Lauf nicht
+    versiegelt ist (wie der gespeicherte Depot-Check, N-909-02)."""
+    assert_print_fx_basis_current(db, mandate)
 
 
 def _assert_client_pdf_signoff(db: Session, mandate: Mandate) -> None:
@@ -971,6 +1350,124 @@ def _assert_client_pdf_signoff(db: Session, mandate: Mandate) -> None:
     )
 
     assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_CLIENT_PDF)
+
+
+def _assert_client_pdf_kyc_review(db: Session, mandate: Mandate, current_user: User,
+                                  request: Request | None) -> None:
+    """C-890-01: kundenwirksame PDFs (Klassifikation: services/
+    recommendation_release_gate.py::REPORT_ROUTE_CLASSIFICATION) nutzen
+    dieselbe Wiedervorlage-Pruefung wie Finalisierung, Signatur und Handoff:
+    liegt eine KYC-Bestaetigung vor, muss sie an die heute wirksame,
+    freigegebene Policy gebunden und nicht faellig sein (VOR jedem Render/
+    Archiv; Sperre tenantgebunden auditiert, ``client_pdf_blocked``)."""
+    assert_kyc_review_release_eligible(
+        db, mandate, channel=CHANNEL_CLIENT_PDF,
+        on_block=release_block_audit(
+            db, user=current_user,
+            ip_address=_extract_client_ip(request) if request is not None else None,
+            mandate_id=mandate.id, field_name="client_pdf_blocked",
+            set_tenant_context=set_tenant_context,
+        ),
+    )
+
+
+def _archive_content_hash(data, ctx: PDFContext) -> str:
+    """N-897-17: der Markierungszustand ist Teil des Archiv-Schluessels --
+    eine Entwurfsfassung ("vorvertrag") hat nie denselben Hash wie die finale."""
+    base = content_hash_for(data)
+    mode = getattr(ctx, "watermark_mode", "none") or "none"
+    # CCX P5: der gebundene Entscheid ist Teil des Archiv-Schluessels -- gleiche
+    # Fachdaten unter einem anderen Envelope ergeben eine neue Fassung (das
+    # Dokument traegt dessen Pruefnummer), nie die alte wiederverwendet.
+    decision = (getattr(ctx, "decision_ref", None) or {}).get("envelope_hash")
+    if mode == "none" and not decision:
+        return base
+    return hashlib.sha256(f"{base}|{mode}|{decision or ''}".encode("utf-8")).hexdigest()
+
+
+def _archive_final(ctx: PDFContext, db: Session, **kwargs):
+    """N-897-17: nur FINALE Fassungen werden archiviert (und damit signierbar).
+    Ein Entwurf vor Vertragsabschluss (ohne KYC-Bestaetigung) wird ausgeliefert,
+    aber nie als Archivversion abgelegt; nach der KYC-Bestaetigung entsteht beim
+    naechsten Erzeugen eine neue, finale Fassung."""
+    if (getattr(ctx, "watermark_mode", "none") or "none") != "none":
+        return None
+    # CCX-P2 (Dokumentarchiv) / N-908-01: ein Dokument zur Soll-Allokation eines
+    # versiegelten, aber nicht FRESHen Beratungsentscheids wird nicht als finale
+    # (signierbare) Fassung abgelegt. Geprueft wird nicht nur der gespeicherte
+    # Status, sondern auch die Kanten gegen die aktuellen Objekte (Pull);
+    # Reason-Code, Audit mit Tenant-Kontext nach Rollback, danach wird eine
+    # gefundene Abweichung als Ereignis + STALE festgehalten. Kein Fallback.
+    target_allocation_id = (kwargs.get("binding") or {}).get("target_allocation_id")
+    mandate = db.get(Mandate, kwargs["mandate_id"])
+    blocked, envelope, drift = decision_freshness_for_allocation(
+        db, mandate=mandate, target_allocation_id=target_allocation_id,
+    )
+    if blocked is not None:
+        audit = gate_block_audit(
+            db, user=kwargs["current_user"], mandate=mandate,
+            ip_address=kwargs.get("ip_address"), table_name="advisory_decision_envelopes",
+            field_name="ccx.envelope.rejected", set_tenant_context=set_tenant_context,
+        )
+        audit(json.dumps({
+            "reason_code": str(blocked), "channel": "archive", "document_type": kwargs.get("document_type"),
+            "target_allocation_id": target_allocation_id,
+        }, sort_keys=True), {"decision_id": None})
+        if drift and envelope is not None:
+            persist_freshness_drift(db, db.get(type(envelope), envelope.id), drift, kwargs["current_user"])
+        stale = blocked == ReasonCode.CCX_INPUT_STALE
+        raise DomainError(
+            ReasonCode.CCX_INPUT_STALE if stale else ReasonCode.CCX_FRESHNESS_UNKNOWN,
+            "Der Beratungsentscheid zu dieser Strategie ist veraltet; das Dokument wird nicht als finale "
+            "Fassung abgelegt. Bitte neu berechnen und finalisieren." if stale else
+            "Die Aktualität des Beratungsentscheids zu dieser Strategie ist nicht belegt; das Dokument wird "
+            "nicht als finale Fassung abgelegt.",
+            http_status=409,
+            extra={"channel": "archive", "target_allocation_id": target_allocation_id},
+        )
+    doc = archive_generated_pdf(db, **kwargs)
+    # CCX P5: die finale Fassung eines Entscheid-Dokuments wird als PDF-Artefakt
+    # genau dieses Envelopes festgehalten (Payload-/Render-Hash); nur so ist sie
+    # spaeter signierbar.
+    ref = getattr(ctx, "decision_ref", None) or {}
+    if doc is not None and ref.get("envelope_hash") and target_allocation_id:
+        decision = _channel_decision(db, mandate)
+        if decision.ok and decision.envelope_hash == ref["envelope_hash"]:
+            record_channel_publication(
+                db, decision, mandate=mandate, channel=CHANNEL_PDF, artifact_id=str(doc.id),
+                channel_payload_hash=str(doc.content_hash), render_hash=str(doc.checksum_sha256),
+                user=kwargs["current_user"],
+            )
+    return doc
+
+
+def _archive_final_unbound(ctx: PDFContext, db: Session, **kwargs):
+    """H12 N-910-11: Archiv einer allokationsfreien finalen Fassung (Risikoprofil).
+    Ohne Bindung an eine Soll-Allokation gibt es keinen Beratungsentscheid, dessen
+    Frische zu pruefen waere (``_archive_final`` prueft sie nur mit
+    ``binding.target_allocation_id``); dieser Pfad liest deshalb nichts aus der
+    Allokation. Eine Bindung ist hier unzulaessig."""
+    if kwargs.get("binding"):
+        raise ValueError("_archive_final_unbound: Dokumente mit Allokationsbindung über _archive_final")
+    if (getattr(ctx, "watermark_mode", "none") or "none") != "none":
+        return None
+    return archive_generated_pdf(db, **kwargs)
+
+
+def _assert_client_pdf_sustainability_floor(db: Session, mandate: Mandate, current_user, request) -> None:
+    """E2b / N-888-10: Kunden-PDFs mit Strategie/Produkten (Anlagestrategie,
+    Anlagerezept, Kostenausweis) nur, wenn die aktuelle Soll-Allokation die
+    Kundenausschluesse einhaelt -- mit Audit-Eintrag, VOR Render und Archiv."""
+    allocation = _latest_target_allocation(mandate, db)
+    audit = gate_block_audit(
+        db, user=current_user, mandate=mandate,
+        ip_address=_extract_client_ip(request) if request is not None else None,
+        table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+        set_tenant_context=set_tenant_context,
+    )
+    _assert_floor(db, mandate, allocation=allocation, channel="client_pdf", audit=audit)
+    # Nachtrag 1: Produkte im Kundendokument nur mit belegtem Ausschluss.
+    _assert_run_evidence(db, mandate, _current_run_id(db, mandate, allocation), channel="client_pdf", audit=audit)
 
 
 def _assert_client_pdf_cma_hold(db: Session, mandate: Mandate) -> None:
@@ -1003,21 +1500,25 @@ def get_anlagestrategie_pdf(
 ):
     """Generiert Anlagestrategie-PDF fuer das Mandat."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
+    _assert_client_pdf_sustainability_floor(db, mandate, current_user, request)
     _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
+    ctx = _mark_unpublished(ctx, db, mandate)
     try:
         data = _build_anlagestrategie_data(mandate, db)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     pdf_bytes = ReportLabRenderer().render_anlagestrategie(ctx, data)
-    archive_generated_pdf(
-        db, mandate_id=mandate.id, document_type="Anlagestrategie",
+    _archive_final(
+        ctx, db, mandate_id=mandate.id, document_type="Anlagestrategie",
         title="Anlagestrategie / Vertrag", pdf_bytes=pdf_bytes,
-        content_hash=content_hash_for(data),
+        content_hash=_archive_content_hash(data, ctx),
         current_user=current_user, ip_address=_extract_client_ip(request),
+        binding=_document_binding(db, mandate),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
     # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
@@ -1045,9 +1546,11 @@ def get_assetallocation_pdf(
 ):
     """Reines Asset-Allocation-PDF fuer die Asset-Allocation-Maske."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
+    ctx = _mark_unpublished(ctx, db, mandate)
     try:
         data = _build_anlagestrategie_data(mandate, db)
     except ValueError as exc:
@@ -1079,8 +1582,14 @@ def get_risikoprofil_pdf(
 ):
     """Generiert Risikoprofil-PDF fuer das Mandat (FINMA W305-konform)."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     _assert_client_pdf_signoff(db, mandate)
-    ctx = _build_pdf_context(mandate, current_user, db)
+    # H12 N-910-11 / N-909-20: allokationsfrei. Das Beratungsvermoegen kommt aus
+    # der Vermoegenserfassung (strikte FX-Basis genau der gedruckten Positionen,
+    # sperrt typisiert CCX_FX_BASIS_* vor dem Rendern); keine Soll-Allokation,
+    # daher kein Publish-Gate (Aufrufgraph-Waechter ALLOCATION_FREE_PDF_ROUTES).
+    advisory_wealth_rappen = _advisory_wealth_from_capture(mandate, db)
+    ctx = _build_pdf_context(mandate, current_user, db, allocation_free=True)
 
     # Risikoprofil-Daten aus dem juengsten RiskAssessment laden (defensiv)
     risk_label = "Nicht definiert"
@@ -1099,15 +1608,6 @@ def get_risikoprofil_pdf(
     knowledge_services: dict[str, bool] = {}
     knowledge_instruments: dict[str, bool] = {}
     risk_answers: list = []
-    advisory_wealth_rappen = None
-    try:
-        ta = _latest_target_allocation(mandate, db)
-        if ta is not None:
-            advisory_wealth_rappen = int(
-                getattr(ta, "advisory_wealth_at_generation_rappen", 0) or 0
-            ) or None
-    except Exception as exc:
-        logger.warning("Risikoprofil PDF advisory wealth load failed: %s", exc)
     ra = None
     try:
         from models.profiling import RiskAssessment, RiskAssessmentAnswer
@@ -1170,7 +1670,7 @@ def get_risikoprofil_pdf(
                 ) = resolve_assessment_decision(db, ra)
                 suitability_note = "Berater-Override wurde dokumentiert."
                 if override_reason:
-                    suitability_note += f" Begruendung: {override_reason}"
+                    suitability_note += f" Begründung: {override_reason}"
                 # Kontrollrunde 2026-09-21 (Override-Begruendungs-Audit): diese
                 # dedizierte FINMA-W305-Risikoprofil-PDF liest override_reason
                 # bisher ohne jede Qualitaetspruefung -- ein Altbestand-Override
@@ -1189,7 +1689,7 @@ def get_risikoprofil_pdf(
                     )
             else:
                 suitability_note = (
-                    "Risikofaehigkeit, Risikobereitschaft, Anlagehorizont "
+                    "Risikofähigkeit, Risikobereitschaft, Anlagehorizont "
                     "sowie Kenntnisse und Erfahrungen wurden dokumentiert."
                 )
     except Exception as exc:
@@ -1197,14 +1697,10 @@ def get_risikoprofil_pdf(
             "PDF data-load section failed for mandate %s: %s",
             getattr(mandate, "id", "?"), exc,
         )
+    # H9 (Owner-Vorgabe 2026-11-08): kein Plausibilitaets-/Widerspruchshinweis
+    # zur Risikofaehigkeit im Risikoprofil-PDF -- Kundenangaben werden
+    # respektiert, die Pruefung bleibt intern (Evidenz + Audit).
     capacity_plausibility_note = ""
-    if ra is not None and int(getattr(ra, "is_current", 0) or 0) == 1:
-        from services.risk_capacity_plausibility import (
-            evaluate_mandate_safely, pdf_advisor_note,
-        )
-        capacity_plausibility_note = pdf_advisor_note(
-            evaluate_mandate_safely(db, mandate, ra)
-        )
 
     # RISK-PROFILE-SIGNOFF-001: Signoff-Zustand + Referenz (dieselbe Quelle
     # wie Beratungsprotokoll-PDF, API und Strategie-Meldung).
@@ -1235,13 +1731,14 @@ def get_risikoprofil_pdf(
         signoff_hash=signoff_view.get("signoff_hash"),
         signoff_lines=signoff_view.get("lines", ()),
         capacity_plausibility_note=capacity_plausibility_note,
+        w033_lines=_risk_profile_w033_lines(db, mandate),
     )
 
     pdf_bytes = ReportLabRenderer().render_risikoprofil(ctx, risk_data)
-    archive_generated_pdf(
-        db, mandate_id=mandate.id, document_type="Risikoprofilierung",
+    _archive_final_unbound(
+        ctx, db, mandate_id=mandate.id, document_type="Risikoprofilierung",
         title="Risikoprofil", pdf_bytes=pdf_bytes,
-        content_hash=content_hash_for(risk_data),
+        content_hash=_archive_content_hash(risk_data, ctx),
         current_user=current_user, ip_address=_extract_client_ip(request),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
@@ -1308,7 +1805,7 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
                 )
             raise HTTPException(
                 status_code=404,
-                detail="Noch kein Portfolio fuer die aktuelle Asset Allocation generiert.",
+                detail="Noch kein Portfolio für die aktuelle Asset Allocation generiert.",
             )
         if last_run is not None:
             pos_list = (
@@ -1368,7 +1865,10 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
                     "target_weight_bps": target_bps,
                     "current_weight_bps": current_bps,
                     "drift_bps": drift_bps,
-                    "target_amount_rappen": int(getattr(pos, "target_amount_rappen", 0) or 0),
+                    "target_amount_rappen": (  # N-858-11: None bleibt None, 0 bleibt 0
+                        None if getattr(pos, "target_amount_rappen", None) is None
+                        else int(pos.target_amount_rappen)
+                    ),
                     "current_amount_rappen": current_amount,
                     "currency": str(getattr(prod, "currency", "CHF") or "CHF"),
                     "ter_bps": int(getattr(prod, "ter_bps", 0) or 0),
@@ -1399,17 +1899,22 @@ def get_portfolio_pdf(
 ):
     """Sprint 11 Phase 6: Portfolio-PDF mit Positionen + Soll-vs-IST + Drift."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
+    _assert_client_pdf_fx_basis(db, mandate)  # CCX-P3-FX N-909-13
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
+    _assert_client_pdf_sustainability_floor(db, mandate, current_user, request)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
+    ctx = _mark_unpublished(ctx, db, mandate)
     data = _build_portfolio_data(mandate, db)
     pdf_bytes = ReportLabRenderer().render_portfolio(ctx, data)
-    archive_generated_pdf(
-        db, mandate_id=mandate.id, document_type="Anlagerezept",
+    _archive_final(
+        ctx, db, mandate_id=mandate.id, document_type="Anlagerezept",
         title="Portfolio-/Umsetzungsplan", pdf_bytes=pdf_bytes,
-        content_hash=content_hash_for(data),
+        content_hash=_archive_content_hash(data, ctx),
         current_user=current_user, ip_address=_extract_client_ip(request),
+        binding=_document_binding(db, mandate),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
     # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
@@ -1444,7 +1949,9 @@ def _build_vertrag_data(mandate: Mandate, doc_id: str | None, db: Session) -> Ve
         "Die Umsetzung erfolgt eigenverantwortlich durch den Kunden."
     )
     sondervereinbarungen = None
-    ort = "Zürich"
+    # H-179 V-1: kein Vorgabe-Ort (frueher «Zürich»); Pflichtfeld des Vertrags.
+    ort = ""
+    source_document_id = None
     datum = date.today().isoformat()
 
     try:
@@ -1458,6 +1965,7 @@ def _build_vertrag_data(mandate: Mandate, doc_id: str | None, db: Session) -> Ve
         else:
             doc = q.order_by(ContractDocument.created_at.desc()).first()
         if doc is not None:
+            source_document_id = str(doc.id)
             document_title = str(getattr(doc, "title", None) or document_title)
             document_type = str(getattr(doc, "document_type", None) or document_type)
             content_raw = getattr(doc, "content_json", None)
@@ -1470,22 +1978,19 @@ def _build_vertrag_data(mandate: Mandate, doc_id: str | None, db: Session) -> Ve
                         sondervereinbarungen = parsed.get("sondervereinbarungen", None)
                         if sondervereinbarungen is not None:
                             sondervereinbarungen = str(sondervereinbarungen)
-                        ort = str(parsed.get("ort_unterzeichnung", parsed.get("ort", ort)) or ort)
+                        # H-179: die Vertragsmaske speichert den Ort als "place".
+                        ort = str(
+                            parsed.get("ort_unterzeichnung") or parsed.get("ort") or parsed.get("place") or ort
+                        ).strip()
                         datum = str(parsed.get("vereinbarungs_datum", parsed.get("datum", datum)) or datum)
                 except (json.JSONDecodeError, TypeError) as exc:
                     logger.warning("Vertrag content_json parse failed: %s", exc)
     except Exception as exc:
         logger.warning("Vertrag data: ContractDocument load failed: %s", exc)
 
-    advisory_wealth = None
-    try:
-        ta = _latest_target_allocation(mandate, db)
-        if ta is not None:
-            advisory_wealth = int(
-                getattr(ta, "advisory_wealth_at_generation_rappen", 0) or 0
-            ) or None
-    except Exception as exc:
-        logger.warning("Vertrag data: TA load failed: %s", exc)
+    # H12 N-910-11: allgemeiner Vertrag ohne Strategie -- Beratungsvermoegen aus
+    # der Vermoegenserfassung (strikt, nicht still abgefangen).
+    advisory_wealth = _advisory_wealth_from_capture(mandate, db)
 
     return VertragData(
         document_title=document_title,
@@ -1497,6 +2002,7 @@ def _build_vertrag_data(mandate: Mandate, doc_id: str | None, db: Session) -> Ve
         vereinbarungs_datum=datum,
         mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
         advisory_wealth_rappen=advisory_wealth,
+        source_document_id=source_document_id,
     )
 
 
@@ -1513,9 +2019,56 @@ def get_vertrag_pdf(
 ):
     """Sprint 12: Vertrags-PDF (ContractDocument). Optional ?document_id=..."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
-    ctx = _build_pdf_context(mandate, current_user, db)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, None)
+    # H12 N-910-11 / N-909-20: allokationsfrei; die FX-Pruefung steckt in der
+    # Vermoegensangabe (_advisory_wealth_from_capture), vor dem Rendern.
     data = _build_vertrag_data(mandate, document_id, db)
+    ctx = _build_pdf_context(mandate, current_user, db, allocation_free=True)
+    # H-179 V-1: der Beratungsvertrag traegt die Klauseln der freigegebenen
+    # Vertragsvorlage des Mandatstyps und deren Pruefwert. Ohne Freigabe, ohne
+    # Ort oder mit offenen L2/L3-Punkten ist er ein Entwurf (Wasserzeichen,
+    # nie archiviert, nicht signierbar); final wird er mit der Vorlagen-
+    # Bindung archiviert (Grundlage der Signatur und der P5-Bindung).
+    extra_headers: dict[str, str] = {}
+    doc = None
+    if data.document_type == CONTRACT_DOCUMENT_TYPE:
+        template = contract_template_state(db, mandate)
+        data = dataclasses.replace(
+            data,
+            contract_clauses=tuple((c["label"], c["text"]) for c in template["clauses"]),
+            contract_catalog_version=template["catalog_version"],
+            contract_template_hash=template["template_hash"],
+        )
+        findings = contract_layer_findings(db, mandate, channel=CHANNEL_SIGNATURE)
+        if not data.ort_unterzeichnung.strip():
+            findings.append({"reason_code": "CONTRACT_PLACE_MISSING"})
+        if findings or not template["template_hash"]:
+            # Vorrang hat ein bereits gesetzter Entwurfsgrund (z.B. "vorvertrag"
+            # ohne KYC-Bestaetigung); auch dann bleibt der Vertrag Entwurf.
+            if (getattr(ctx, "watermark_mode", "none") or "none") == "none":
+                ctx = dataclasses.replace(ctx, watermark_mode="vertragsvorlage")
+            extra_headers["X-Ares-Draft"] = "vertragsvorlage"
+            extra_headers["X-Ares-Draft-Reasons"] = ",".join(sorted({f["reason_code"] for f in findings}))
+        if template["template_hash"]:
+            extra_headers["X-Ares-Contract-Template-Hash"] = template["template_hash"]
     pdf_bytes = ReportLabRenderer().render_vertrag(ctx, data)
+    if (
+        data.document_type == CONTRACT_DOCUMENT_TYPE
+        and (getattr(ctx, "watermark_mode", "none") or "none") == "none"
+    ):
+        binding = contract_template_binding(db, mandate)
+        doc = archive_generated_pdf(
+            db, mandate_id=mandate.id, document_type=CONTRACT_DOCUMENT_TYPE,
+            title=data.document_title, pdf_bytes=pdf_bytes,
+            content_hash=content_hash_for(data), current_user=current_user,
+            content_json=json.dumps({
+                "source_document_id": data.source_document_id,
+                "ort_unterzeichnung": data.ort_unterzeichnung,
+                "vereinbarungs_datum": data.vereinbarungs_datum,
+                "contract_template": binding,
+            }, sort_keys=True, ensure_ascii=False),
+        )
+        extra_headers["X-Ares-Contract-Document-Id"] = str(doc.id)
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
     # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
     # waere der filename*-Parameter wirkungslos und der exakte Name
@@ -1525,7 +2078,7 @@ def get_vertrag_pdf(
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": content_disposition(filename, disposition="inline")},
+        headers={"Content-Disposition": content_disposition(filename, disposition="inline"), **extra_headers},
     )
 
 
@@ -1543,15 +2096,20 @@ def _build_contract_signoff_data(
         raise ValueError(
             "Beratungsentscheid kann nicht erstellt werden: zur aktuellen "
             f"Soll-Allokation liegt {NO_CURRENT_RECOMMENDATION_MARKER} vor. "
-            "Bitte zuerst die Produktempfehlung (Portfolio) fuer die aktuelle "
+            "Bitte zuerst die Produktempfehlung (Portfolio) für die aktuelle "
             "Allokation generieren."
         )
-    protocol = _build_protokoll_data(mandate, db)
+    # KN9a: der Beratungsentscheid zeigt Protokolleintraege (Tabelle
+    # «Beratungsinhalt») -- dieselbe Integritaetsregel wie im Protokoll.
+    protocol = _build_protokoll_data(mandate, db, document="Beratungsentscheid")
     ta = _latest_target_allocation(mandate, db)
     method = str(getattr(ta, "optimization_method", "") or "").strip() or None
     orientation = strategy.optimizer_reasoning or _format_portfolio_orientation(
         strategy.allocation_preferences
     )
+    # KN7 (H-181, CTO-Nachtrag Punkt 1): Pruefgrundlage aus demselben Audit wie
+    # Sektion 19 des Advisory-Reports (fail-closed Wrapper: Fehler -> degraded).
+    suitability = suitability_compliance_for_mandate(db, mandate)
     return ContractSignoffData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
         advisory_wealth_rappen=strategy.advisory_wealth_rappen,
@@ -1576,6 +2134,9 @@ def _build_contract_signoff_data(
         band_house_deviations=list(strategy.band_house_deviations or []),
         band_house_profile=strategy.band_house_profile,
         band_deviation_reason=strategy.band_deviation_reason,
+        suitability_basis=suitability.get("suitability_basis"),
+        suitability_is_compliant=suitability.get("is_compliant"),
+        suitability_audit_degraded=bool(suitability.get("audit_degraded")),
     )
 
 
@@ -1592,7 +2153,7 @@ def _format_portfolio_orientation(preferences) -> str:
     if not isinstance(preferences, dict) or not preferences:
         return (
             "Die Portfolioausrichtung folgt der dokumentierten Zielallokation "
-            "und den im Beratungsgespraech festgehaltenen Praeferenzen."
+            "und den im Beratungsgespräch festgehaltenen Präferenzen."
         )
     values: list[str] = []
     for section in ("policy", "assetClasses", "product", "geo"):
@@ -1609,13 +2170,17 @@ def _format_portfolio_orientation(preferences) -> str:
                 if label:
                     values.append(label)
                 continue
-            values.append(f"{key}: {value}")
+            # KN4-B / E2E4-03: nur Kundentexte aus der Label-Liste; ein
+            # unbekannter Schluessel oder Wert wird weggelassen, nie roh gedruckt.
+            label = preference_label(section, key, value)
+            if label and label not in values:
+                values.append(label)
     if not values:
         return (
             "Die Portfolioausrichtung folgt der dokumentierten Zielallokation "
-            "und den im Beratungsgespraech festgehaltenen Praeferenzen."
+            "und den im Beratungsgespräch festgehaltenen Präferenzen."
         )
-    return "Dokumentierte Praeferenzen: " + "; ".join(values[:12]) + "."
+    return "Dokumentierte Präferenzen: " + "; ".join(values[:12]) + "."
 
 
 @router.get(
@@ -1630,10 +2195,18 @@ def get_contract_signoff_pdf(
 ):
     """Final customer sign-off for the documented advisory decision."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     _assert_client_pdf_signoff(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
+    # N-910-01 (CTO-Entscheid): der Beratungsentscheid traegt Zielallokation und
+    # Baender. Ohne gueltige Publikation: Entwurf mit Wasserzeichen und statt des
+    # Unterschriftsblocks "Nicht zur Unterzeichnung"; erst nach gueltiger
+    # Publikation gibt es den Unterschriftsblock.
+    ctx = _mark_unpublished(ctx, db, mandate)
     try:
         data = _build_contract_signoff_data(mandate, db)
+    except AdvisoryLogIntegrityFailed as exc:
+        raise _advisory_log_integrity_409(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     pdf_bytes = ReportLabRenderer().render_contract_signoff(ctx, data)
@@ -1653,7 +2226,7 @@ def get_contract_signoff_pdf(
 
 
 _SIGNOFF_LOAD_FAILED = ((
-    "Signatur-Status", "Signoff-Nachweis konnte nicht geladen werden -- pruefen",
+    "Signatur-Status", "Signatur-Nachweis konnte nicht geladen werden – bitte prüfen",
 ),)
 
 
@@ -1666,7 +2239,7 @@ def _risk_signoff_view(db: Session, ra) -> dict:
     if ra is not None and int(getattr(ra, "is_current", 0) or 0) != 1:
         return {"state": None, "lines": ((
             "Signatur-Status",
-            "Kein aktuelles Risikoprofil -- Signatur nicht ausweisbar",
+            "Kein aktuelles Risikoprofil – Signatur nicht ausweisbar",
         ),)}
     try:
         view = build_signoff_view(db, ra)
@@ -1677,8 +2250,352 @@ def _risk_signoff_view(db: Session, ra) -> dict:
     return view
 
 
-def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
-    """Beratungsprotokoll-Daten aus AdvisoryLog + letzter Empfehlung."""
+_REPRESENTATION_LABELS = {
+    "vollmacht": "Vollmacht",
+    "vorsorgeauftrag": "Vorsorgeauftrag (ZGB 360 ff.)",
+    "beistandschaft": "Beistandschaft (ZGB 390 ff.)",
+    "gemeinschaftsdepot": "Gemeinschaftsdepot",
+}
+
+
+def _protocol_representation_lines(db: Session, mandate: Mandate) -> tuple:
+    rows = db.query(ClientRepresentation).filter(
+        ClientRepresentation.client_id == mandate.client_id,
+        ClientRepresentation.revoked_at.is_(None),
+        or_(ClientRepresentation.mandate_id.is_(None), ClientRepresentation.mandate_id == mandate.id),
+    ).order_by(ClientRepresentation.recorded_at).all()
+    lines: list[str] = []
+    for row in rows:
+        kind = _REPRESENTATION_LABELS.get(row.representation_type, row.representation_type)
+        period = ""
+        if row.effective_from or row.effective_until:
+            period = f"; wirksam {row.effective_from or 'offen'} bis {row.effective_until or 'unbefristet'}"
+        disposal = f"; Verfügung {row.disposal_rule}" if row.disposal_rule else ""
+        lines.append(
+            f"{kind}: {row.representative_name} -- Umfang: {row.scope}; "
+            f"Beleg: {row.evidence_reference}{period}{disposal}."
+        )
+    return tuple(lines)
+
+
+# E2a (Dok. 106, Codex-Vertrag E2): Abschnitt "Nachhaltigkeitspraeferenzen"
+# im Beratungsprotokoll. Zustand aus services/recommendation_release_gate.py::preference_state
+# (dieselbe Quelle wie UI, API, Gates und Archiv, Negativfall 10); Texte
+# ausschliesslich aus core/sustainability_preference.py (Claim-Waechter zur
+# Laufzeit). Fehlt die Erfassung, steht das ausdruecklich im Protokoll; ein
+# Ladefehler wird sichtbar ausgewiesen (fail-closed, nie stilles Weglassen).
+_SUSTAINABILITY_LOAD_FAILED = {
+    "state": "unreadable",
+    "lines": (("Nachhaltigkeitspräferenz", "Konnte nicht geladen werden – bitte prüfen"),),
+    "notes": (),
+}
+_RELEVANCE_LABELS = {"yes": "Ja", "not_relevant": "Nicht relevant"}
+
+
+def _protocol_floor(db: Session, mandate: Mandate, row: dict) -> dict:
+    """E2b / N-888-01/-09: Produktwirkung nur behaupten, wenn die aktuelle
+    Soll-Allokation die Ausschluesse einhaelt UND die letzte finalisierte
+    Empfehlung nicht gelockert ist."""
+    decision = {"id": row.get("id"), "exclusions_json": row.get("exclusions_json")}
+    ta = _latest_target_allocation(mandate, db)
+    floor = sustainability.evaluate_floor(
+        decision, getattr(ta, "preferences_json", None), has_strategy=ta is not None,
+    )
+    # Nachtrag 1: "eingehalten" nur mit belegter Produktauswahl des juengsten Laufs.
+    # N-901-02: gezeigter Lauf, heute neu bewertet (kein Snapshot).
+    floor["evidence"] = run_exclusion_evidence_status(db, mandate, _current_run_id(db, mandate, ta))
+    final_prefs = db.execute(sql_text(
+        "SELECT ta.preferences_json, rr.updated_at FROM recommendation_runs rr "
+        "JOIN target_allocations ta ON ta.id = rr.target_allocation_id "
+        "WHERE rr.mandate_id = :mid AND rr.result_status = 'Final' "
+        "ORDER BY rr.updated_at DESC LIMIT 1"
+    ), {"mid": mandate.id}).first()
+    if final_prefs is not None and floor["status"] != sustainability.FLOOR_NONE:
+        final_floor = sustainability.evaluate_floor(decision, final_prefs[0])
+        if sustainability.floor_blocks(final_floor) and floor["status"] in (
+            sustainability.FLOOR_OK, sustainability.FLOOR_NO_STRATEGY,
+        ):
+            return {**final_floor, "status": sustainability.FLOOR_VIOLATED, "final_violated": True}
+    return floor
+
+
+def _sustainability_protocol_view(db: Session, mandate: Mandate) -> dict:
+    info = _preference_state(db, mandate)
+    row = info["decision"]
+    if row is None:
+        return {
+            "state": info["state"],
+            "lines": (
+                ("Zustand", info["label"]),
+                ("Nachhaltigkeitspräferenz", sustainability.NOT_CAPTURED_TEXT),
+            ),
+            "notes": (sustainability.NO_RISK_EFFECT_TEXT,),
+        }
+    exclusions = list(json.loads(row.get("exclusions_json") or "[]"))
+    question1 = _RELEVANCE_LABELS.get(row.get("esg_relevance")) or "Keine Angabe"
+    question2 = "entfällt"
+    if row.get("esg_characteristic"):
+        options = {o["value"]: o["label"] for o in sustainability.QUESTIONS[1]["options"]}
+        question2 = options.get(row["esg_characteristic"], row["esg_characteristic"])
+    lines = [
+        ("Zustand", info["label"]),
+        ("Erhebung", (
+            f"Fragebogen {row.get('questionnaire_version')} · Version {int(row.get('sequence_no') or 0)} · "
+            f"erfasst am {sustainability.format_date_ch(row.get('captured_at'))} · "
+            f"{sustainability.CAPTURE_CHANNELS.get(row.get('capture_channel'), row.get('capture_channel'))}"
+        )),
+        ("Frage 1 · Relevanz", question1),
+    ]
+    floor = _protocol_floor(db, mandate, row) if exclusions else None
+    if row.get("esg_relevance") == "yes":
+        lines += [
+            ("Frage 2 · Merkmal", question2),
+            ("Ausschlusswünsche", ", ".join(sustainability.exclusion_labels(exclusions)) or "keine"),
+            ("Verzicht", (
+                "dokumentierter Verzicht in der Anlageberatung (Begründung im Nachweis)"
+                if row.get("preference_waived") else "kein Verzicht"
+            )),
+            ("Information", "abgegeben und zur Kenntnis genommen"
+             if row.get("information_acknowledged") else "nicht dokumentiert"),
+        ]
+    if floor is not None:
+        evidence = floor.get("evidence")
+        ok_text = {
+            sustainability.RUN_EVIDENCE_OK: (
+                "Ausschlusswünsche eingehalten; alle Produkte der Empfehlung ausser Liquidität mit belegtem Nachweis"
+            ),
+            sustainability.RUN_EVIDENCE_MISSING: (
+                "Nicht eingehalten – Produktauswahl nicht belegt; Empfehlung neu erstellen"
+            ),
+        }.get(evidence, "Strategie hält die Ausschlüsse ein; noch keine belegte Produktauswahl")
+        lines.append(("Umsetzung in der Anlagestrategie", {
+            sustainability.FLOOR_OK: ok_text,
+            sustainability.FLOOR_VIOLATED: (
+                "Nicht eingehalten – die finalisierte Empfehlung enthält gelockerte Ausschlüsse; "
+                "Empfehlung neu erstellen und finalisieren"
+                if floor.get("final_violated") else "Nicht eingehalten – Anlagestrategie neu berechnen"
+            ),
+            sustainability.FLOOR_NO_STRATEGY: "Noch keine Anlagestrategie berechnet",
+        }.get(floor["status"], "Nicht prüfbar – bitte prüfen")))
+    lines += [
+        ("Ergebnis", sustainability.PROFILE_TEXTS.get(row.get("profile_code"), row.get("profile_code"))),
+        ("Kundenbestätigung", "bestätigt" if row.get("client_confirmed") else "ausstehend"),
+        ("Überprüfung", (
+            sustainability.review_policy_label(int(row.get("review_policy_months") or 0))
+            + f" Nächste Überprüfung bis {sustainability.format_date_ch(row.get('review_due_on'))}."
+        )),
+        ("Nachweis", f"Definition {row.get('definition_hash')} · Erfassung {row.get('decision_hash')}"),
+    ]
+    notes = list(sustainability.limit_texts(row.get("profile_code")))
+    if floor is not None:
+        notes += sustainability.exclusion_limit_texts(exclusions, floor["status"], floor.get("evidence"))
+    if info.get("notice"):
+        notes.insert(0, info["notice"])
+    notes.append(sustainability.NO_RISK_EFFECT_TEXT)
+    return {"state": info["state"], "lines": tuple(lines), "notes": tuple(notes)}
+
+
+def _assert_sustainability_texts_claim_free(view: dict) -> None:
+    """N-888-06: Werbe-Waechter zur Laufzeit (fail-closed). Kein Kunden-
+    dokument mit einer Produkt-/Portfolio-Bezeichnung wie "nachhaltig" oder
+    "verantwortungsbewusst" (FINMA-AM 05/2021); erlaubt sind nur die
+    Praeferenz-Begriffe (NEUTRAL_PREFERENCE_PHRASES)."""
+    texts = [str(part) for pair in view.get("lines", ()) for part in pair]
+    texts += [str(note) for note in view.get("notes", ())]
+    hits = sustainability.customer_text_claim_hits(" ".join(texts), ESG_CUSTOMER_CLAIM_LABELS)
+    if hits:
+        raise DomainError(
+            ReasonCode.SUSTAINABILITY_CLAIM_TEXT_BLOCKED,
+            "Beratungsprotokoll gesperrt: der Abschnitt Nachhaltigkeitspräferenzen "
+            f"enthält eine unzulässige Bezeichnung ({', '.join(hits)}).",
+            http_status=409,
+        )
+
+
+# H-179 P-1: Klartext der Abgabekanaele (recommendation_release_gate.CLIENT_INFORMATION_DELIVERY_CHANNELS).
+_KI_CHANNEL_LABELS = {
+    "persoenlich_papier": "persönlich, auf Papier",
+    "post": "per Post",
+    "email": "per E-Mail",
+    "kundenportal": "über das Kundenportal",
+}
+
+
+def _depot_bank_inducement_missing(mandate: Mandate, state: dict) -> bool:
+    """H-179 R-1 / N-927-06: keine gueltige, freigegebene Angabe, obwohl eine
+    Depotbank erfasst ist (oder bei der Vermoegensverwaltung keine erfasst ist)."""
+    return state["status"] in ("missing", "expired", "not_yet_valid") or (
+        state["status"] == "no_bank"
+        and str(getattr(mandate, "mandate_type", "") or "") in DEPOT_BANK_REQUIRED_MANDATE_TYPES
+    )
+
+
+def _depot_bank_inducement_lines(state: dict) -> tuple:
+    """H-179 R-1: sachliche Wiedergabe der strukturierten, freigegebenen und
+    gueltigen Angabe der Firma (kein Rechtstext); sonst keine Zeile."""
+    value = state.get("value") if state.get("status") == "ok" else None
+    if not isinstance(value, dict):
+        return ()
+    status = value.get("status")
+    if status == "keine":
+        core = "keine Zuwendungen der Depotbank an den Finanzdienstleister"
+    elif status == "satz":
+        core = (f"Zuwendung der Depotbank an den Finanzdienstleister: "
+                f"{format_bps_as_pct(value.get('rate_bps'), decimals=2)} auf {value.get('basis')}")
+    else:
+        core = ("Zuwendungen der Depotbank: Verzicht des Kunden, Bandbreite "
+                f"{format_bps_as_pct(value.get('range_min_bps'), decimals=2)} bis "
+                f"{format_bps_as_pct(value.get('range_max_bps'), decimals=2)}")
+    validity = f"gültig ab {value.get('valid_from')}"
+    if value.get("valid_until"):
+        validity += f" bis {value.get('valid_until')}"
+    return (f"Depotbank {value.get('depot_bank')}: {core} ({validity}; Beleg {value.get('evidence_reference')}).",)
+
+
+def _risk_profile_w033_lines(db: Session, mandate: Mandate) -> tuple:
+    """H-179 E-1: freigegebene W033-Texte der Firma fuer das Risikoprofil-PDF
+    (nie ein Ares-Text). Abraten nur, wenn der Horizont unter dem
+    freigegebenen Mindesthorizont liegt."""
+    state = w033_state(db, mandate)
+    lines: list[tuple[str, str]] = []
+    if state["advice_required"] and state["advice_text"]:
+        lines.append((
+            f"Hinweis zum Anlagehorizont (unter {state['min_horizon_years']} Jahren)", state["advice_text"],
+        ))
+    if state["distribution_text"]:
+        lines.append(("Ausschüttungen", state["distribution_text"]))
+    if state["declaration_text"]:
+        lines.append(("Erklärung des Kunden", state["declaration_text"]))
+    return tuple(lines)
+
+
+class AdviceRationaleIntegrityFailed(AdvisoryLogIntegrityFailed):
+    """L2b: Siegel der Gruende der Empfehlung passt nicht zum Inhalt."""
+
+    def __init__(self, entry_id: str | None = None, *, document: str = "Beratungsprotokoll") -> None:
+        super().__init__(entry_id, document=document, entry_kind="advice_rationale", message=(
+            f"{document} kann nicht als Kunden-PDF erzeugt werden: Die Prüfsumme der "
+            "erfassten Kundenbedürfnisse und Gründe der Empfehlung passt nicht zu ihrem "
+            "Inhalt. Sie wurden nach dem Speichern verändert oder sind beschädigt. Bitte "
+            "Bedürfnisse und Gründe der Empfehlung neu erfassen."
+        ))
+
+
+def _protocol_advice_sections(db: Session, mandate: Mandate, ta, document: str = "Beratungsprotokoll") -> dict:
+    """H-179 P-1: Beduerfnisse/Gruende (vom Berater erfasst), abgegebene
+    Warnhinweise (Eignungspruefung, Abweichung vom Risikoprofil) und
+    abgegebene Informationen (Kundeninformation, Kostenausweis). Ares
+    formuliert keine Gruende; fehlt die Erfassung, steht das offen da."""
+    required = str(getattr(mandate, "mandate_type", "") or "") in RATIONALE_MANDATE_TYPES
+    result = {"required": required, "client_needs": None, "recommendation_reasons": None,
+              "recorded_at": None, "warnings": (), "information": ()}
+    run = resolve_current_recommendation_run(db, mandate.id, getattr(ta, "id", None))
+    rationale = latest_advice_rationale(db, str(mandate.id), getattr(run, "id", None))
+    if rationale and rationale["state"] == ADVICE_RATIONALE_TAMPERED:
+        # L2b: dieselbe Regel wie KN9a -- ein verändertes Siegel sperrt das
+        # Kunden-PDF (409 vor der Archivierung), nie still gedruckt.
+        raise AdviceRationaleIntegrityFailed(str(rationale.get("id") or "") or None, document=document)
+    if rationale and rationale["state"] == ADVICE_RATIONALE_ERASED:
+        # L2b (DSG): erfasst, Freitext nach DSG geloescht (Schluessel vernichtet).
+        result.update(client_needs=ADVICE_RATIONALE_ERASED_TEXT, recommendation_reasons=ADVICE_RATIONALE_ERASED_TEXT,
+                      recorded_at=str(rationale["recorded_at"])[:10])
+    elif rationale:
+        result.update(client_needs=rationale["client_needs"],
+                      recommendation_reasons=rationale["recommendation_reasons"],
+                      recorded_at=str(rationale["recorded_at"])[:10])
+    warnings: list[str] = []
+    checks = db.execute(sql_text(
+        "SELECT result, warning_delivered, warning_delivered_at, client_proceeding_despite "
+        "FROM suitability_checks WHERE mandate_id = :mid ORDER BY checked_at DESC LIMIT 1"
+    ), {"mid": str(mandate.id)}).mappings().first()
+    if checks is not None and int(checks["warning_delivered"] or 0):
+        warnings.append(
+            f"Warnhinweis zur Eignungsprüfung abgegeben ({str(checks['warning_delivered_at'] or '')[:10] or 'ohne Datum'})"
+            + ("; Kunde hält am Vorgehen fest." if int(checks["client_proceeding_despite"] or 0) else ".")
+        )
+    risk = db.execute(sql_text(
+        "SELECT is_overridden, override_warning_delivered FROM risk_assessments "
+        "WHERE mandate_id = :mid AND is_current = 1 AND deleted_at IS NULL"
+    ), {"mid": str(mandate.id)}).mappings().first()
+    if risk is not None and int(risk["is_overridden"] or 0):
+        warnings.append(
+            "Abweichung vom ermittelten Risikoprofil: Warnhinweis "
+            + ("abgegeben." if int(risk["override_warning_delivered"] or 0) else "nicht als abgegeben erfasst.")
+        )
+    information: list[str] = []
+    for delivery in db.execute(sql_text(
+        "SELECT template_version, delivered_at, delivery_channel FROM client_information_deliveries "
+        "WHERE mandate_id = :mid ORDER BY delivered_at"
+    ), {"mid": str(mandate.id)}).mappings().all():
+        information.append(
+            f"Kundeninformation ({delivery['template_version']}) übergeben am "
+            f"{str(delivery['delivered_at'] or '')[:10]} "
+            f"({_KI_CHANNEL_LABELS.get(str(delivery['delivery_channel']), 'Kanal nicht erfasst')})."
+        )
+    cost = db.execute(sql_text(
+        "SELECT checksum_sha256, pdf_generated_at FROM contract_documents WHERE mandate_id = :mid "
+        "AND document_type = 'Kostenausweis' AND deleted_at IS NULL ORDER BY version DESC LIMIT 1"
+    ), {"mid": str(mandate.id)}).mappings().first()
+    if cost is not None:
+        information.append(
+            f"Kostenausweis ex ante vom {str(cost['pdf_generated_at'] or '')[:10]} "
+            f"(Prüfwert {str(cost['checksum_sha256'] or '')[:12]})."
+        )
+    information.append("Abgabe der Risikobroschüre: in Ares nicht erfasst.")
+    # N-927-06: BIB-Hinweis nur als freigegebener Owner-Text (sonst keine Zeile).
+    bib = approved_text(resolve_owner_content(db, mandate_tenant_id(db, mandate), PROTOCOL_BIB_KEY))
+    if bib:
+        information.append(bib)
+    result["warnings"] = tuple(warnings)
+    result["information"] = tuple(information)
+    return result
+
+
+# KN5 / N-917R4-01: Die Engine speichert im Lauf eine interne Zielbeschreibung
+# (``objective_summary``, z. B. «TBI V1 - strategische Soll-Allokation mit
+# produktiver Titelselektion»). Sie bleibt im Lauf und im Audit unveraendert;
+# im Kunden-PDF steht ein Kundentext. Unbekannte Texte verlieren nur ein
+# internes Versionspraefix («XYZ V1 - »).
+_CUSTOMER_RECOMMENDATION_SUMMARIES = {
+    "TBI V1 - strategische Soll-Allokation mit produktiver Titelselektion":
+        "Strategische Soll-Allokation mit Titelauswahl aus dem Produktuniversum",
+}
+_INTERNAL_SUMMARY_PREFIX = re.compile(r"^[A-Z]{2,}\s+V\d+\s*[-–—]\s*")
+
+
+def _customer_recommendation_summary(raw) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    if text in _CUSTOMER_RECOMMENDATION_SUMMARIES:
+        return _CUSTOMER_RECOMMENDATION_SUMMARIES[text]
+    stripped = _INTERNAL_SUMMARY_PREFIX.sub("", text).strip()
+    return (stripped[:1].upper() + stripped[1:]) if stripped else ""
+
+
+def _advisory_log_integrity_409(exc: AdvisoryLogIntegrityFailed) -> HTTPException:
+    """KN9 / KN9a: gleiche 409-Form fuer alle Kunden-PDFs mit Protokollinhalt
+    (Advisory-Report, Beratungsprotokoll, Beratungsentscheid)."""
+    # N-936-06: neutral ``entry_id`` + ``entry_kind``; ``advisory_log_id``
+    # nur, wenn es wirklich ein Protokolleintrag ist (nicht bei den Gruenden
+    # der Empfehlung, Berichtsnotizen oder Interessenkonflikten).
+    kind = getattr(exc, "entry_kind", "advisory_log")
+    detail = {"reason_code": "ADVISORY_LOG_INTEGRITY_FAILED", "message": str(exc),
+              "entry_id": exc.entry_id, "entry_kind": kind}
+    if kind == "advisory_log":
+        detail["advisory_log_id"] = exc.entry_id
+    return HTTPException(status_code=409, detail=detail)
+
+
+def _build_protokoll_data(
+    mandate: Mandate, db: Session, *, document: str = "Beratungsprotokoll",
+) -> ProtokollData:
+    """Beratungsprotokoll-Daten aus AdvisoryLog + letzter Empfehlung.
+
+    KN9a / N-934-01: jeder Eintrag, der ins Kunden-PDF geht, wird gegen seine
+    Pruefsumme geprueft (eine Regel mit dem Advisory-Report). Passt einer
+    nicht -> ``AdvisoryLogIntegrityFailed`` (Route: 409 vor der Archivierung).
+    """
     advisory_wealth = None
     ta = None
     try:
@@ -1702,15 +2619,9 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
             .limit(40)
             .all()
         )
-        for row in log_rows:
-            entries.append({
-                "entry_date": str(getattr(row, "entry_date", "") or ""),
-                "entry_type": str(getattr(row, "entry_type", "") or ""),
-                "title": str(getattr(row, "title", "") or ""),
-                "description": str(getattr(row, "description", "") or ""),
-                "decision": str(getattr(row, "decision", "") or ""),
-                "status": str(getattr(row, "status", "") or ""),
-            })
+        assert_shown_entries_intact(log_rows, document=document)
+        # KN9a: Kundenform (Systemeintrag der Portal-Signatur in Kundensprache).
+        entries.extend(customer_protocol_entry(row) for row in log_rows)
 
         # PDF-RUN-RESOLVER-001: "finale Empfehlung" im Protokoll/Beratungs-
         # entscheid nur aus dem Run der aktuellen Allokation.
@@ -1721,12 +2632,14 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         # ein Draft (oder sein roher Status-String) wird nie als finale
         # Empfehlung in Protokoll/Kunden-Signoff ausgewiesen.
         if latest_run is not None and getattr(latest_run, "result_status", None) == "Final":
-            latest_recommendation_summary = str(
-                getattr(latest_run, "objective_summary", None) or ""
-            ).strip() or (
+            latest_recommendation_summary = _customer_recommendation_summary(
+                getattr(latest_run, "objective_summary", None)
+            ) or (
                 "Finalisierte Empfehlung vom "
                 f"{str(getattr(latest_run, 'updated_at', '') or '')[:10]}"
             ).strip()
+    except AdvisoryLogIntegrityFailed:
+        raise
     except Exception as exc:
         logger.warning("Protokoll data: AdvisoryLog load failed: %s", exc)
 
@@ -1818,6 +2731,21 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
         logger.warning("Protokoll data: knowledge gap check failed: %s", exc)
 
+    # H8 Luecke 10 (ZGB): erfasste Vertretungen/Verfuegungsberechtigungen
+    # (nicht widerrufen) als dokumentarischer Hinweis im Protokoll.
+    representation_lines = _protocol_representation_lines(db, mandate)
+
+    # E2a (Dok. 106): Nachhaltigkeitspraeferenzen (Ladefehler sichtbar).
+    try:
+        sustainability_view = _sustainability_protocol_view(db, mandate)
+    except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
+        logger.warning("Protokoll data: sustainability preference load failed: %s", exc)
+        sustainability_view = _SUSTAINABILITY_LOAD_FAILED
+    _assert_sustainability_texts_claim_free(sustainability_view)
+
+    # H-179 P-1 (Art. 15 FIDLEG): strukturierte Abschnitte der Anlageberatung.
+    advice = _protocol_advice_sections(db, mandate, ta, document)
+
     return ProtokollData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
         advisory_wealth_rappen=advisory_wealth,
@@ -1830,6 +2758,16 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         risk_signoff_hash=risk_signoff_view.get("signoff_hash"),
         risk_signoff_lines=risk_signoff_view.get("lines", ()),
         knowledge_gap_hints=knowledge_gap_hints,
+        representation_lines=representation_lines,
+        sustainability_state=sustainability_view["state"],
+        sustainability_lines=sustainability_view["lines"],
+        advice_sections_required=advice["required"],
+        client_needs=advice["client_needs"],
+        recommendation_reasons=advice["recommendation_reasons"],
+        rationale_recorded_at=advice["recorded_at"],
+        warnings_given=advice["warnings"],
+        information_given=advice["information"],
+        sustainability_notes=sustainability_view["notes"],
     )
 
 
@@ -1846,16 +2784,23 @@ def get_protokoll_pdf(
 ):
     """Beratungsprotokoll-PDF mit AdvisoryLog und Unterschrift."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
+    _assert_client_pdf_fx_basis(db, mandate)  # CCX-P3-FX N-909-13
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
-    ctx = _build_pdf_context(mandate, current_user, db)
-    data = _build_protokoll_data(mandate, db)
+    ctx = _mark_unpublished(_build_pdf_context(mandate, current_user, db), db, mandate)
+    try:
+        data = _build_protokoll_data(mandate, db)
+    except AdvisoryLogIntegrityFailed as exc:
+        # KN9a / N-934-01: veraenderter Eintrag -> kein Kunden-PDF, nichts archiviert.
+        raise _advisory_log_integrity_409(exc) from exc
     pdf_bytes = ReportLabRenderer().render_protokoll(ctx, data)
-    archive_generated_pdf(
-        db, mandate_id=mandate.id, document_type="Beratungsprotokoll",
+    _archive_final(
+        ctx, db, mandate_id=mandate.id, document_type="Beratungsprotokoll",
         title="Beratungsprotokoll", pdf_bytes=pdf_bytes,
-        content_hash=content_hash_for(data),
+        content_hash=_archive_content_hash(data, ctx),
         current_user=current_user, ip_address=_extract_client_ip(request),
+        binding=_document_binding(db, mandate, "Beratungsprotokoll"),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
     # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
@@ -1904,12 +2849,12 @@ def _depotcheck_gate(mandate: Mandate, db: Session):
         # gueltigen Zielzahlen -- blockieren (409) statt alte Ziele zu drucken.
         if dc.get("target_allocation_inputs_stale"):
             grund = (
-                "Vermoegen, Cashflows oder Ziele haben sich seit der "
-                "Berechnung geaendert"
+                "Vermögen, Cashflows oder Ziele haben sich seit der "
+                "Berechnung geändert"
             )
         else:
             grund = (
-                "sie basiert auf einem frueheren, nicht mehr aktuellen "
+                "sie basiert auf einem früheren, nicht mehr aktuellen "
                 "Risikoprofil"
             )
         raise ValueError(
@@ -1994,6 +2939,9 @@ def _build_depotcheck_data(
         "max_drawdown_bps": strategy.max_drawdown_bps,
         "var_95_bps": strategy.var_95_bps,
         "horizon_years": int(strategy.horizon_years or 0),
+        # KN3-B / N-917R2-02: E2E2-03-Regel auch im Depotcheck (Verzehr).
+        "median_cagr_bps": getattr(strategy, "median_cagr_bps", None),
+        "depletion_note": getattr(strategy, "target_depletion_note", None),
     }
     return DepotCheckData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
@@ -2061,8 +3009,18 @@ def _build_depotcheck_data(
         as_of=identity.get("as_of"),
         result_hash=identity.get("result_hash"),
         without_holdings=bool(without_holdings and analysis is None),
+        depot_position_recorded=bool(without_holdings and analysis is None) and _depot_position_recorded(db, mandate),
         inputs_note=inputs_note,
     )
+
+
+def _depot_position_recorded(db: Session, mandate: Mandate) -> bool:
+    """KN4-B / E2E4-04: aktive Depot-Vermoegensposition (Beratungsvermoegen) mit
+    Wert > 0 vorhanden -- dann ist ein Depot erfasst, nur nicht je Titel."""
+    return db.execute(sql_text(
+        "SELECT 1 FROM wealth_positions WHERE client_id = :cid AND position_type = 'Depot' "
+        "AND is_active = 1 AND deleted_at IS NULL AND current_value_rappen > 0 LIMIT 1"
+    ), {"cid": str(getattr(mandate, "client_id", "") or "")}).first() is not None
 
 
 def _aggregate_depotcheck_sub_allocations(positions: list[dict]) -> list[dict]:
@@ -2171,7 +3129,7 @@ def _build_depotcheck_performance(
         logger.warning("Depotcheck performance unavailable: %s", exc)
         return {
             "data_pending": True,
-            "note": "Historischer Vergleich ist fuer diese Strategie noch nicht verfuegbar.",
+            "note": "Historischer Vergleich ist für diese Strategie noch nicht verfügbar.",
             "house_matrix_benchmark": benchmark_status,
             "warnings": benchmark_warnings,
         }
@@ -2226,14 +3184,14 @@ def _build_depotcheck_qualitative_assessment(
     )
     highest_hhi = max(soll_hhi.values(), default=0)
     concentration = (
-        "Die Zielstruktur weist eine erhoehte Konzentration auf, die im "
-        "Beratungsgespraech bewusst zu bestaetigen ist."
+        "Die Zielstruktur weist eine erhöhte Konzentration auf, die im "
+        "Beratungsgespräch bewusst zu bestätigen ist."
         if highest_hhi >= 3000
-        else "Die Zielstruktur ist ueber die dokumentierten Dimensionen breit gestreut."
+        else "Die Zielstruktur ist über die dokumentierten Dimensionen breit gestreut."
     )
     return (
         f"Das empfohlene Zielportfolio ist auf das Risikoprofil {profile} "
-        f"ausgerichtet und verteilt das Anlagevermoegen auf {active_buckets} "
+        f"ausgerichtet und verteilt das Anlagevermögen auf {active_buckets} "
         f"Hauptanlageklassen sowie {active_products} konkrete Zielpositionen. "
         f"{concentration} Die Analyse ist eine Beratungsgrundlage; der Abgleich "
         "mit Bank- oder Drittdepotunterlagen erfolgt durch den Berater."
@@ -2269,7 +3227,8 @@ def get_depotcheck_pdf(
     )
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
-    ctx = _build_pdf_context(mandate, current_user, db)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
+    ctx = _mark_unpublished(_build_pdf_context(mandate, current_user, db), db, mandate)
     try:
         if analysis_snapshot_id is not None:
             analysis = load_depot_check_analysis(db, mandate, analysis_snapshot_id)
@@ -2298,6 +3257,10 @@ def get_depotcheck_pdf(
     except ValueError as exc:  # Gates, Bewertungsluecken, Integritaetsfehler
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # N-935-03: Kostentabelle ohne Gebuehrenvereinbarung -> Entwurf mit Hinweis.
+    if fee_agreement_missing(data.cost_disclosure):
+        ctx = _mark_fee_draft(ctx)
+        data = dataclasses.replace(data, warnings=[FEE_NOT_AGREED_NOTE, *list(data.warnings or [])])
     pdf_bytes = ReportLabRenderer().render_depotcheck(ctx, data)
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
     # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
@@ -2308,8 +3271,24 @@ def get_depotcheck_pdf(
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": content_disposition(filename, disposition="inline")},
+        headers={"Content-Disposition": content_disposition(filename, disposition="inline"),
+                 **_draft_headers(ctx)},
     )
+
+
+# N-935-03: gleicher Hinweis in Depotcheck und Kundeninformation (kein Satz erfunden).
+FEE_NOT_AGREED_NOTE = (
+    "Dienstleistungsgebühr: nicht vereinbart. Die Kostenangaben enthalten keine "
+    "Dienstleistungsgebühr; das Dokument ist ein Entwurf."
+)
+
+
+def _draft_headers(ctx: PDFContext) -> dict[str, str]:
+    """N-935-04: Entwurfskennung im Header wie beim Kostenausweis."""
+    mode = getattr(ctx, "watermark_mode", "none") or "none"
+    if mode == "none":
+        return {}
+    return {"X-Ares-Draft": "gebuehren" if mode == "gebuehren" else "vorvertrag"}
 
 
 def _now_iso() -> str:
@@ -2363,6 +3342,7 @@ def _build_backtest_data(
         strategy_fee_bps=strategy_fee_bps,
         benchmark_fee_bps=benchmark_fee_bps,
         projection_gate=projection_gate,
+        production_mode=annual_returns_release_required(),
     )
     soll = result.get("soll") or {}
     rebal = (soll.get("rebalanced") if isinstance(soll, dict) else None) or {}
@@ -2438,8 +3418,11 @@ def get_backtest_pdf(
     Brutto-vs-Netto-Vergleich im PDF.
     """
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, None)
+    _assert_client_pdf_fx_basis(db, mandate)  # CCX-P3-FX N-909-13
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
+    ctx = _mark_unpublished(ctx, db, mandate)
     bm_inputs = {
         "equities": benchmark_equities_bps,
         "bonds": benchmark_bonds_bps,
@@ -2490,6 +3473,7 @@ def get_backtest_pdf(
 )
 def get_advisory_report_pdf(
     mandate_id: str,
+    request: Request = None,  # FastAPI injiziert ihn; Direktaufruf ohne Request = keine IP
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -2500,26 +3484,53 @@ def get_advisory_report_pdf(
     1:1 dieselben Daten. PR A liefert Cover + Disclaimer + Inhalts-
     verzeichnis + Page-Chrome; Sektionen 4-15 folgen in U-P26 PR B-F.
     """
-    from services.pdf.documents.advisory_report import render_advisory_report_pdf
-
     from services.recommendation_release_gate import (
         CHANNEL_ADVISORY_PDF,
         assert_recommendation_release_eligible,
     )
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     # RISK-BUDGET-RELEASE-GATE (2026-10-21): kein client-ready PDF einer
     # Strategie, deren Risikobudget-Treue verletzt oder nicht belegt ist --
     # zentrales Gate, VOR dem Rendern.
     assert_recommendation_release_eligible(
         db, mandate, channel=CHANNEL_ADVISORY_PDF,
+        audit=gate_block_audit(
+            db, user=current_user, mandate=mandate,
+            ip_address=_extract_client_ip(request) if request is not None else None,
+            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+            set_tenant_context=set_tenant_context,
+        ),
     )
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible
 
     assert_portfolio_data_release_eligible(db, mandate, action="pdf")
     _enforce_cma_currency_release(db, mandate)  # CMA-CURRENCY-GUARD-001
-    pdf_bytes = render_advisory_report_pdf(db, mandate, current_user)
+    unpublished = customer_document_watermark(db, mandate)
+    decision = evaluate_channel_envelope(db, mandate)
+    decision_ref = decision.footer_ref()
+    if unpublished is None:
+        # CCX P5: wie die uebrigen Entscheid-Dokumente (FX jetzt, Bindungen).
+        if decision.applicable and not decision.ok:
+            require_channel_envelope(db, mandate, channel=CHANNEL_PDF, user=current_user, decision=decision)
+    else:  # Entwurf: nur der IC-Vermerk (N-925-05), keine Pruefnummer
+        decision_ref = {k: v for k, v in (decision_ref or {}).items() if k == "ic_release_status"} or None
+    render_meta: dict = {}
+    try:
+        pdf_bytes = render_advisory_report_pdf(
+            db, mandate, current_user,
+            # CCX-P4: nicht publizierte Strategie -> Entwurf (Vorrang vor "vorvertrag").
+            watermark_mode=unpublished
+            or ("vorvertrag" if kyc_release_is_draft(db, mandate) else "none"),
+            decision_ref=decision_ref,
+            meta=render_meta,
+        )
+    except AdvisoryLogIntegrityFailed as exc:
+        # KN9 / N-931-01: Protokolleintrag mit nicht passender Pruefsumme ->
+        # kein Kunden-PDF (fail-closed); die Berater-Ansicht warnt beim Eintrag.
+        raise _advisory_log_integrity_409(exc) from exc
     if pdf_bytes is None:
         # CERT-COST-PUBLICATION-001 (COST-PUBLICATION-GATE-001): degraded
         # cost-disclosure evidence blocks a client-ready export -- stable
@@ -2532,16 +3543,21 @@ def get_advisory_report_pdf(
                 "message": (
                     "Advisory-Report kann nicht als client-ready PDF "
                     "exportiert werden: der Kostenausweis konnte nicht "
-                    "vollstaendig berechnet werden (degraded evidence)."
+                    "vollständig berechnet werden (degraded evidence)."
                 ),
             },
         )
     safe_mandate = str(mandate.mandate_number or "mandate")[:40]
     filename = f"advisory-report-{safe_mandate}.pdf"
+    mode = render_meta.get("watermark_mode") or "none"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": content_disposition(filename, disposition="attachment")},
+        headers={
+            "Content-Disposition": content_disposition(filename, disposition="attachment"),
+            # N-935-04: Entwurfskennung wie beim Kostenausweis.
+            **({"X-Ares-Draft": "gebuehren" if mode == "gebuehren" else "vorvertrag"} if mode != "none" else {}),
+        },
     )
 
 
@@ -2580,11 +3596,14 @@ def get_cost_disclosure_pdf(
     import base64
 
     from models.review import ContractDocument
-    from services.cost_disclosure import build_cost_disclosure
+    from services.cost_disclosure import build_cost_disclosure, fee_agreement_missing
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
+    _assert_client_pdf_fx_basis(db, mandate)  # CCX-P3-FX N-909-13
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
+    _assert_client_pdf_sustainability_floor(db, mandate, current_user, request)
     payload = build_cost_disclosure(db, mandate)
     if payload.get("evidence_status") == "blocked":
         # COST-SNAPSHOT-BINDING-001: ein vorhandener, aber ungueltiger
@@ -2599,7 +3618,7 @@ def get_cost_disclosure_pdf(
                 "source_run_id": payload.get("source_run_id"),
                 "message": (
                     "Der eingefrorene Kostennachweis des freigegebenen "
-                    "Empfehlungslaufs ist ungueltig "
+                    "Empfehlungslaufs ist ungültig "
                     f"({payload.get('evidence_error')}). Der Kostenausweis "
                     "wird nicht erstellt -- Strategie neu berechnen und "
                     "finalisieren."
@@ -2620,13 +3639,27 @@ def get_cost_disclosure_pdf(
         )
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
+    ctx = _mark_unpublished(ctx, db, mandate)
+    inducement = depot_bank_inducement_state(db, mandate)
+    # N-927-06 (CTO-Entscheid 6): ohne gueltige Angabe zu Zuwendungen der
+    # Depotbank ist der Kostenausweis ein Entwurf (Wasserzeichen, nie archiviert).
+    if _depot_bank_inducement_missing(mandate, inducement):
+        if (getattr(ctx, "watermark_mode", "none") or "none") == "none":
+            ctx = dataclasses.replace(ctx, watermark_mode="depotbank")
+    # EXE-P (H-187): ohne Gebuehrenvereinbarung Entwurf (Wasserzeichen, nie archiviert).
+    if fee_agreement_missing(payload):
+        ctx = _mark_fee_draft(ctx)
     data = CostDisclosurePDFData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
         advisory_wealth_rappen=int(payload.get("advisory_wealth_rappen") or 0),
         payload=payload,
+        # H-179 R-1: nur eine gueltige, freigegebene Angabe wird gedruckt; ohne
+        # sie sperren Finalisierung und Signatur (services/recommendation_release_gate.py).
+        depot_bank_inducement_lines=_depot_bank_inducement_lines(inducement),
     )
-    content_hash = content_hash_for(data)
-    existing = (
+    content_hash = _archive_content_hash(data, ctx)
+    is_draft = (getattr(ctx, "watermark_mode", "none") or "none") != "none"
+    existing = None if is_draft else (
         db.query(ContractDocument)
         .filter(
             ContractDocument.mandate_id == mandate.id,
@@ -2636,7 +3669,17 @@ def get_cost_disclosure_pdf(
         .order_by(ContractDocument.version.desc())
         .first()
     )
-    if existing is not None and existing.content_hash == content_hash:
+    # E2a (Negativfall 7): nur wiederverwenden, wenn das archivierte Dokument
+    # an die AKTUELLE Nachhaltigkeitspraeferenz gebunden ist -- sonst bliebe
+    # nach einer neuen Erfassung nur ein nicht mehr signierbares Dokument.
+    binding = _document_binding(db, mandate) or {}
+    if (
+        existing is not None and existing.content_hash == content_hash
+        and getattr(existing, "bound_preference_decision_hash", None)
+        == current_preference_binding(db, mandate.id)
+        and getattr(existing, "bound_target_allocation_id", None) == binding.get("target_allocation_id")
+        and getattr(existing, "bound_preferences_sha256", None) == binding.get("preferences_sha256")
+    ):
         # Render-once: identischer Fachinhalt -> dieselben archivierten
         # Bytes ausliefern statt erneut zu rendern (ReportLab bettet pro
         # Rendering einen wechselnden Font-Subset-Tag ein, siehe
@@ -2645,15 +3688,26 @@ def get_cost_disclosure_pdf(
         doc = existing
         pdf_bytes = base64.b64decode(doc.pdf_base64)
     else:
+        # N-897-17: Render-once nie mit Entwurfs-Bytes (Entwuerfe werden nicht archiviert).
         pdf_bytes = ReportLabRenderer().render_cost_disclosure(ctx, data)
-        doc = archive_generated_pdf(
-            db, mandate_id=mandate.id, document_type="Kostenausweis",
+        doc = _archive_final(
+            ctx, db, mandate_id=mandate.id, document_type="Kostenausweis",
             title="Kostenausweis ex-ante", pdf_bytes=pdf_bytes,
             content_hash=content_hash, current_user=current_user,
             ip_address=_extract_client_ip(request),
+            binding=binding or None,
         )
     safe_mandate = str(mandate.mandate_number or "mandate")[:40]
     filename = f"kostenausweis-{safe_mandate}.pdf"
+    if doc is None:
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": content_disposition(filename),
+                "X-Ares-Draft": "gebuehren" if ctx.watermark_mode == "gebuehren" else "vorvertrag",
+            },
+        )
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -2667,5 +3721,342 @@ def get_cost_disclosure_pdf(
             "X-Cost-Disclosure-Byte-Sha256": doc.checksum_sha256 or "",
             "X-Cost-Disclosure-Content-Hash": doc.content_hash or "",
             "X-Cost-Disclosure-Snapshot-Id": str(payload.get("source_run_id") or ""),
+        },
+    )
+
+
+# ============================================================================
+# H8 C-2 (Compliance-Audit 2026-11-07): Kundeninformation nach Art. 8/9 FIDLEG
+# ============================================================================
+
+_KI_COUNTRY_NAMES = {"CH": "Schweiz", "LI": "Liechtenstein", "DE": "Deutschland", "AT": "Österreich"}
+
+
+def _ki_money(rappen: int | None, currency: str) -> str:
+    # RC-CH-1 Teil 2b (G7): gemeinsamer Formatter (Half-up, ganze Einheiten,
+    # Apostroph); fehlender Betrag -> "—" statt 0.
+    return format_amount_minor(rappen, currency)
+
+
+def _ki_bps(bps: int | None) -> str:
+    # RC-CH-1 Teil 2b (G7): wie Kostenausweis (format_bps_as_pct, 2 Stellen).
+    return format_bps_as_pct(bps, decimals=2)
+
+
+def _kundeninformation_provider_lines(profile: dict) -> tuple:
+    def clean(name: str) -> str:
+        return str(profile.get(name) or "").strip()
+
+    country = clean("address_country").upper()
+    lines: list[tuple[str, str]] = [
+        ("Firma", clean("legal_name")),
+        ("Adresse", ", ".join(part for part in (
+            clean("address_street"),
+            " ".join(p for p in (clean("address_postal_code"), clean("address_city")) if p),
+            _KI_COUNTRY_NAMES.get(country, country),
+        ) if part)),
+    ]
+    for name, label in (("contact_phone", "Telefon"), ("contact_email", "E-Mail"),
+                        ("contact_website", "Website")):
+        if clean(name):
+            lines.append((label, clean(name)))
+    lines.append(("Tätigkeitsfeld", clean("business_activity")))
+    supervision = clean("supervision_type")
+    lines.append(("Aufsichtsstatus", SUPERVISION_LABELS.get(supervision, supervision)))
+    for name, label in (("supervisory_authority", "Aufsichtsbehörde"),
+                        ("supervisory_organisation", "Aufsichtsorganisation"),
+                        ("license_reference", "Bewilligung / Register")):
+        if clean(name):
+            lines.append((label, clean(name)))
+    return tuple(lines)
+
+
+def _kundeninformation_cost_parts(db: Session, mandate: Mandate, profile: dict) -> tuple[tuple, str, tuple, bool]:
+    # G7-Grundregel: Mandatswaehrung (mandates.base_currency NOT NULL), kein fester CHF-Ersatz.
+    currency = str(mandate.base_currency).upper()
+    cost_lines: list[tuple[str, str]] = []
+    note = (
+        "Die Kosten der Dienstleistung und der Finanzinstrumente werden Ihnen vor "
+        "Erbringung der Dienstleistung im Ex-ante-Kostenausweis ausgewiesen."
+    )
+    try:
+        payload = build_cost_disclosure(db, mandate)
+    except Exception as exc:  # noqa: BLE001 -- Kundeninformation darf nicht crashen
+        logger.warning("Kundeninformation: Kostenausweis nicht verfuegbar: %s", exc)
+        payload = {"data_pending": True}
+    if not payload.get("data_pending") and payload.get("evidence_status") != "blocked":
+        for item in payload.get("cost_items") or []:
+            if not item.get("included_in_total", True):
+                continue
+            cost_lines.append((
+                f"{item.get('label') or 'Kosten'} ({item.get('frequency') or ''})".strip(),
+                f"{_ki_bps(item.get('rate_bps'))} · {_ki_money(item.get('amount_rappen'), currency)}",
+            ))
+    fee_missing = fee_agreement_missing(payload) and payload.get("evidence_status") != "blocked"
+    if fee_missing:
+        # N-935-03: ohne Gebuehrenvereinbarung kein Total (es waere zu tief);
+        # das Dokument ist ein Entwurf (Router: Wasserzeichen, nie archiviert).
+        cost_lines.append(("Dienstleistungsgebühr", "nicht vereinbart"))
+        note = FEE_NOT_AGREED_NOTE + " Massgebend ist der Kostenausweis."
+    elif not payload.get("data_pending") and payload.get("evidence_status") != "blocked":
+        totals = payload.get("totals") or {}
+        cost_lines.append((
+            "Total erstes Jahr",
+            f"{_ki_bps(totals.get('first_year_bps'))} · "
+            f"{_ki_money(totals.get('first_year_rappen'), currency)}",
+        ))
+        note = (
+            "Stand des aktuellen Ex-ante-Kostenausweises "
+            f"({str(payload.get('as_of') or '')[:10] or 'ohne Datum'}"
+            + ("; vorläufig, Empfehlung noch nicht freigegeben" if payload.get("source_run_status") != "Final" else "")
+            + "). Massgebend ist der Kostenausweis."
+        )
+    retro: list[str] = []
+    # N-890-04: Grundsatz der Firma (tenants.default_retrocession_reimbursement).
+    if int(profile.get("tenant_default_retrocession_reimbursement") or 0):
+        retro.append(
+            "Entschädigungen Dritter (z. B. Retrozessionen): Grundsatz der Firma ist "
+            "die Weitergabe an Sie (Art. 26 FIDLEG)."
+        )
+    else:
+        retro.append(
+            "Entschädigungen Dritter (z. B. Retrozessionen) werden an Sie weitergegeben, "
+            "ausser Sie verzichten nach Information über Art und Umfang ausdrücklich "
+            "darauf (Art. 26 FIDLEG)."
+        )
+    summary = payload.get("product_retrocessions") if isinstance(payload, dict) else None
+    if isinstance(summary, dict):
+        present = int(summary.get("present_count") or 0)
+        unknown = int(summary.get("unknown_count") or 0)
+        retro.append(
+            f"Empfohlene Produkte mit Retrozession: {present}; ohne erfassten Satz: {unknown}. "
+            "Sätze und Beträge je Produkt stehen im Kostenausweis."
+        )
+    return tuple(cost_lines), note, tuple(retro), fee_missing
+
+
+# N-890-11: Klartext fuer Mandate.investment_universe [Compliance gegenlesen].
+_KI_UNIVERSE_LABELS = {
+    "Standard": "Standardauswahl des Finanzdienstleisters",
+    "Alternativ": "breitere Auswahl aus dem Marktdurchschnitt",
+}
+
+
+def _kundeninformation_ties_and_offer(db: Session, mandate: Mandate, tenant_id: str | None) -> tuple[tuple, tuple]:
+    ties: list[str] = []
+    conflicts = db.query(ConflictOfInterestDisclosure).filter(
+        ConflictOfInterestDisclosure.mandate_id == mandate.id,
+        ConflictOfInterestDisclosure.deleted_at.is_(None),
+    ).order_by(ConflictOfInterestDisclosure.created_at).all()
+    for row in conflicts:
+        provider = f" ({row.inducement_provider})" if row.inducement_provider else ""
+        # L2c (H-192): versiegelte Beschreibung geoeffnet; veraendert sperrt
+        # das Kunden-PDF (409 vor der Archivierung).
+        texts = conflict_text_view(db, row, client_id=getattr(mandate, "client_id", None))
+        if texts["text_state"] == PROTOCOL_TEXT_TAMPERED:
+            raise AdvisoryLogIntegrityFailed(
+                str(row.id), document="Kundeninformation", entry_kind="conflict_disclosure",
+                message=(
+                    "Kundeninformation kann nicht als Kunden-PDF erzeugt werden: Die Prüfsumme "
+                    "der Beschreibung eines Interessenkonflikts passt nicht zu ihrem Inhalt. Der "
+                    "Eintrag wurde nach dem Speichern verändert oder ist beschädigt. Bitte die "
+                    "Datenbank prüfen lassen (Sicherung) und den Eintrag neu erfassen."
+                ),
+            )
+        ties.append(f"{row.conflict_type}{provider}: {texts['description']}")
+    products = db.query(Product).filter(
+        Product.deleted_at.is_(None), Product.is_active == 1,
+        or_(Product.tenant_id.is_(None), Product.tenant_id == tenant_id),
+    ).all()
+    house = [p for p in products if int(p.is_house_product or 0) == 1]
+    house_unknown = sum(1 for p in products if p.is_house_product is None)
+    if house:
+        ties.append(
+            f"Das Produktuniversum enthält {len(house)} eigene Produkte des "
+            "Finanzdienstleisters bzw. ihm nahestehender Gesellschaften."
+        )
+    if not ties:
+        ties.append("Für dieses Mandat sind keine wirtschaftlichen Bindungen an Dritte erfasst.")
+    # N-890-11: keine "0 Produkte"-Aussage und kein interner Rohwert.
+    if products:
+        offer = [
+            "Berücksichtigt werden Finanzinstrumente aus dem Produktuniversum des "
+            f"Finanzdienstleisters ({len(products)} Produkte, davon {len(house)} eigene"
+            + (f", {house_unknown} ohne Angabe zur Herkunft" if house_unknown else "")
+            + ")."
+        ]
+    else:
+        offer = [
+            "Berücksichtigt werden Finanzinstrumente aus dem Produktuniversum, das der "
+            "Finanzdienstleister für seine Empfehlungen festlegt."
+        ]
+    universe_label = _KI_UNIVERSE_LABELS.get(str(getattr(mandate, "investment_universe", "") or ""))
+    if universe_label:
+        offer.append(f"Für dieses Mandat gilt die {universe_label}.")
+    return tuple(ties), tuple(offer)
+
+
+def _build_kundeninformation_data(db: Session, mandate: Mandate, profile: dict) -> KundeninformationData:
+    tenant_id = mandate_tenant_id(db, mandate)
+    cost_lines, cost_note, retro_lines, fee_missing = _kundeninformation_cost_parts(db, mandate, profile)
+    ties, offer = _kundeninformation_ties_and_offer(db, mandate, tenant_id)
+    return KundeninformationData(
+        template_version=CLIENT_INFORMATION_TEMPLATE_VERSION,
+        legal_profile_revision=int(profile.get("revision") or 0),
+        legal_profile_hash=legal_profile_hash(profile),
+        provider_lines=_kundeninformation_provider_lines(profile),
+        ombudsman_name=str(profile.get("ombudsman_name") or "").strip(),
+        ombudsman_address=str(profile.get("ombudsman_address") or "").strip(),
+        mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
+        mandate_type=str(getattr(mandate, "mandate_type", "") or ""),
+        cost_lines=cost_lines,
+        cost_note=cost_note,
+        retrocession_lines=retro_lines,
+        economic_ties=ties,
+        market_offer_lines=offer,
+        depot_bank=getattr(mandate, "depot_bank", None),
+        fee_agreement_missing=fee_missing,
+    )
+
+
+@router.get(
+    "/mandates/{mandate_id}/reports/kundeninformation.pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+def get_kundeninformation_pdf(
+    mandate_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Kundeninformation nach Art. 8/9 FIDLEG als PDF (vor Vertragsabschluss
+    zu uebergeben). Fail-closed: ohne vollstaendige rechtliche Angaben der
+    Firma (Firma, Adresse, Aufsichtsstatus, Ombudsstelle, Kontakt) wird kein
+    Dokument erstellt (409 mit Liste der fehlenden Angaben). Render-once/
+    archive-once; die archivierte Fassung traegt Vorlagenversion und Revision/
+    Hash der rechtlichen Angaben (Grundlage des Abgabenachweises)."""
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    tenant_id = mandate_tenant_id(db, mandate)
+    profile = load_tenant_legal_profile(db, tenant_id)
+    missing = legal_profile_missing_fields(profile)
+    if missing:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": CLIENT_INFORMATION_TENANT_DATA_MISSING,
+            "message": (
+                "Die Kundeninformation kann nicht erstellt werden: Pflichtangaben der "
+                "Firma fehlen. Ein Firmen-Admin ergänzt sie unter Administration > "
+                "Rechtliche Angaben."
+            ),
+            "missing_fields": missing,
+        })
+    if str(profile.get("address_country") or "").strip().upper() not in CLIENT_INFORMATION_SEAT_REGIMES:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": CLIENT_INFORMATION_REGIME_UNSUPPORTED,
+            "message": "Für den Sitz der Firma bildet Ares keine Kundeninformation ab (nur Schweiz/FIDLEG).",
+        })
+    # H-179 D-1/R-1: Abschnitt Datenbearbeitung (Art. 19 DSG) und Zuwendungen
+    # der Depotbank nur aus freigegebenen Angaben der Firma -- sonst kein
+    # Dokument (409, typisiert), nie ein erfundener Text.
+    privacy = privacy_section_state(db, tenant_id)
+    if privacy["missing"]:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "CLIENT_INFORMATION_PRIVACY_MISSING",
+            "message": (
+                "Die Kundeninformation kann nicht erstellt werden: der Abschnitt "
+                "Datenbearbeitung (Art. 19 DSG) ist nicht vollständig freigegeben. Ein "
+                "Firmen-Admin erfasst ihn unter Administration > Compliance > "
+                "Vertragsschicht; eine zweite Person gibt ihn frei."
+            ),
+            "missing_sections": privacy["missing"],
+        })
+    inducement = depot_bank_inducement_state(db, mandate)
+    if _depot_bank_inducement_missing(mandate, inducement):
+        raise HTTPException(status_code=409, detail={
+            "reason_code": (
+                "DEPOT_BANK_INDUCEMENT_EXPIRED" if inducement["status"] in ("expired", "not_yet_valid")
+                else "DEPOT_BANK_INDUCEMENT_MISSING"
+            ),
+            "message": (
+                "Die Kundeninformation kann nicht erstellt werden: zu Zuwendungen der "
+                "Depotbank liegt keine gültige, freigegebene Angabe der Firma vor"
+                + ("" if inducement["depot_bank"] else " (im Mandat ist keine Depotbank erfasst)")
+                + "."
+            ),
+            "depot_bank": inducement["depot_bank"],
+        })
+    # CCX-P3-FX (N-909-13): die Kundeninformation druckt die Kostenzeilen des
+    # Ex-ante-Kostenausweises (Betraege des Laufs) -> dieselbe Druckpruefung.
+    _assert_client_pdf_fx_basis(db, mandate)
+    # N-890-07: eigene Fusszeile der Kundeninformation (H7-Footer je
+    # Dokument-/Mandatstyp), nicht "Dokumentation der Anlageberatung".
+    ctx = dataclasses.replace(
+        _build_pdf_context(mandate, current_user, db, draft_check=False, allocation_free=True),
+        mandate_type=CLIENT_INFORMATION_DOCUMENT_TYPE,
+    )
+    try:
+        base_data = _build_kundeninformation_data(db, mandate, profile)
+    except AdvisoryLogIntegrityFailed as exc:
+        raise _advisory_log_integrity_409(exc) from exc
+    data = dataclasses.replace(
+        base_data,
+        privacy_lines=privacy["lines"],
+        depot_bank_inducement_lines=_depot_bank_inducement_lines(inducement),
+    )
+    if data.fee_agreement_missing:
+        # N-935-03: ohne Gebuehrenvereinbarung Entwurf -- Wasserzeichen, nie archiviert.
+        ctx = _mark_fee_draft(ctx)
+        safe_mandate = str(mandate.mandate_number or "mandat")[:40]
+        return Response(
+            content=ReportLabRenderer().render_vertrag(ctx, data),
+            media_type="application/pdf",
+            headers={"Content-Disposition": content_disposition(f"kundeninformation-{safe_mandate}.pdf"),
+                     **_draft_headers(ctx)},
+        )
+    # N-925R-02: Fussformat ist Teil des Archivschluessels -- Fassungen mit dem
+    # frueheren Entscheid-Fuss (alte Pruefnummer) werden nicht wiedergegeben.
+    content_hash = hashlib.sha256(
+        f"{content_hash_for(data)}|footer:allocation_free/1".encode("utf-8")).hexdigest()
+    existing = (
+        db.query(ContractDocument)
+        .filter(
+            ContractDocument.mandate_id == mandate.id,
+            ContractDocument.document_type == CLIENT_INFORMATION_DOCUMENT_TYPE,
+            ContractDocument.deleted_at.is_(None),
+        )
+        .order_by(ContractDocument.version.desc())
+        .first()
+    )
+    if existing is not None and existing.content_hash == content_hash and existing.pdf_base64:
+        doc = existing
+        pdf_bytes = base64.b64decode(doc.pdf_base64)
+    else:
+        pdf_bytes = ReportLabRenderer().render_vertrag(ctx, data)
+        doc = archive_generated_pdf(
+            db, mandate_id=mandate.id, document_type=CLIENT_INFORMATION_DOCUMENT_TYPE,
+            title="Kundeninformation (Art. 8/9 FIDLEG)", pdf_bytes=pdf_bytes,
+            content_hash=content_hash, current_user=current_user,
+            ip_address=_extract_client_ip(request),
+            content_json=json.dumps({
+                "template_version": data.template_version,
+                "legal_profile_revision": data.legal_profile_revision,
+                "legal_profile_hash": data.legal_profile_hash,
+                "tenant_id": tenant_id,
+                "retrocession_policy": profile.get("tenant_default_retrocession_reimbursement"),
+                "privacy_section_hash": privacy["hash"],
+                "depot_bank_inducement": inducement["binding"],
+            }, sort_keys=True),
+        )
+    safe_mandate = str(mandate.mandate_number or "mandat")[:40]
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": content_disposition(f"kundeninformation-{safe_mandate}.pdf"),
+            "X-Client-Information-Document-Id": doc.id,
+            "X-Client-Information-Document-Version": str(doc.version),
+            "X-Client-Information-Byte-Sha256": doc.checksum_sha256 or "",
+            "X-Client-Information-Template-Version": data.template_version,
+            "X-Client-Information-Legal-Profile-Revision": str(data.legal_profile_revision),
         },
     )

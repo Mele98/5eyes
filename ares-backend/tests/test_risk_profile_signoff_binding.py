@@ -460,8 +460,9 @@ def test_legacy_signature_without_snapshot_is_marked_unbound(seeded):
     assert ra.signoff_state == "legacy_unbound"
     view = build_signoff_view(session, ra)
     joined = " ".join(t for _, t in signoff_view_lines(view))
-    assert "Altsignatur" in joined
-    assert "nicht an eine Override-Decision gebunden" in joined
+    # KN9 (H-182): Kundensprache statt «Altsignatur»/«Override-Decision».
+    assert "Ältere Signatur vom" in joined
+    assert "an keinen Entscheid gebunden" in joined
     from schemas.profiling import RiskAssessmentResponse
 
     payload = RiskAssessmentResponse.model_validate(ra).model_dump()
@@ -510,7 +511,7 @@ def test_api_audit_advisory_log_strategy_and_pdfs_share_one_reference(seeded):
     assert view["signoff_verified"] is True
     joined = " ".join(t for _, t in view["lines"])
     assert sid in joined and shash in joined and did in joined and dhash in joined
-    assert "Hash verifiziert" in joined
+    assert "Nachweis geprüft: unverändert" in joined  # KN9 (vorher «Hash verifiziert»)
     risk_texts = _render_texts(build_risikoprofil_flowables, RisikoprofilData(
         risk_profile_label="Defensiv", risk_capacity_score=50, risk_tolerance_score=50,
         signoff_state=view["state"], signoff_id=view["signoff_id"],
@@ -520,8 +521,21 @@ def test_api_audit_advisory_log_strategy_and_pdfs_share_one_reference(seeded):
         risk_signoff_state=view["state"], risk_signoff_id=view["signoff_id"],
         risk_signoff_hash=view["signoff_hash"], risk_signoff_lines=view["lines"],
     ))
+    # KN7 (H-181, CTO-Nachtrag Punkte 3/4): Kunden-PDFs (Risikoprofil,
+    # Beratungsprotokoll) zeigen dieselbe Referenz gekuerzt auf 8 Zeichen; die
+    # vollen Werte stehen in der Berater-/Audit-Fassung und unveraendert in
+    # View, Audit und Strategie-Meldung (oben).
     for texts in (risk_texts, proto_texts):
-        assert sid in texts and shash in texts and did in texts and dhash in texts
+        assert all(full[:8] in texts for full in (sid, shash, did, dhash))
+        assert not any(full in texts for full in (sid, shash, did, dhash))
+    from functools import partial
+
+    audit_texts = _render_texts(partial(build_risikoprofil_flowables, advisor_annex=True), RisikoprofilData(
+        risk_profile_label="Defensiv", risk_capacity_score=50, risk_tolerance_score=50,
+        signoff_state=view["state"], signoff_id=view["signoff_id"],
+        signoff_hash=view["signoff_hash"], signoff_lines=view["lines"],
+    ))
+    assert sid in audit_texts and shash in audit_texts and did in audit_texts and dhash in audit_texts
 
 
 def test_signature_required_is_visible_in_strategy_and_pdf_lines(seeded):
@@ -550,7 +564,9 @@ def test_tampered_signoff_row_is_flagged_in_pdf_view(seeded):
     session.commit()
     view = _risk_signoff_view(session, _fresh(session))
     assert view["signoff_verified"] is False
-    assert "NICHT verifiziert" in " ".join(t for _, t in view["lines"])
+    joined = " ".join(t for _, t in view["lines"])
+    assert "Nachweis nicht bestätigt" in joined  # KN9 (vorher «NICHT verifiziert»)
+    assert "Abweichung: Signatur-Nachweis verändert" in joined
 
 
 def test_portal_signoff_binds_decision_and_counts_as_client_signature(session_factory):  # noqa: F811
@@ -583,9 +599,14 @@ def test_portal_signoff_binds_decision_and_counts_as_client_signature(session_fa
         assert entry.system_event == "risk_profile_signoff"
         assert entry.entry_type == "Eignungsprüfung"
         assert entry.duration_minutes is None
-        assert res["signoff_id"] in entry.description and res["signoff_hash"] in entry.description
-        assert res["override_decision_id"] in entry.description
-        assert res["override_decision_hash"] in entry.description
+        # L2c (H-192): Protokoll-Freitexte sind versiegelt -- gelesen wird ueber
+        # die zentrale Oeffnung.
+        from services.advisory_log_service import serialize_response
+
+        description = serialize_response(entry, session)["description"]
+        assert res["signoff_id"] in description and res["signoff_hash"] in description
+        assert res["override_decision_id"] in description
+        assert res["override_decision_hash"] in description
         assert _fresh(session).client_signed_ref == "cu-rcp"
 
 

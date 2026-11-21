@@ -627,7 +627,7 @@ def test_create_wealth_inflow_rejects_mandate_of_another_client(
                     "label": "Cross-client inheritance",
                     "source_type": "Erbschaft",
                     "amount_rappen": 10_000_000,
-                    "expected_year": 2030,
+                    "currency": "CHF", "expected_year": 2030,
                     "value_mode": "nominal",
                     "mandate_id": mandate_b_id,
                 },

@@ -79,6 +79,7 @@ def _make_client_with_rental_property(session_factory, advisor) -> str:
     "Zins Hypothek UBS",
     "Hypothek-Zinsen 2026",
 ])
+@pytest.mark.usefixtures("property_advanced_mechanics_enabled")  # K1: dormante Mechanik
 def test_various_mortgage_interest_labels_blocked_with_active_mortgage(
     auth_client, session_factory, advisor, label
 ):
@@ -159,6 +160,7 @@ def test_rental_income_label_allowed_without_active_property(
 # ============================================================================
 
 
+@pytest.mark.usefixtures("property_advanced_mechanics_enabled")  # K1: dormante Mechanik
 def test_creating_mortgage_after_manual_amortization_cashflow_is_blocked(
     auth_client, session_factory, advisor
 ):
@@ -192,6 +194,7 @@ def test_creating_mortgage_after_manual_amortization_cashflow_is_blocked(
     assert "Tilgung" in resp_wp.text
 
 
+@pytest.mark.usefixtures("property_advanced_mechanics_enabled")  # K1: dormante Mechanik
 def test_creating_mortgage_after_manual_interest_cashflow_is_blocked(
     auth_client, session_factory, advisor
 ):
@@ -298,3 +301,6 @@ def test_creating_property_with_zero_value_ignores_conflicting_manual_rent(
         },
     )
     assert resp_wp.status_code == 201, resp_wp.text
+
+
+from tests.property_gate_support import property_advanced_mechanics_enabled  # noqa: E402,F401  (K1)

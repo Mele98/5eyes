@@ -48,6 +48,7 @@ from tests.test_risk_override_current_gate_decision_log import (
     _assessment,
     _override,
 )
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 LEGACY_AT = "2025-01-15T09:00:00.000Z"
 LEGACY_REASON = "Kurz"  # Altbestand: erfuellt die heutige Qualitaetsregel NICHT
@@ -225,9 +226,7 @@ def test_strategy_gate_stays_non_blocking_but_shows_legacy_hint(seeded):
 
 
 def test_monolith_offers_legacy_remediation_action():
-    html = (
-        Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
-    ).read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     assert "function openLegacyOverrideRemediation(" in html
     assert "Override aus Altbestand" in html
     assert "ovPayload.remediation='legacy_remediation'" in html
@@ -245,7 +244,8 @@ def test_signoff_lines_and_409_point_to_legacy_confirmation(seeded):
     _make_legacy(session)
     ra = _fresh(session)
     joined = " ".join(t for _, t in signoff_view_lines(build_signoff_view(session, ra)))
-    assert "Override aus Altbestand" in joined and "bitte bestaetigen" in joined
+    # KN9 (H-182): Kundensprache statt «Override»/«bestaetigen».
+    assert "Übersteuerung aus dem Altbestand" in joined and "bitte zuerst" in joined and "bestätigen" in joined
     with pytest.raises(DomainError) as exc:
         _sign(session, advisor)
     assert "legacy_remediation" in exc.value.detail["message"]
