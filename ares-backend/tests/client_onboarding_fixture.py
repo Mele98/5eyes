@@ -426,11 +426,14 @@ def record_test_advice_rationale(db, mandate, run_id: str, *, actor_id: str) -> 
 
     if latest_advice_rationale(db, str(mandate.id), run_id):
         return
+    from services.pii_vault import seal_for_client
+
+    # L2b: versiegelt wie die API (pii_vault), Siegel ueber den Umschlag.
     record = AdviceRationale(
         id=new_uuid(), tenant_id=mandate.tenant_id, mandate_id=mandate.id, client_id=mandate.client_id,
         recommendation_run_id=run_id,
-        client_needs=f"{TEST_CONTRACT_MARKER} Testwert Bedürfnisse",
-        recommendation_reasons=f"{TEST_CONTRACT_MARKER} Testwert Gründe",
+        client_needs=seal_for_client(db, mandate.client_id, f"{TEST_CONTRACT_MARKER} Testwert Bedürfnisse"),
+        recommendation_reasons=seal_for_client(db, mandate.client_id, f"{TEST_CONTRACT_MARKER} Testwert Gründe"),
         recorded_by=actor_id, recorded_at=_PAST,
     )
     record.rationale_hash = _seal(record, "rationale_hash")

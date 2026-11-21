@@ -45,6 +45,7 @@ from core.db_integrity import raise_if_check_violation
 from core.evidence import evidence_hash
 from core.reason_codes import DomainError
 from services.audit import log
+from services.pii_vault import PiiVaultError, reveal_state, seal_for_client
 
 SCHEMA_VERSION_V1 = "RiskProfileSignoffV1"
 # PG-002 (Codex-Closure-Review PR #662): V2 bindet zusaetzlich den aus dem
@@ -353,8 +354,6 @@ def invalidation_audit_value(
     User-ID (Pseudonym) und bleibt unversiegelt."""
     signed_ref = _value(assessment, "client_signed_ref")
     if signed_ref and _value(assessment, "client_signed_method") != METHOD_PORTAL:
-        from services.pii_vault import seal_for_client
-
         # Ohne Session/Kunde nie Klartext ins Audit-Log: dann entfaellt die
         # Notiz (der Signoff-Pointer oben referenziert sie weiterhin).
         signed_ref = seal_for_client(db, client_id, signed_ref) if db is not None and client_id else None
@@ -867,8 +866,6 @@ def record_signoff(
     # im Audit-Snapshot nur versiegelt (Crypto-Shredding bei DSG-Art.-32-
     # Loeschung); die veraenderbare Projektion client_signed_ref bleibt lesbar
     # und wird von der Erasure redigiert. Fail-closed VOR jeder Mutation.
-    from services.pii_vault import PiiVaultError, seal_for_client
-
     try:
         sealed_note = seal_for_client(db, mandate.client_id, note)
     except PiiVaultError as exc:
@@ -1068,3 +1065,25 @@ def _advisory_log_entry(db, *, mandate, advisor_id: str, signoff: Any):
     entry = create_advisory_log(db, mandate_id=mandate.id, advisor=advisor, payload=payload)
     entry.system_event = ADVISORY_SYSTEM_EVENT
     return entry
+
+
+# ---------------------------------------------------------------------------
+# L2b (H-190): versiegelte Protokoll-Freitexte (Gruende der Empfehlung,
+# advice_rationales). Dieselbe Vault-Regel wie die Signatur-Notiz oben: der
+# Freitext wird VOR dem Siegeln mit dem Kundenschluessel versiegelt; das
+# Zeilensiegel bindet den Umschlag und bleibt nach einem Crypto-Shredding
+# pruefbar. Hier statt in services/recommendation_release_gate.py, weil das
+# Gate dieses Modul schon nutzt (Architektur-Ratsche: keine neue Modulkante).
+# ---------------------------------------------------------------------------
+
+def seal_protocol_text(db, client_id: str | None, plaintext: str) -> str:
+    """Versiegelter Wert; fail-closed ``PiiVaultError`` ohne Kunde oder fuer
+    einen DSG-geloeschten Kunden (nie Klartext)."""
+    return seal_for_client(db, client_id, plaintext)
+
+
+def reveal_protocol_text(db, value: Any) -> tuple[str | None, str]:
+    """(Klartext, Status) -- Status aus ``pii_vault.reveal_state``."""
+    return reveal_state(db, value)
+
+
