@@ -112,7 +112,6 @@ STANDALONE_FRONTEND_MODULES: dict[str, str] = {
     "advisory-log-finma.js": "eigenes Modul, test_monolith_advisory_log_finma_fields.py",
     "product-master-data.js": "eigenes Modul, test_audit_2026_11_p1_ui.py",
     "presentation-rounding.js": "G7 Rundungsformatter (Policy ares-rounding/1), test_presentation_rounding_parity.py",
-    "build-info.js": "H-180 Version/Build-Kennung im Anmeldefenster, test_h180_build_info.py",
 }
 
 _JS_PATTERNS = (

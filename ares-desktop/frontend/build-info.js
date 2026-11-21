@@ -4,7 +4,7 @@
  * Liest das oeffentliche /health des lokalen Backends (in der gepackten EXE mit
  * Version aus package.json und Git-SHA des Builds, siehe
  * ares-backend/core/build_info.py) und zeigt "Ares <Version> · Build <SHA7>"
- * im Anmeldefenster (#ares-build-info). Im Quellbetrieb fehlt der SHA; dann
+ * im Anmeldefenster (#ares-build-info, unter "Advisory OS" angelegt). Im Quellbetrieb fehlt der SHA; dann
  * steht dort "Entwicklungsstand". Fehler bleiben still (rein informativ).
  */
 (function () {
@@ -18,8 +18,24 @@
     return text;
   }
 
-  async function render() {
+  function ensureElement() {
     var el = document.getElementById('ares-build-info');
+    if (el) return el;
+    var overlay = document.getElementById('login-overlay');
+    if (!overlay) return null;
+    var anchor = Array.prototype.find.call(overlay.querySelectorAll('div'), function (d) {
+      return d.children.length === 0 && String(d.textContent || '').trim() === 'Advisory OS';
+    });
+    if (!anchor || !anchor.parentNode) return null;
+    el = document.createElement('div');
+    el.id = 'ares-build-info';
+    el.style.cssText = 'font-size:10px;color:var(--g3);margin-top:2px;';
+    anchor.parentNode.appendChild(el);
+    return el;
+  }
+
+  async function render() {
+    var el = ensureElement();
     if (!el || !window.AresAPI || typeof window.AresAPI.getBackendRuntime !== 'function') return;
     try {
       var runtime = await window.AresAPI.getBackendRuntime();
