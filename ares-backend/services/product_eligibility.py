@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sys
 import unicodedata
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -34,6 +35,7 @@ from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
 from database import new_uuid
+from config import settings
 from models.mandates import Mandate
 from core import sustainability_preference as sustainability
 from core.reason_codes import DomainError, ReasonCode
@@ -1102,6 +1104,27 @@ def seed_synthetic_default_catalog_evidence(
                 updated_at=now,
             ))
     db.flush()
+
+
+def seed_synthetic_catalog_evidence_if_allowed(
+    db: Session, *, actor_id: str, jurisdiction: str,
+) -> None:
+    """Dev/Test-only adapter; production and packaged builds stay fail-closed."""
+    if settings.app_env not in {"development", "test"} or getattr(sys, "frozen", False):
+        return
+    # Deferred import avoids changing the portfolio engine's module graph.
+    from services.portfolio_engine import DEFAULT_CATALOG_PRODUCTS
+
+    allowed_names = [row[0] for row in DEFAULT_CATALOG_PRODUCTS]
+    products = db.query(Product).filter(
+        Product.tenant_id.is_(None),
+        Product.product_name.in_(allowed_names),
+        Product.deleted_at.is_(None),
+    ).all()
+    seed_synthetic_default_catalog_evidence(
+        db, products=products, actor_id=actor_id, jurisdiction=jurisdiction,
+        allowed_product_names=allowed_names,
+    )
 
 
 def _product_stable_id(product: Product) -> str:
