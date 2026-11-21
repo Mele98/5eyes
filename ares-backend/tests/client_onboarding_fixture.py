@@ -290,12 +290,13 @@ def _owner_content_test_keys() -> list[tuple[str, str | None, dict | None]]:
     keys: list[tuple[str, str | None, dict | None]] = []
     for clause in oc.CONTRACT_CLAUSE_KEYS:
         key = oc.contract_clause_key(oc.CONTRACT_SHARED_SLUG, clause)
-        keys.append((key, f"{TEST_CONTRACT_MARKER} Testwert, kein Owner-Text: {key}", None))
-    for section, *_rest in oc.PRIVACY_SECTIONS:
+        keys.append((key, f"{TEST_CONTRACT_MARKER} Testwert, kein Owner-Text: {oc.CONTRACT_CLAUSE_LABELS[clause]}", None))
+    for section, label, *_rest in oc.PRIVACY_SECTIONS:
         key = oc.PRIVACY_KEY_PREFIX + section
-        keys.append((key, f"{TEST_CONTRACT_MARKER} Testwert, kein Owner-Text: {key}", None))
-    for key in (oc.W033_DECLARATION_KEY, oc.W033_HORIZON_ADVICE_KEY):
-        keys.append((key, f"{TEST_CONTRACT_MARKER} Testwert, kein Owner-Text: {key}", None))
+        keys.append((key, f"{TEST_CONTRACT_MARKER} Testwert, kein Owner-Text: {label}", None))
+    for key, label in ((oc.W033_DECLARATION_KEY, "Erklärung des Kunden"),
+                       (oc.W033_HORIZON_ADVICE_KEY, "Hinweis zum Anlagehorizont")):
+        keys.append((key, f"{TEST_CONTRACT_MARKER} Testwert, kein Owner-Text: {label}", None))
     keys.append((oc.W033_MIN_HORIZON_KEY, None, TEST_MIN_HORIZON_YEARS))
     return keys
 
@@ -400,8 +401,8 @@ def record_test_advice_rationale(db, mandate, run_id: str, *, actor_id: str) -> 
     record = AdviceRationale(
         id=new_uuid(), tenant_id=mandate.tenant_id, mandate_id=mandate.id, client_id=mandate.client_id,
         recommendation_run_id=run_id,
-        client_needs=f"{TEST_CONTRACT_MARKER} Testwert Beduerfnisse",
-        recommendation_reasons=f"{TEST_CONTRACT_MARKER} Testwert Gruende",
+        client_needs=f"{TEST_CONTRACT_MARKER} Testwert Bedürfnisse",
+        recommendation_reasons=f"{TEST_CONTRACT_MARKER} Testwert Gründe",
         recorded_by=actor_id, recorded_at=_PAST,
     )
     record.rationale_hash = _seal(record, "rationale_hash")

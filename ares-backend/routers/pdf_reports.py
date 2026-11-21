@@ -2310,6 +2310,15 @@ def _assert_sustainability_texts_claim_free(view: dict) -> None:
         )
 
 
+# H-179 P-1: Klartext der Abgabekanaele (recommendation_release_gate.CLIENT_INFORMATION_DELIVERY_CHANNELS).
+_KI_CHANNEL_LABELS = {
+    "persoenlich_papier": "persönlich, auf Papier",
+    "post": "per Post",
+    "email": "per E-Mail",
+    "kundenportal": "über das Kundenportal",
+}
+
+
 def _risk_profile_w033_lines(db: Session, mandate: Mandate) -> tuple:
     """H-179 E-1: freigegebene W033-Texte der Firma fuer das Risikoprofil-PDF
     (nie ein Ares-Text). Abraten nur, wenn der Horizont unter dem
@@ -2367,7 +2376,8 @@ def _protocol_advice_sections(db: Session, mandate: Mandate, ta) -> dict:
     ), {"mid": str(mandate.id)}).mappings().all():
         information.append(
             f"Kundeninformation ({delivery['template_version']}) übergeben am "
-            f"{str(delivery['delivered_at'] or '')[:10]} ({delivery['delivery_channel']})."
+            f"{str(delivery['delivered_at'] or '')[:10]} "
+            f"({_KI_CHANNEL_LABELS.get(str(delivery['delivery_channel']), 'Kanal nicht erfasst')})."
         )
     cost = db.execute(sql_text(
         "SELECT checksum_sha256, pdf_generated_at FROM contract_documents WHERE mandate_id = :mid "
