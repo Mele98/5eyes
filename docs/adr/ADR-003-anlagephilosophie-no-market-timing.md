@@ -11,7 +11,7 @@ Trigger ("Verkaufs-Signal", "Kaufgelegenheit"). Das suggeriert dass die
 Software den Markt schlägt — was empirisch nicht belegt und regulatorisch
 gefährlich ist (kann als Anlageempfehlung gelten, FIDLEG-relevant).
 
-Die 5eyes-Beratung folgt einer **regelbasierten, langfristigen**
+Die Ares-Beratung folgt einer **regelbasierten, langfristigen**
 Philosophie:
 - SAA pro Risikoprofil
 - Re-Balancing nur bei Eignungsprüfung oder Kunden-Anfrage

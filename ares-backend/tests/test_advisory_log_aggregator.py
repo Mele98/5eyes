@@ -446,7 +446,8 @@ def test_auto_log_endpoint_creates_prefilled_entry(http_client):
     # Generischer Risiko-Hinweis muss da sein
     assert len(body["risk_warnings_given"]) >= 1
     assert body["integrity_hash"] is not None
-    assert body["retain_until"].endswith("-29") or len(body["retain_until"]) == 10
+    # H7 C-6: Mandat offen -> Frist laeuft erst ab Mandatsende.
+    assert body["retain_until"] is None
 
 
 def test_auto_log_includes_suitability_warnings(http_client):

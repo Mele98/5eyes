@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -22,7 +23,7 @@ HTML_PATH = BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html"
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def test_bug10_marker_vorhanden():
@@ -51,7 +52,7 @@ def test_analysis_disclosure_wording_ist_soll_only():
     line = text[idx:line_end]
     assert "IST/SOLL" not in line
     assert "Strategie-Spiegel" not in line
-    assert "Solver-Trace" in line
+    assert "Rechenweg" in line and "Solver-Trace" not in line  # KN-U E2E2-14
 
 
 def test_analysis_body_haengt_nicht_mehr_strategyCard_oder_strategySpiegel_an():

@@ -37,6 +37,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
@@ -68,7 +69,7 @@ def _run_main_goal_achievability(goals: list[dict], rows: list[dict]) -> dict:
     the `result` argument and let the stub echo it straight through). The
     sort/selection logic below that line is the real, unmodified function.
     """
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     fn_src = _extract_function(html, "mainGoalAchievability")
     script = f"""
     var currentGoals = {json.dumps(goals)};

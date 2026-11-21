@@ -7,7 +7,7 @@ existierende CachedAggregator.purge_expired()-Logik.
 
 Aufruf:
     python scripts/cache_stats.py
-    python scripts/cache_stats.py --db-path /pfad/zur/5eyes.db
+    python scripts/cache_stats.py --db-path /pfad/zur/ares.db
     python scripts/cache_stats.py --purge-expired
     python scripts/cache_stats.py --json
 

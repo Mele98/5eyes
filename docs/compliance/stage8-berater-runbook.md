@@ -3,8 +3,6 @@
 > **Zweck:** Schritt-für-Schritt-Anleitung für den Berater/Owner, um den Default
 > von `OPTIMIZER_MODE=house_matrix` auf `stochastic` umzustellen.
 > Bezug:
-> - Spec `docs/planning/2026-05-23-stochastic-goal-engine-spec.md` §10 Acceptance #10
-> - Methodology `docs/planning/2026-05-23-stochastic-shadow-comparison-methodology.md`
 > - Template `docs/compliance/shadow-vergleich-template.md`
 >
 > **Zeitbedarf:** ca. 30–45 Minuten, sobald 4 Mandate (1 Foundation + 3 reale Archetypen)
