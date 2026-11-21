@@ -48,6 +48,11 @@ from test_engine_de_jurisdiction_wiring import (  # noqa: F401 (session_factory 
     _seed_de_mandate,
     session_factory,
 )
+import pytest  # noqa: E402
+
+# CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
+# tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
+from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
 
 
 def _now() -> str:
@@ -147,6 +152,7 @@ def test_provisional_data_warning_is_protected_from_hiding(session_factory):
 # 3) End-to-End: der echte Kundenportal-Endpoint liefert dieselbe Warnung
 # ---------------------------------------------------------------------------
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_client_portal_report_endpoint_surfaces_provisional_warning(session_factory):
     """GET /client-portal/mandates/{id}/report -- derselbe Kunde, der sein
     eigenes Nicht-CH-Mandat einsieht, MUSS die Provisorik-Warnung sehen,
@@ -205,6 +211,7 @@ def test_client_portal_report_endpoint_surfaces_provisional_warning(session_fact
     assert "PROVISORISCH" in warning["message"]
 
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_client_portal_report_endpoint_no_warning_for_ch_control(session_factory):
     """Gegenprobe: derselbe Endpoint zeigt fuer ein bereits IC-freigegebenes
     Mandat KEIN Banner -- kein falsch-positiver Alarm."""

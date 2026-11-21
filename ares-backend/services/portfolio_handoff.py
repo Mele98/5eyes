@@ -17,11 +17,18 @@ from sqlalchemy.orm import Session
 
 from core.evidence import SCHEME_V1_STR_DEFAULT, evidence_hash
 from models.mandates import Mandate
-from models.review import Product, RecommendationRun
+from models.review import Product, RecommendationPosition, RecommendationRun
 from models.wealth import WealthPosition
 from services.portfolio_engine import build_recommendation_payload_from_run
 from services.portfolio_engine_live_rebalancing import _build_live_position_drifts
-from services.portfolio_handoff_cash import AdvisoryCashValuationError, advisory_cash_entries, with_cash_actions
+from core.external_holdings_rule import ORIGIN_EXTERNAL, normalize_isin
+from services.portfolio_handoff_cash import (
+    AdvisoryCashValuationError,
+    advisory_cash_entries,
+    external_handoff_entries,
+    with_cash_actions,
+    with_external_actions,
+)
 
 # Fields kept per trade in the immutable snapshot -- a curated subset of the
 # live-rebalancing entry (see services/portfolio_engine_live_rebalancing.py),
@@ -106,7 +113,7 @@ class HoldingsValuationIncompleteError(ValueError):
 _PRICE_BLOCKERS = (
     ("missing_prices_count", "Position(en) ohne aktuellen Marktpreis"),
     ("stale_positions_count", "Position(en) mit veraltetem Marktpreis"),
-    ("fx_conversion_failed_count", "Position(en) mit fehlgeschlagener Waehrungsumrechnung"),
+    ("fx_conversion_failed_count", "Position(en) mit fehlgeschlagener Währungsumrechnung"),
 )
 _COVERAGE_KEYS = ("holding_positions_count", "implied_positions_count") + tuple(k for k, _ in _PRICE_BLOCKERS)
 
@@ -134,7 +141,7 @@ def assert_holdings_valuation_complete(live: dict) -> None:
     held_count = counts["holding_positions_count"]
     if held_count is not None and held_count <= 0:
         raise HoldingsValuationIncompleteError(
-            "Kein erfasster Depotbestand. Bitte die Depotbestaende erfassen."
+            "Kein erfasster Depotbestand. Bitte die Depotbestände erfassen."
         )
     if any(value is None for value in counts.values()):
         raise HoldingsValuationIncompleteError(
@@ -144,8 +151,8 @@ def assert_holdings_valuation_complete(live: dict) -> None:
     problems = [f"{counts[key]} {label}" for key, label in blockers if counts[key] > 0]
     if problems:
         raise HoldingsValuationIncompleteError(
-            "Die Bewertung ist nicht vollstaendig belegt: " + "; ".join(problems)
-            + ". Bitte Bestaende und Preise aktualisieren."
+            "Die Bewertung ist nicht vollständig belegt: " + "; ".join(problems)
+            + ". Bitte Bestände und Preise aktualisieren."
         )
 
 def assert_holdings_carried_over(missing: list[dict]) -> None:
@@ -161,8 +168,8 @@ def assert_holdings_carried_over(missing: list[dict]) -> None:
         f"{item.get('isin') or item.get('product_id')} ({item.get('product_name') or '-'})" for item in missing
     )
     raise HoldingsValuationIncompleteError(
-        f"{len(missing)} Bestand/Bestaende stehen nur in einem frueheren Lauf: {labels}. "
-        "Bitte im aktuellen Lauf erfassen oder dort als verkauft (Menge 0) bestaetigen.",
+        f"{len(missing)} Bestand/Bestände stehen nur in einem früheren Lauf: {labels}. "
+        "Bitte im aktuellen Lauf erfassen oder dort als verkauft (Menge 0) bestätigen.",
         REASON_HOLDINGS_NOT_CARRIED_OVER,
     )
 
@@ -174,6 +181,7 @@ def resolve_handoff_holdings_basis(
     advisory_depot_recorded: bool = False,
     investable_wealth_rappen: int | None = None,
     advisory_cash: list[dict] | None = None,
+    external_holdings: list[dict] | None = None,
 ) -> tuple[list[dict], int, str]:
     """Liefert (position_drifts, Basis-Total, holdings_basis) fuer den Snapshot.
 
@@ -199,53 +207,64 @@ def resolve_handoff_holdings_basis(
     Liquiditaetspositionen des Beratungsvermoegens (``advisory_cash``, siehe
     services/portfolio_handoff_cash.py) als eigene Zeilen mit IST = Wert und
     SOLL = 0 in der Basis. Bei bestaetigtem Neugeld sind sie bereits im
-    investierbaren Beratungsvermoegen enthalten und werden nicht addiert."""
+    investierbaren Beratungsvermoegen enthalten und werden nicht addiert.
+
+    K3 / N-915-06: bewerteter Fremdbestand (``external_holdings``, Titel
+    ausserhalb der Empfehlung) ist erfasster Depotbestand -- auch ohne einen
+    einzigen Titel der Empfehlung. Jede Zeile hat IST = Wert und SOLL = 0; die
+    Aktion ist nur ein Vorschlag (``REVIEW``), nie ein Verkaufsauftrag."""
+    external = list(external_holdings or [])
     counts = _coverage_counts(live)
     held_count = counts["holding_positions_count"]
-    if held_count is not None and held_count <= 0 and not confirm_no_existing_holdings:
+    if external and confirm_no_existing_holdings:
+        raise HoldingsValuationIncompleteError(
+            "Widerspruch: es sind Titel ausserhalb der Empfehlung erfasst, bestätigt wurde "
+            "aber, dass kein Bestand existiert. Bitte die Angaben prüfen."
+        )
+    if held_count is not None and held_count <= 0 and not confirm_no_existing_holdings and not external:
         raise HoldingsValuationIncompleteError(
             "Kein erfasster Depotbestand: die Handelsliste beruht ausschliesslich "
             "auf aus dem Ziel abgeleiteten Positionen und ist keine Handelsinstruktion. "
-            "Bitte die Depotbestaende erfassen oder -- nur bei Neugeld ohne bestehendes "
-            "Depot -- ausdruecklich bestaetigen (confirm_no_existing_holdings).",
+            "Bitte die Depotbestände erfassen oder -- nur bei Neugeld ohne bestehendes "
+            "Depot -- ausdrücklich bestätigen (confirm_no_existing_holdings).",
             REASON_NO_HOLDINGS_CONFIRMATION_REQUIRED,
         )
     if any(value is None for value in counts.values()):
         raise HoldingsValuationIncompleteError(
             "Die Bewertungsabdeckung der Live-Handelsliste ist nicht belegt "
-            "(Bestands-/Preis-/FX-Nachweis fehlt). Keine Weiterleitung moeglich."
+            "(Bestands-/Preis-/FX-Nachweis fehlt). Keine Weiterleitung möglich."
         )
     problems = [f"{counts[key]} {label}" for key, label in _PRICE_BLOCKERS if counts[key] > 0]
     if problems:
         raise HoldingsValuationIncompleteError(
-            "Die Live-Bewertung ist nicht vollstaendig belegt: " + "; ".join(problems)
-            + ". Bitte Bestaende und Preise aktualisieren, bevor die Handelsliste weitergeleitet wird."
+            "Die Live-Bewertung ist nicht vollständig belegt: " + "; ".join(problems)
+            + ". Bitte Bestände und Preise aktualisieren, bevor die Handelsliste weitergeleitet wird."
         )
 
     drifts = live.get("position_drifts") or []
-    if held_count > 0:
+    if held_count > 0 or external:
         if confirm_no_existing_holdings:
             raise HoldingsValuationIncompleteError(
-                "Widerspruch: es sind Depotbestaende erfasst, bestaetigt wurde aber, "
-                "dass kein Bestand existiert. Bitte die Angaben pruefen."
+                "Widerspruch: es sind Depotbestände erfasst, bestätigt wurde aber, "
+                "dass kein Bestand existiert. Bitte die Angaben prüfen."
             )
         basis = HOLDINGS_BASIS_RECORDED_DEPOT
     else:
         if advisory_depot_recorded:
             raise HoldingsValuationIncompleteError(
-                "Das Beratungsvermoegen enthaelt ein Wertschriftendepot, aber kein Bestand "
-                "ist erfasst. Die Bestaetigung 'kein Bestand' ist dafuer nicht zulaessig; "
-                "bitte die Depotbestaende erfassen."
+                "Das Beratungsvermögen enthält ein Wertschriftendepot, aber kein Bestand "
+                "ist erfasst. Die Bestätigung 'kein Bestand' ist dafür nicht zulässig; "
+                "bitte die Depotbestände erfassen."
             )
         if not investable_wealth_rappen or int(investable_wealth_rappen) <= 0:
             raise HoldingsValuationIncompleteError(
-                "Ohne Depotbestand und ohne investierbares Beratungsvermoegen gibt es "
-                "keine belegte Basis fuer die Handelsliste."
+                "Ohne Depotbestand und ohne investierbares Beratungsvermögen gibt es "
+                "keine belegte Basis für die Handelsliste."
             )
         basis = HOLDINGS_BASIS_CONFIRMED_NO_HOLDINGS
 
     cash = list(advisory_cash or []) if basis == HOLDINGS_BASIS_RECORDED_DEPOT else []
-    if counts["implied_positions_count"] == 0 and basis == HOLDINGS_BASIS_RECORDED_DEPOT and not cash:
+    if counts["implied_positions_count"] == 0 and basis == HOLDINGS_BASIS_RECORDED_DEPOT and not cash             and not external:
         # Alles gehalten: unveraenderte Live-Zeilen, nur die Herkunft markiert.
         return (
             [{**entry, "holding_origin": HOLDING_ORIGIN_HELD} for entry in drifts],
@@ -262,7 +281,7 @@ def resolve_handoff_holdings_basis(
     ):
         raise HoldingsValuationIncompleteError(
             "Die Zuordnung gehaltener und nicht gehaltener Positionen ist nicht "
-            "belegt (Zaehler und Zeilen stimmen nicht ueberein). Keine Weiterleitung moeglich."
+            "belegt (Zähler und Zeilen stimmen nicht überein). Keine Weiterleitung möglich."
         )
     for entry in drifts:
         if entry["holding_present"] and (
@@ -270,15 +289,16 @@ def resolve_handoff_holdings_basis(
             or int(entry.get("current_market_value_rappen") or 0) <= 0
         ):
             raise HoldingsValuationIncompleteError(
-                "Das erfasste Depot ist nicht vollstaendig belegt: "
+                "Das erfasste Depot ist nicht vollständig belegt: "
                 f"{entry.get('product_name') or entry.get('product_id')} hat keinen "
-                "Bestands-Stichtag oder keinen Bestandswert. Ohne vollstaendiges Depot "
+                "Bestands-Stichtag oder keinen Bestandswert. Ohne vollständiges Depot "
                 "darf ein nicht erfasstes Produkt nicht als Nullbestand gelten."
             )
 
     if basis == HOLDINGS_BASIS_RECORDED_DEPOT:
         total = sum(int(entry["current_market_value_rappen"]) for entry in drifts if entry["holding_present"])
         total += sum(int(entry["current_market_value_rappen"]) for entry in cash)
+        total += sum(int(entry["current_market_value_rappen"]) for entry in external)
     else:
         total = int(investable_wealth_rappen)
     entries = []
@@ -299,7 +319,17 @@ def resolve_handoff_holdings_basis(
             })
         entries.append(row)
     entries.extend(dict(entry) for entry in cash)
-    return with_cash_actions(_build_live_position_drifts(entries, total)), total, basis
+    entries.extend(dict(entry) for entry in external)
+    return with_external_actions(with_cash_actions(_build_live_position_drifts(entries, total))), total, basis
+
+
+def _run_isins(db: Session, run: RecommendationRun) -> set[str]:
+    """K3: ISINs der Produkte des Laufs -- ein Fremdtitel mit derselben ISIN
+    waere doppelt gezaehlt (nicht bewertbar)."""
+    rows = db.query(Product.isin).join(
+        RecommendationPosition, RecommendationPosition.product_id == Product.id,
+    ).filter(RecommendationPosition.run_id == run.id).all()
+    return {normalize_isin(row[0]) for row in rows if normalize_isin(row[0])}
 
 
 def _advisory_depot_recorded(db: Session, mandate: Mandate) -> bool:
@@ -344,10 +374,22 @@ def snapshot_handoff(
     )
     live = payload.get("live_rebalancing") or {}
     if not (live.get("position_drifts") or []) or int(live.get("live_total_value_rappen") or 0) <= 0:
-        raise NoTradeListAvailableError("Keine Live-Rebalancing-Daten fuer diesen Lauf verfuegbar.")
+        if payload.get("investable_advisory_wealth_rappen") == 0:
+            # N-858-11: Basis 0 ist eine Aussage (Reserve beansprucht alles), nicht "Daten fehlen".
+            raise NoTradeListAvailableError(
+                "Keine investierbare Strategiebasis: Die Liquiditätsreserve beansprucht "
+                "das gesamte Beratungsvermögen; es gibt nichts zu handeln."
+            )
+        raise NoTradeListAvailableError("Keine Live-Rebalancing-Daten für diesen Lauf verfügbar.")
     # HANDOFF-CASH-BASIS-001: nur bei erfasstem Depot (sonst Neugeld-Pfad).
+    # K3 / N-915-06: Fremdbestand, bewertet mit derselben strikten FX-Basis wie die Liquiditaet.
+    try:
+        external = external_handoff_entries(db, mandate, _run_isins(db, run))
+    except AdvisoryCashValuationError as exc:
+        raise HoldingsValuationIncompleteError(str(exc)) from exc
     advisory_cash = []
-    if not confirm_no_existing_holdings and (_coverage_counts(live)["holding_positions_count"] or 0) > 0:
+    if not confirm_no_existing_holdings and (
+            (_coverage_counts(live)["holding_positions_count"] or 0) > 0 or external):
         try:
             advisory_cash = advisory_cash_entries(db, mandate)
         except AdvisoryCashValuationError as exc:
@@ -358,12 +400,15 @@ def snapshot_handoff(
         advisory_depot_recorded=confirm_no_existing_holdings and _advisory_depot_recorded(db, mandate),
         investable_wealth_rappen=payload.get("investable_advisory_wealth_rappen"),
         advisory_cash=advisory_cash,
+        external_holdings=external,
     )
 
     threshold_rappen = round(total_value_rappen * _MIN_TRADE_SHARE)
+    # K3: Fremdtitel nie still ausblenden, auch unter der Anzeigeschwelle.
     selected = [
         entry for entry in drifts
         if abs(int(entry.get("rebalance_amount_rappen") or 0)) >= threshold_rappen
+        or entry.get("holding_origin") == ORIGIN_EXTERNAL
     ]
     isin_by_product = _isin_by_product_id(db, [entry.get("product_id") for entry in selected])
     trades = [_snapshot_trade(entry, isin_by_product) for entry in selected]

@@ -35,6 +35,7 @@ from tests.test_manual_allocation_save_contract import (
     _shifted_targets,
 )
 from routers import allocation as allocation_router
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 PRODUCT_ROOT = Path(allocation_router.__file__).resolve().parents[2]
@@ -66,7 +67,7 @@ def test_dirty_allocation_blocks_fresh_server_advice_artifacts():
     """A browser-known stale state must block or label final advice artefacts."""
     if shutil.which("node") is None:
         pytest.skip("node binary not available")
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     download = _function(src, "async function downloadServerPdf(")
     harness = r"""
 var strategyState={dirty:true,staleNotice:'Bandbreiten geaendert',allocation:{buckets:[{}]}};
@@ -186,7 +187,7 @@ def _run_node(script: str) -> str:
 
 
 def _pdf_harness(state_js: str, calls: str) -> dict:
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     download = _function(src, "async function downloadServerPdf(")
     harness = (
         "var strategyState=" + state_js + ";\n"
@@ -260,7 +261,7 @@ process.stdout.write(JSON.stringify([first,second,other]));
 
 
 def test_monolith_manual_payload_carries_predecessor_token():
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     pred = _function(src, "function currentManualSavePredecessor(")
     build = _function(src, "function buildManualTargetAllocationPayload(")
     first, second, other = json.loads(
@@ -275,7 +276,7 @@ def test_monolith_manual_payload_carries_predecessor_token():
 
 
 def test_monolith_save_records_saved_allocation_as_next_predecessor():
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     save = _function(src, "async function saveManualTargetAllocationFromModal(")
     post = save.index("API.post(")
     assert "strategyState.manualSaveRef=" in save[post:]

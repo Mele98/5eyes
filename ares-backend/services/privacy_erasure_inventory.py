@@ -42,7 +42,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-INVENTORY_VERSION = "2026-10-27.1"
+INVENTORY_VERSION = "2026-11-21.1"
 
 DELETE = "DELETE"
 ANONYMIZE = "ANONYMIZE"
@@ -148,6 +148,32 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
            method=TIER_A_REDACTION),
         _c(RECORD, "kyc_due_diligence"),
     ),
+    # H8 C-5: GwG-Bestaetigung (append-only) und Vier-Augen-Freigabe.
+    "kyc_confirmations": _t(
+        _CLIENT,
+        _c(FREE_TEXT, "kyc_due_diligence", "external_reference", "note", method=TIER_A_REDACTION),
+        _c(RECORD, "kyc_due_diligence"),
+    ),
+    "kyc_confirmation_approvals": _t(
+        _CLIENT,
+        _c(FREE_TEXT, "kyc_due_diligence", "note", method=TIER_A_REDACTION),
+        _c(RECORD, "kyc_due_diligence"),
+    ),
+    # C-890-01 Nachtrag 2: begruendete Ablehnung der Zweitfreigabe.
+    "kyc_confirmation_rejections": _t(
+        _CLIENT,
+        _c(FREE_TEXT, "kyc_due_diligence", "reason", method=TIER_A_REDACTION),
+        _c(RECORD, "kyc_due_diligence"),
+    ),
+    # H8 Luecke 10: Vertretung/Verfuegungsberechtigung (Name der vertretenden
+    # Person = Personendatum eines Dritten).
+    "client_representations": _t(
+        _CLIENT,
+        _c(IDENTITY, "mandate_contract", "representative_name", method=TIER_A_REDACTION),
+        _c(FREE_TEXT, "mandate_contract", "scope", "evidence_reference", "note", "revocation_reason",
+           method=TIER_A_REDACTION),
+        _c(RECORD, "mandate_contract"),
+    ),
     "client_tax_residencies": _t(
         _CLIENT,
         _c(IDENTITY, "kyc_due_diligence", "tax_id_number", method=TIER_A_REDACTION),
@@ -183,6 +209,22 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
            method=TIER_A_REDACTION),
         _c(RECORD, "mandate_contract"),
     ),
+    # H8 C-2: Abgabenachweis der Kundeninformation (append-only, keine
+    # Personendaten ausser dem Bezug).
+    "client_information_deliveries": _t(_MANDATE, _c(RECORD, "mandate_contract")),
+    # H-179 P-1 (Art. 15 FIDLEG): Beduerfnisse/Gruende, append-only. L2b (H-190):
+    # versiegelt mit dem Kundenschluessel (pii_vault), geloescht per
+    # Crypto-Shredding; das Zeilensiegel bindet den Umschlag und bleibt
+    # pruefbar (Anzeige «Gelöscht (DSG)», keine Manipulation). Altzeilen von
+    # vor L2b im Klartext meldet die Erasure (count_unsealed_rows).
+    "advice_rationales": _t(
+        _MANDATE,
+        _c(SEALED_FREE_TEXT, "advisory_protocol", "client_needs", "recommendation_reasons",
+           method=CRYPTO_SHRED),
+        _c(RECORD, "advisory_protocol"),
+    ),
+    # H-179 E-1: Kundenbestaetigung zum Risikoprofil (W033), ohne Freitext.
+    "w033_client_declarations": _t(_MANDATE, _c(RECORD, "risk_profile_evidence")),
     "contract_documents": _t(
         _MANDATE,
         _c(SIGNATURE, "mandate_contract",
@@ -257,6 +299,13 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
         _MANDATE, _c(RECORD, "risk_capacity_plausibility_evidence"),
     ),
     "suitability_checks": _t(_MANDATE, _c(RECORD, "suitability_evidence")),
+    # E1 Nachhaltigkeitspraeferenzen: Teil der Eignungspruefung; die
+    # Verzichtsbegruendung ist versiegelt (pii_vault, Crypto-Shredding).
+    "investment_preference_decisions": _t(
+        _MANDATE,
+        _c(SEALED_FREE_TEXT, "suitability_evidence", "waiver_reason_sealed", method=CRYPTO_SHRED),
+        _c(RECORD, "suitability_evidence"),
+    ),
     "product_eligibility_snapshots": _t(_MANDATE, _c(RECORD, "suitability_evidence")),
     "product_eligibility_decisions": _t(
         ("snapshot_id", "product_eligibility_snapshots"), _c(RECORD, "suitability_evidence"),
@@ -267,6 +316,37 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
         _c(RECORD, "suitability_evidence"),
     ),
     "recommendation_runs": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    # CCX-P1: versiegelter Beratungsentscheid -- Payload, Bindungen und Manifest
+    # tragen nur IDs, Codes, Rohwerte und Hashes (kein Freitext, keine
+    # Identitaet); Teil der Empfehlungsevidenz, append-only.
+    "advisory_decision_envelopes": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    "advisory_envelope_bindings": _t(
+        ("envelope_id", "advisory_decision_envelopes"), _c(RECORD, "recommendation_evidence"),
+    ),
+    "advisory_effective_input_manifests": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    # CCX-P2: Abhaengigkeitskanten und Invalidationsereignisse -- nur IDs,
+    # Arten, Versionen, Hashes und Reason-Code (kein Freitext, keine
+    # Identitaet); Teil der Empfehlungsevidenz, append-only.
+    "advisory_dependency_edges": _t(
+        ("envelope_id", "advisory_decision_envelopes"), _c(RECORD, "recommendation_evidence"),
+    ),
+    "advisory_invalidation_events": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    # CCX-P3: Bewertungs-Snapshot, Positionszeilen und Entscheid je Position --
+    # IDs, Waehrungen, Minor Units, Kurse, Stichtage und Hashes (kein Freitext,
+    # keine Identitaet); Teil der Empfehlungsevidenz, append-only.
+    "holdings_valuation_snapshots": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    "holdings_valuation_rows": _t(
+        ("snapshot_id", "holdings_valuation_snapshots"), _c(RECORD, "recommendation_evidence"),
+    ),
+    "position_decision_ledger": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    # CCX-P4: Publikationsentscheide (IDs, Sequenz, Hashes, Freigeber-ID,
+    # Zeit, Modus, Blocker-Codes) und Active-Pointer -- kein Freitext, keine
+    # Identitaet; Teil der Empfehlungsevidenz, append-only bzw. nie geloescht.
+    "allocation_publication_decisions": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    "allocation_active_publications": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    # CCX-P5: Kanalzeilen (IDs, Kanal, Artefakt-ID, Hashes, Versionen) -- kein
+    # Freitext, keine Identitaet; Teil der Empfehlungsevidenz, append-only.
+    "advisory_channel_publications": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
     "recommendation_positions": _t(
         ("run_id", "recommendation_runs"), _c(RECORD, "recommendation_evidence"),
     ),
@@ -325,6 +405,12 @@ EXEMPT_TABLES: dict[str, str] = {
     ),
     "privacy_erasure_dispositions": "Dispositionszeilen des Loeschgesuchs selbst",
     "privacy_legal_holds": "Legal-Hold-Register (Fall-ID, Rechtsgrund, Umfang, Genehmiger)",
+    # H10 C-DSG-02: der Nachweis der Betroffenenanfrage muss eine Loeschung
+    # des Kunden ueberdauern (Eingang, Entscheid, Export-Hash, Zustellung).
+    "privacy_subject_requests": (
+        "Bearbeitungsnachweis der Betroffenenanfrage selbst (Eingang, Identitaetspruefung, "
+        "Entscheid, Export-Hash, Zustellnachweis; keine kopierten Exportdaten)"
+    ),
 }
 
 

@@ -205,7 +205,7 @@ def _seed_mandate(session_factory, *, suffix: str, tenant_id: str | None) -> dic
 
 def _add_cheap_private_product(session_factory, *, product_id: str, tenant_id: str) -> None:
     """Ein extrem guenstiger (ter_bps=1) privater Fonds fuer 'Aktien Schweiz'
-    -- guenstiger als der globale CH-Default ('iShares Core SPI ETF',
+    -- guenstiger als der globale CH-Default ('Musterprodukt Aktien Schweiz',
     ter_bps=10, sfdr_class='8') und wuerde ohne Tenant-Filter jede Ranking-
     Runde gewinnen (siehe _product_score(): score -= ter_bps; sfdr_class in
     ('8','9') gleichauf mit dem Default gesetzt, damit ausschliesslich der
@@ -275,11 +275,11 @@ def test_foreign_tenant_private_product_not_selected_for_other_tenants_mandate(s
     )
     # Ohne den Filter waere das guenstige Fremdprodukt fuer "Aktien Schweiz"
     # der eindeutige Ranking-Gewinner gewesen -- stattdessen muss der globale
-    # CH-Default ('iShares Core SPI ETF', ter_bps=10) fuer diese Sub-Asset-
+    # CH-Default ('Musterprodukt Aktien Schweiz', ter_bps=10) fuer diese Sub-Asset-
     # Class verwendet werden.
     ch_equity_positions = [p for p in positions if p["sub_asset_class"] == "Aktien Schweiz"]
     assert ch_equity_positions, "Keine Position fuer 'Aktien Schweiz' gefunden"
-    assert all(p["product_name"] == "iShares Core SPI ETF" for p in ch_equity_positions), (
+    assert all(p["product_name"] == "Musterprodukt Aktien Schweiz" for p in ch_equity_positions), (
         f"Erwartet den globalen CH-Default fuer 'Aktien Schweiz', erhalten: "
         f"{[p['product_name'] for p in ch_equity_positions]}"
     )

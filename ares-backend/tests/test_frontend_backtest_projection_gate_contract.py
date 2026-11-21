@@ -18,6 +18,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 HTML_PATH = (
     Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
@@ -41,7 +42,7 @@ def _function_source(html: str, name: str) -> str:
 
 
 def test_bt_render_does_not_bail_out_on_missing_soll_when_benchmark_present():
-    src = _function_source(HTML_PATH.read_text(encoding="utf-8"), "btRender")
+    src = _function_source(read_monolith_bundle(), "btRender")
     # Kein Fruehausstieg allein wegen fehlendem Soll.
     assert not re.search(r"if\(\s*!data\.soll\s*\)\s*\{", src), src[:400]
     assert "if(!btHasSoll && !data.benchmark){" in src
@@ -59,7 +60,7 @@ def test_bt_render_does_not_bail_out_on_missing_soll_when_benchmark_present():
     )[1]
 
     metrics = _function_source(
-        HTML_PATH.read_text(encoding="utf-8"), "btRenderMetricsTable"
+        read_monolith_bundle(), "btRenderMetricsTable"
     )
     assert "if(data.soll && showRebal) cols.push({key:'soll_rebal'" in metrics
     assert "if(data.soll && showNoRebal) cols.push({key:'soll_norebal'" in metrics
@@ -77,7 +78,7 @@ def test_bt_render_does_not_bail_out_on_missing_soll_when_benchmark_present():
     ],
 )
 def test_dc_stress_replays_shows_gate_warning_instead_of_endpoint_text(stress, expected):
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     script = "\n".join([
         _function_source(html, "escapeHtml"),
         _function_source(html, "dcRenderStressReplays"),

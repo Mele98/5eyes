@@ -1,9 +1,12 @@
 import math
 
+from pydantic_core import PydanticCustomError
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from datetime import date
 from typing import Literal, Optional
 from core.chf_amount import normalize_chf_amount_text
-from schemas.common import BaseResponse
+from core.external_holdings_rule import isin_is_valid, normalize_isin
+from schemas.common import PERSISTABLE_INT_MAX, BaseResponse
 from services.cma_validation import (
     parse_correlation_matrix_json,
     parse_inflation_path_json,
@@ -357,6 +360,33 @@ class TargetAllocationCreate(BaseModel):
         return self
 
 
+class ChannelPublicationReference(BaseModel):
+    """P5b / N-925-04: eine Kanalzeile des Beratungsentscheids."""
+    channel: str
+    artifact_id: str
+    channel_sequence: int
+    channel_payload_hash: str
+    render_hash: Optional[str] = None
+    parameter_set_hash: str
+    goal_metric_payload_hash: str
+    created_at: str
+
+
+class DecisionEnvelopeReference(BaseModel):
+    """P5b / N-925-04 (Vertrag §8 Tier 1): Envelope-Bezug der Soll-Allokation
+    fuer API, Classic und React -- Pruefnummer und Fassung nur fuer einen
+    auslieferbaren Entscheid; sonst Zustand und Grund."""
+    state: Literal["deliverable", "sealed_not_deliverable", "none"]
+    reason_code: Optional[str] = None
+    pruefnummer: Optional[str] = None
+    fassung: Optional[int] = None
+    envelope_hash: Optional[str] = None
+    parameter_set_hash: Optional[str] = None
+    goal_metric_payload_hash: Optional[str] = None
+    ic_release_status: Optional[str] = None
+    channel_publications: list[ChannelPublicationReference] = Field(default_factory=list)
+
+
 class TargetAllocationResponse(BaseResponse):
     id: str
     mandate_id: str
@@ -419,6 +449,15 @@ class TargetAllocationResponse(BaseResponse):
     # gesetzt -- Bandbreiten ausserhalb der Hausmatrix-Zeile (persistiert in
     # effective_constraints_json/optimizer_reasoning_json).
     manual_override_warnings: list[str] = Field(default_factory=list)
+    # CCX-P4: Publikationsstatus (Serverwahrheit, nie im Client berechnet).
+    # PUBLISHED nur fuer die gueltig publizierte Allokation; jede andere --
+    # generiert oder manuell -- ist ein Entwurf (DRAFT), eine publizierte, aber
+    # nicht mehr gueltige PUBLICATION_INVALID. ``approved_by``/``approved_at``
+    # unten sind Altfelder der Tabelle und keine Freigabe.
+    publication_status: str = "DRAFT"
+    # P5b / N-925-04: Envelope-Bezug und gespeicherter Risikoparametersatz (M-2).
+    decision_envelope: Optional[DecisionEnvelopeReference] = None
+    risk_parameter_set: Optional[dict] = None
     policy_id: str
     set_by: str
     set_at: str
@@ -1309,6 +1348,16 @@ class AllocationBucketResponse(BaseModel):
     delta_weight_bps: int
     band_min_bps: int
     band_max_bps: int
+    # KN5 / N-917R4-02: Basis des Ist-Vergleichs und die Liquiditaetsreserve
+    # ausserhalb der Strategie (services/portfolio_engine_payload._bucket_rows).
+    # ``current_weight_bps`` ist der Strategieanteil auf der Strategiebasis
+    # (``current_strategy_amount_rappen``); ``current_amount_rappen`` bleibt der
+    # tatsaechliche Bestand. Reservefelder nur bei Liquiditaet (sonst None).
+    comparison_basis: Optional[str] = None
+    current_strategy_amount_rappen: Optional[int] = None
+    reserve_rappen: Optional[int] = None
+    reserve_funded_rappen: Optional[int] = None
+    reserve_gap_rappen: Optional[int] = None
 
 
 class AllocationSubBucketResponse(BaseModel):
@@ -1372,7 +1421,13 @@ class GoalAnalysisResponse(BaseModel):
     target_return_bps: Optional[int] = None
     projected_value_rappen: int
     achievement_score: int
+    # P5c / N-930-01: M-3-Status (core/goal_metric_contract.GOAL_STATUS_DISPLAY),
+    # ohne M-3 "nicht_bewertbar"; Wort und Farbe aus derselben Tabelle.
     status: str
+    status_label: Optional[str] = None
+    status_tone: Optional[str] = None
+    status_color: Optional[str] = None
+    status_bg: Optional[str] = None
     start_date: Optional[str] = None
     target_date: Optional[str] = None
     horizon_years: Optional[int] = None
@@ -1775,3 +1830,213 @@ class TargetAllocationGenerateResponse(BaseModel):
     goal_analysis: list[GoalAnalysisResponse]
     current_goal_analysis: list[GoalAnalysisResponse] = Field(default_factory=list)
     live_rebalancing: Optional[LiveRebalancingResponse] = None
+
+
+class IstProjectionCmaReference(BaseModel):
+    """Wirksame CMA-Version (dieselbe Aufloesung wie der Allokationspfad)."""
+    id: str
+    assumption_set_name: str
+    version: int
+    valid_from: Optional[str] = None
+    valid_until: Optional[str] = None
+    jurisdiction: Optional[str] = None
+
+
+class IstProjectionBasisResponse(BaseModel):
+    """H9 Nachtrag 2: serverseitige Basis der IST-Vermoegensprojektion.
+
+    Unabhaengig vom Strategie-Zustand: Renditeannahmen je Anlageklasse aus der
+    wirksamen CMA (Anlageklassen-Ebene, keine Gewichtung mit einer Soll-
+    Sub-Allokation) und die FX-normalisierte Gesamtvermoegens-Basis
+    (Liability-Kaskade wie ``total_allocation``) aus den aktuellen Positionen.
+    """
+    mandate_id: str
+    cma: IstProjectionCmaReference
+    expected_return_bps: dict[str, int]
+    total_base_rappen: int
+    foundation_in_net_wealth_rappen: int
+    projection_basis: dict
+
+
+# ── CCX-P4 Allocation-Publish ────────────────────────────────────────────────
+
+
+class AllocationPublicationStateResponse(BaseModel):
+    """Aktive Publikation (vor der Auslieferung neu geprueft)."""
+    status: str
+    reason_code: Optional[str] = None
+    publication_id: Optional[str] = None
+    publication_sequence: Optional[int] = None
+    target_allocation_id: Optional[str] = None
+    envelope_id: Optional[str] = None
+    published_envelope_hash: Optional[str] = None
+    validation_hash: Optional[str] = None
+    approval_hash: Optional[str] = None
+    approved_at: Optional[str] = None
+    approved_by: Optional[str] = None
+    approval_mode: Optional[str] = None
+    # Sichtbare Kennzeichnung, z. B. "Einzelfreigabe (eine berechtigte Person)".
+    approval_mode_label: Optional[str] = None
+    # N-910-02: Basis der Freigabe -- aktive Publish-Berechtigte und die
+    # Tenant-Konfiguration "Ein-Personen-Firma" zum Zeitpunkt (im approval_hash).
+    eligible_approver_count: Optional[int] = None
+    single_person_firm: Optional[int] = None
+
+
+class PublicationFreshnessCause(BaseModel):
+    """KN-B / E2E2-05: eine Ursache der Veraltung."""
+    kind: str
+    text: str
+    currencies: list[str] = Field(default_factory=list)
+
+
+class PublicationFreshnessResponse(BaseModel):
+    """KN-B / E2E2-05: abgeleitete Frische der aktiven Publikation.
+    ``status``: FRESH | STALE | UNKNOWN | null (keine bzw. aus anderem Grund
+    ungueltige Publikation)."""
+    status: Optional[str] = None
+    reason_code: Optional[str] = None
+    message: Optional[str] = None
+    causes: list[PublicationFreshnessCause] = Field(default_factory=list)
+
+
+class AllocationPublicationOverviewResponse(BaseModel):
+    """CCX-P4: Publikationsstatus der aktuellen Soll-Allokation fuer die
+    Masken. ``can_publish`` nur, wenn alle Pruefungen gruen sind;
+    ``blocker_codes`` sind katalogisierte Reason-Codes."""
+    mandate_id: str
+    target_allocation_id: Optional[str] = None
+    envelope_id: Optional[str] = None
+    envelope_hash: Optional[str] = None
+    publication_status: str
+    validation_status: str
+    validation_hash: str
+    blocker_codes: list[str] = Field(default_factory=list)
+    can_publish: bool
+    already_published: bool
+    prepared_by: Optional[str] = None
+    active_publication: AllocationPublicationStateResponse
+    freshness: Optional[PublicationFreshnessResponse] = None
+    decision_envelope: Optional[DecisionEnvelopeReference] = None
+
+
+class AllocationPublishRequest(BaseModel):
+    """CCX-P4: Freigabe genau des geprueften Stands (Approval-Binding)."""
+    target_allocation_id: str = Field(min_length=1, max_length=64)
+    validation_hash: str = Field(min_length=64, max_length=64, pattern="^[0-9a-f]{64}$")
+    single_approver_attestation: bool = False
+    attestation_reason: Optional[str] = Field(default=None, max_length=1000)
+
+
+class PublicationInboxItem(BaseModel):
+    """ROL-05: eine zur Freigabe vorgelegte Akte, datenminimiert -- Mandat,
+    vorbereitende Person und die zu publizierende Soll-Allokation; keine
+    Personalien, Vermoegenswerte oder Kundendokumente."""
+    mandate_id: str
+    mandate_number: Optional[str] = None
+    mandate_type: Optional[str] = None
+    prepared_by: Optional[str] = None
+    prepared_by_name: Optional[str] = None
+    sealed_at: Optional[str] = None
+    target_allocation_id: Optional[str] = None
+    validation_hash: str
+    can_publish: bool
+    blocker_codes: list[str] = Field(default_factory=list)
+    targets_bps: dict[str, int] = Field(default_factory=dict)
+    bands_bps: dict[str, list[int]] = Field(default_factory=dict)
+
+
+class PublicationInboxApproveRequest(BaseModel):
+    """ROL-05: Vier-Augen-Freigabe aus der Inbox -- genau der gepruefte Stand
+    (keine Einzelfreigabe; die bleibt der Ein-Personen-Firma im Mandat)."""
+    target_allocation_id: str = Field(min_length=1, max_length=64)
+    validation_hash: str = Field(min_length=64, max_length=64, pattern="^[0-9a-f]{64}$")
+
+
+class AllocationPublicationResponse(BaseModel):
+    """CCX-P4: geschriebener Publikationsentscheid."""
+    publication_id: str
+    mandate_id: str
+    target_allocation_id: str
+    envelope_id: str
+    publication_sequence: int
+    validation_hash: str
+    approval_hash: str
+    approval_mode: str
+    approval_mode_label: str
+    approved_at: str
+    approved_by: str
+    published_envelope_hash: str
+    eligible_approver_count: int
+    single_person_firm: int
+
+
+# K3 / N-915-06: Titel ausserhalb der Empfehlung (Fremdbestand) an einem Depot.
+ExternalHoldingAssetClass = Literal["Aktien", "Obligationen", "Immobilien", "Alternative Anlagen", "Liquidität"]
+
+
+class ExternalHoldingItem(BaseModel):
+    """Ein gehaltener Titel, der nicht in der Empfehlung steht. Marktwert und
+    Stichtag duerfen fehlen -- der Titel ist dann "nicht bewertbar" (kein
+    Ersatzwert)."""
+
+    label: str = Field(..., min_length=1, max_length=120)
+    isin: Optional[str] = Field(default=None, max_length=20)
+    asset_class: ExternalHoldingAssetClass
+    currency: str = Field(..., min_length=3, max_length=3)
+    market_value_rappen: Optional[int] = Field(default=None, ge=1, le=PERSISTABLE_INT_MAX)
+    valuation_date: Optional[date] = None
+
+    @field_validator("label")
+    @classmethod
+    def _label(cls, value: str) -> str:
+        text = " ".join(str(value).split())
+        if not text:
+            raise PydanticCustomError("external_label", "Bezeichnung fehlt.")
+        return text
+
+    @field_validator("currency")
+    @classmethod
+    def _currency(cls, value: str) -> str:
+        text = str(value).strip().upper()
+        if not text.isalpha() or len(text) != 3:
+            raise PydanticCustomError("external_currency", "Währung als dreistelliger Code (ISO 4217).")
+        return text
+
+    @field_validator("isin")
+    @classmethod
+    def _isin(cls, value: Optional[str]) -> Optional[str]:
+        isin = normalize_isin(value)
+        if isin and not isin_is_valid(isin):
+            raise PydanticCustomError("external_isin", "ISIN ungültig (Format oder Prüfziffer).")
+        return isin
+
+
+class ExternalHoldingsUpdate(BaseModel):
+    items: list[ExternalHoldingItem] = Field(default_factory=list, max_length=200)
+
+
+class ExternalHoldingValuation(BaseModel):
+    label: str
+    isin: Optional[str] = None
+    asset_class: Optional[str] = None
+    currency: Optional[str] = None
+    market_value_rappen: Optional[int] = None
+    valuation_date: Optional[str] = None
+    amount_base_rappen: Optional[int] = None
+    status: str
+    status_text: str
+
+
+class ExternalHoldingsDepot(BaseModel):
+    wealth_position_id: str
+    depot_label: str
+    items: list[ExternalHoldingValuation]
+
+
+class ExternalHoldingsResponse(BaseModel):
+    mandate_id: str
+    base_currency: str
+    depots: list[ExternalHoldingsDepot]
+    total_base_rappen: int
+    unvalued_count: int

@@ -299,7 +299,7 @@ def test_cover_uses_advisor_full_name_and_client_name(session_factory):
         report = compute_advisory_report(s, mandate, advisor=advisor)
     cover = report["cover"]
     assert cover["title"] == "Strategische Portfolioanalyse"
-    assert cover["subtitle"] == "Persoenlicher Advisory-Report"
+    assert cover["subtitle"] == "Persönlicher Advisory-Report"
     assert cover["client_name"] == "Hans Muster"
     assert cover["advisor_name"] == "Anna Beispiel"
     assert cover["mandate_number"].startswith("M-")
@@ -977,11 +977,17 @@ def test_erkenntnisse_risikoprofil_rot_without_assessment(session_factory):
 
 
 def test_erkenntnisse_risikoprofil_gruen_with_recent_assessment(session_factory):
+    # "Aktuell" misst der Produktcode als Alter gegen ``date.today()``
+    # (Grenze 365 Tage). Mit dem festen ``_NOW`` (2026-05-24) kippte der Test
+    # ab 2027-05-25 auf "gelb" -- das Profil muss relativ zu heute frisch sein.
+    from datetime import date, timedelta
+
+    recent = (date.today() - timedelta(days=30)).isoformat() + "T15:00:00.000Z"
     with session_factory() as s:
         mandate, _c, advisor = _seed_minimal_mandate(s)
         s.add(RiskAssessment(
             id=str(uuid.uuid4()), mandate_id=mandate.id,
-            version=1, is_current=1, valid_from=_NOW,
+            version=1, is_current=1, valid_from=recent,
             q_income_points=3, q_obligations_points=3,
             q_savings_points=3, q_wealth_points=3,
             risk_capacity_total=12,
@@ -997,8 +1003,8 @@ def test_erkenntnisse_risikoprofil_gruen_with_recent_assessment(session_factory)
             risk_willingness_score_x10=60,
             final_score_x10=70,
             final_profile="Ausgewogen",
-            assessed_at=_NOW, assessed_by=advisor.id,
-            created_at=_NOW, updated_at=_NOW,
+            assessed_at=recent, assessed_by=advisor.id,
+            created_at=recent, updated_at=recent,
         ))
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
@@ -1055,6 +1061,9 @@ def test_asset_allocation_carries_drift_and_band_info(session_factory):
             s, mandate_id=mandate.id, client_id=client.id,
             advisor_id=advisor.id,
             target_amount_rappen=1_000_000_00,
+            # KN4-B / E2E4-04: mit erfasstem Bestand -- ein aus dem Zielbetrag
+            # abgeleitetes IST wird nie als IST gedruckt.
+            current_amount_rappen=1_000_000_00,
             asset_class="Aktien",
         )
         # Die Recommendation hat bereits eine globale Current-Policy erzeugt.
@@ -1367,7 +1376,7 @@ def test_ab_backtest_pending_without_second_policy(session_factory):
     assert ab["data_pending"] is True
     assert ab["policy_a"] is None
     assert ab["policy_b"]["is_current"] is True
-    assert "zweite OptimizerPolicy" in ab["note"]
+    assert "zweites Strategiemodell" in ab["note"]
 
 
 def test_ab_backtest_returns_policy_diff_from_current_and_comparison_policy(session_factory):
@@ -1446,7 +1455,9 @@ def test_goal_based_investing_returns_data_pending_goals_without_achievability(s
     assert len(gbi["goals"]) == 1
     assert gbi["goals"][0]["label"] == "Pension"
     assert gbi["goals"][0]["probability_bps"] is None
-    assert gbi["goals"][0]["status"] == "data_pending"
+    # P5c / N-930-01: ohne M-3 "nicht bewertbar" (fail-closed) statt "data_pending".
+    assert gbi["goals"][0]["status"] == "nicht_bewertbar"
+    assert gbi["goals"][0]["status_label"] == "nicht bewertbar"
     assert gbi["goal_achievement_score_bps"] is None
 
 
@@ -1482,7 +1493,9 @@ def test_goal_based_investing_aggregates_persisted_achievability(session_factory
     g0 = gbi["goals"][0]
     assert g0["label"] == "Hauskauf"
     assert g0["probability_bps"] == 8500
-    assert g0["status"] == "erreichbar"
+    # P5c / N-930-01: Zeile ohne Validierungsanker = keine zertifizierte M-3-
+    # Kennzahl -> "nicht bewertbar", nie der gespeicherte Optimierer-Status.
+    assert g0["status"] == "nicht_bewertbar"
     assert g0["target_amount_rappen"] == 500_000_00
     # Single-Goal Score = Goal-Probability
     assert gbi["goal_achievement_score_bps"] == 8500
@@ -1710,8 +1723,17 @@ def test_endpoint_returns_full_report_structure(session_factory):
         "ab_backtest",
         # U-FINMA-3: additive Sektion 27 (re-architektiert 2026-06-09 von Sektion 17)
         "suitability_summary",
+        # C-890-01 Nachtrag 4 (N-897-12): Entwurfshinweis ohne KYC-Bestaetigung
+        # (nur der React-Bericht/Kundenportal, additiv am Ende).
+        "kyc_draft_notice",
+        # CCX-P4: Publikationsstatus der Soll-Allokation und Entwurfshinweis
+        # (React-Bericht, additiv am Ende).
+        "allocation_publication",
+        "allocation_draft_notice",
     ]
     assert list(data.keys()) == expected
+    assert data["allocation_publication"]["status"] == "DRAFT"
+    assert data["allocation_draft_notice"] == "Entwurf – Soll-Allokation nicht publiziert"
     assert data["schema_version"] == 2
     assert data["mandate_id"] == mid
 
@@ -2376,10 +2398,88 @@ def _ziel_check(report):
     )
 
 
-def test_ar1_primaer_unreachable_goal_flags_rot(session_factory):
+def _as_certified_m3(monkeypatch):
+    """P5c: die Fixture-Zeilen haben keinen Validierungsanker; fuer die AR-1-
+    Logik gelten sie hier als bereits kanonische M-3-Zeilen (Status unveraendert)."""
+    import services.advisory_report as ar
+
+    monkeypatch.setattr(ar, "canonical_goal_rows", lambda rows, ta: [dict(r) for r in rows])
+
+
+def test_p5c_uncertified_goal_rows_are_not_assessable_not_green(session_factory):
+    """P5c / N-930-01: ohne zertifizierte M-3-Kennzahl weder rot noch gruen."""
+    import json
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        payload = json.dumps([
+            {"goal_id": "g1", "label": "Rente", "probability": 0.95,
+             "status": "erreichbar", "hardness": "primär",
+             "evaluation_scope": "priority_funded"},
+        ])
+        _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id,
+                            goal_achievability_json=payload)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert _ziel_check(report)["bewertung"] == "nicht_beurteilbar"
+
+
+def _ziel_check_for(session_factory, rows):
+    import json
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id,
+                            goal_achievability_json=json.dumps(rows))
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    return _ziel_check(report)
+
+
+def _goal_row(goal_id, status, hardness, label="Ziel"):
+    return {"goal_id": goal_id, "label": label, "probability": 0.5, "status": status,
+            "hardness": hardness, "evaluation_scope": "priority_funded"}
+
+
+@pytest.mark.parametrize("hardness", ["hart", "primär"])
+def test_n933_03a_uncertified_hard_goal_stored_unreachable_stays_rot(session_factory, hardness):
+    """P5c Fixrunde 1 / N-933-03a (CTO): ohne zertifiziertes M-3 gilt die
+    vorsichtigste verfuegbare Information -- die gespeicherte Optimierer-Zeile
+    meldet das harte/primaere Ziel nicht erreichbar -> rot (vor der Fixrunde:
+    nicht_beurteilbar). Gegenprobe: alter Code -> nicht_beurteilbar -> rot."""
+    check = _ziel_check_for(session_factory, [_goal_row("g1", "nicht_erreichbar", hardness)])
+    assert check["bewertung"] == "rot", check
+
+
+@pytest.mark.parametrize("certified", [False, True])
+def test_n933_03_soft_unreachable_goal_is_gelb_with_matching_text(session_factory, monkeypatch, certified):
+    """N-933-03b: ein weich definiertes Ziel, das (laut M-3 oder gespeicherter
+    Zeile) nicht erreichbar ist -> gelb mit passendem Text, nicht «keine
+    bewertbare Zielerreichung -- neu berechnen»."""
+    if certified:
+        _as_certified_m3(monkeypatch)
+    check = _ziel_check_for(session_factory, [_goal_row("g1", "nicht_erreichbar", "opportunistisch")])
+    assert check["bewertung"] == "gelb", check
+    assert check["beurteilung"] == "1 weich definierte(s) Ziel(e) nicht erreichbar."
+
+
+@pytest.mark.parametrize("rows,expected,text", [
+    # Gespeicherte Entwarnung ohne M-3 ist kein Gruen.
+    ([_goal_row("g1", "erreichbar", "primär")], "nicht_beurteilbar",
+     "Für 1 Ziel(e) liegt keine bewertbare Zielerreichung vor."),
+    # Knappes Ziel neben einem unbekannten -> gelb mit Hinweis auf das unbekannte.
+    ([_goal_row("g1", "erreichbar", "primär"), _goal_row("g2", "knapp", "weich")], "gelb",
+     "1 Ziel(e) knapp erreichbar. Für 1 weitere(s) Ziel(e) liegt keine bewertbare Zielerreichung vor."),
+])
+def test_n933_03_only_unknown_goals_stay_not_assessable(session_factory, rows, expected, text):
+    """Nur wenn gar nichts Vorsichtiges bekannt ist -> nicht_beurteilbar."""
+    check = _ziel_check_for(session_factory, rows)
+    assert (check["bewertung"], check["beurteilung"]) == (expected, text), check
+
+
+def test_ar1_primaer_unreachable_goal_flags_rot(session_factory, monkeypatch):
     """AR-1: ein nicht erreichbares PRIMÄRES Ziel (Engine-Display 'primär') muss
     rot flaggen — vorher wurde nur 'hart' erkannt."""
     import json
+    _as_certified_m3(monkeypatch)
     with session_factory() as s:
         mandate, _c, advisor = _seed_minimal_mandate(s)
         payload = json.dumps([
@@ -2396,9 +2496,10 @@ def test_ar1_primaer_unreachable_goal_flags_rot(session_factory):
     assert "primär" in check["beurteilung"]
 
 
-def test_ar1_hart_unreachable_goal_still_rot(session_factory):
+def test_ar1_hart_unreachable_goal_still_rot(session_factory, monkeypatch):
     """AR-1: 'hart' bleibt rot (keine Regression)."""
     import json
+    _as_certified_m3(monkeypatch)
     with session_factory() as s:
         mandate, _c, advisor = _seed_minimal_mandate(s)
         payload = json.dumps([

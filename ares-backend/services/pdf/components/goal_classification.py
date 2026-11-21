@@ -1,5 +1,9 @@
 """Goal classification for Advisory-Report Monte-Carlo PDF charts.
 
+P5c / N-930-01 (CTO 2026-11-21): only the marker position (``t_index``) is
+used. The classification ``status`` is no longer shown anywhere (the former
+"MC-Status" column is gone); the visible goal status is the M-3 status.
+
 This mirrors the reporting frontend's `goalClassification.ts` logic:
 same status strings, same boundary rules, and the same defensive fallback
 behaviour when Monte-Carlo paths are pending or malformed.

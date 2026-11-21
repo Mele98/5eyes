@@ -150,6 +150,11 @@ def _seed_recommendation_with_ter(
             asset_class="equities",
             currency="CHF",
             ter_bps=ter_bps,
+            # N-861-2 (P1): "voll befuellt" heisst seit P1 auch: Retrozession
+            # bekannt (hier ausdruecklich 0 mit Quelle). Ohne Satz waere der
+            # Ausweis zu Recht nicht vollstaendig (Art. 26 FIDLEG).
+            retrocession_bps=0,
+            retrocession_source="Testannahme",
             created_at=_now(),
             updated_at=_now(),
         )

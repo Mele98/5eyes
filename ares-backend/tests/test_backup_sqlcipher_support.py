@@ -95,7 +95,7 @@ class _FakeSqlcipherModule:
         return rc
 
 
-def _enable_fake_sqlcipher(monkeypatch, db_key: str = "s3cr3t-key") -> _FakeSqlcipherModule:
+def _enable_fake_sqlcipher(monkeypatch, db_key: str = "s3cr3t-key-0123456789abcdef0123456789") -> _FakeSqlcipherModule:
     fake = _FakeSqlcipherModule()
     monkeypatch.setattr(backup_mod, "SQLCIPHER_AVAILABLE", True)
     monkeypatch.setattr(backup_mod, "sqlcipher3", fake)
@@ -116,10 +116,15 @@ def test_backup_and_restore_roundtrip_uses_sqlcipher_driver_when_enabled(tmp_pat
     assert result.path.exists()
     assert fake.connections, "sqlcipher3.connect() sollte fuer Source und Ziel aufgerufen worden sein"
 
+    # SQLCIPHER-KEY-PRAGMA-001 (Pruefrunde #861): frueher pinnte dieser Test die
+    # parametrisierte Form ``("PRAGMA key = ?", ("s3cr3t-key-0123456789abcdef0123456789",))`` -- genau die
+    # Form, die mit dem echten sqlcipher3 ein Syntaxfehler ist (PRAGMA bindet
+    # keine Parameter). Jetzt: Schluessel als SQL-Literal, ohne Parameter.
+    # Echter Treiber: tests/test_sqlcipher_engine_roundtrip.py.
     key_statements = [
-        params for sql, params in fake.connections[0].executed if sql.strip().upper().startswith("PRAGMA KEY")
+        (sql, params) for sql, params in fake.connections[0].executed if sql.strip().upper().startswith("PRAGMA KEY")
     ]
-    assert key_statements == [("s3cr3t-key",)], "PRAGMA key muss mit dem konfigurierten db_key gesetzt werden"
+    assert key_statements == [("PRAGMA key = 's3cr3t-key-0123456789abcdef0123456789'", None)], "PRAGMA key muss mit dem konfigurierten db_key gesetzt werden"
 
     cipher_pragmas = {
         sql
@@ -139,7 +144,7 @@ def test_backup_and_restore_roundtrip_uses_sqlcipher_driver_when_enabled(tmp_pat
 def test_sqlcipher_enabled_but_driver_missing_raises_loud_runtime_error(tmp_path, monkeypatch):
     monkeypatch.setattr(backup_mod, "SQLCIPHER_AVAILABLE", False)
     monkeypatch.setattr(backup_mod.settings, "db_use_sqlcipher", True)
-    monkeypatch.setattr(backup_mod.settings, "db_key", "s3cr3t-key")
+    monkeypatch.setattr(backup_mod.settings, "db_key", "s3cr3t-key-0123456789abcdef0123456789")
 
     src = tmp_path / "src.db"
     _seed_db(src, [(1, "alpha")])

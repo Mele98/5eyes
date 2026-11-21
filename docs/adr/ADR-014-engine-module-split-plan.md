@@ -3,8 +3,7 @@
 - **Status:** Accepted, Implementation: **Complete** (alle 8 Schritte
   umgesetzt, 2026-08-03)
 - **Datum:** 2026-08-02 (Plan) / 2026-08-03 (Umsetzung abgeschlossen)
-- **Sprint:** Welle 3.2 (Umsetzungsplan-Verbesserungen §3.2, siehe
-  `docs/planning/2026-07-18-umsetzungsplan-verbesserungen.md`)
+- **Sprint:** Welle 3.2 (Umsetzungsplan-Verbesserungen §3.2)
 
 ## Umsetzungs-Ergebnis (2026-08-03)
 
@@ -278,7 +277,7 @@ MC-Simulation zuerst, vermutlich weil er am groessten ist).
 | `_growth_goals_for_equity_tilt` | 2789-2811 | Growth-Goals-Filter fuer opportunistischen Equity-Tilt |
 | `_normalize_splits`, `_preference_choice` | 3911-3944 | Sub-Class-Split-Normalisierung, UI-Wert-Normalisierung |
 | `_build_sub_allocations` | 3947-4231 | **~285 Zeilen** — Home-Bias-Splits (CH hartcodiert / Nicht-CH via `resolve_home_bias_defaults`), Theme-Tilts, EM/HY-Filter |
-| `_apply_illiquid_cap` | 4241-4309 | Private-Equity-Deckel (3eyes: nur PE ist "illiquid", nicht ganz Alternative) |
+| `_apply_illiquid_cap` | 4241-4309 | Private-Equity-Deckel (Referenzmethodik: nur PE ist "illiquid", nicht ganz Alternative) |
 | `_house_matrix_or_default`, `_validate_house_matrix_defaults`, `_normalize_house_matrix_defaults`, `_seed_house_matrix_rows`, `_seed_building_blocks` | 4312-4502 | House-Matrix-Lookup + Default-Seed-Validierung — **`_house_matrix_or_default` extern importiert** |
 | `_baseline_target_bands`, `_house_matrix_mid_targets` | 5034-5066 | Targets/Min/Max aus House-Matrix-Zeile — **`_baseline_target_bands` extern importiert** |
 | `_apply_external_exposure_tilts` | 5084-5106 | Gesamtvermoegen-Exposure tiltet Beratungs-Targets |
@@ -597,8 +596,6 @@ ADR-008 (Frontend) und dem Umsetzungsplan Welle 3 generell
 - `ares-backend/services/portfolio_engine.py` — das God-Modul (8'820 Zeilen)
 - `docs/adr/ADR-008-html-monolith-migration.md` — Struktur-/Ton-Vorbild fuer
   diesen ADR; gleiches Big-Bang-vermeidendes Migrations-Muster
-- `docs/planning/2026-07-18-umsetzungsplan-verbesserungen.md` §3.2 —
-  Auftrag fuer diesen Plan
 - `ares-backend/tests/test_golden_snapshot_ch_regression.py` — primaeres
   Sicherheitsnetz (CH-Pfad byte-identisch)
 - `ares-backend/tests/test_portfolio_engine_regressions.py` — importiert
