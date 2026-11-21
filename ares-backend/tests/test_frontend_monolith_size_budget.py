@@ -193,6 +193,9 @@ der Vorgabe-Ort «Zürich» der Vertragsmaske entfernt (Ort = Pflichtfeld): 1622
 P5b-CI-Fix (H-185, CTO-Entscheid): refreshStrategyData rechnet bei 409/anderen Ladefehlern
 nicht mehr still neu (nur bei 404) -> Monolith gesenkt auf 26417/1622445.
 Merge H-179 + P5b (ca5da413): Monolith aus dem Tree gemessen 26417/1622460.
+KN9 (N-931-01): Karte der Beratungsprotokoll-Liste (advisoryLogCardHtml, mit
+Integritaetswarnung) nach advisory-log-finma.js (eigenes Modul) umgezogen ->
+Monolith gesenkt auf 26405/1620821.
 """
 from __future__ import annotations
 
@@ -201,9 +204,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26417
+MONOLITH_MAX_LINES = 26405
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1622460
+MONOLITH_MAX_BYTES = 1620821
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).

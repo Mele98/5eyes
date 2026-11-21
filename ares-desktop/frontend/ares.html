@@ -24249,19 +24249,7 @@ function renderAdvisoryLogList(logs){
     root.innerHTML='<div style="font-size:10px;color:var(--n4)">Noch keine Advisory-Einträge dokumentiert.</div>';
     return;
   }
-  root.innerHTML=items.map(function(entry){
-    var decision=entry.decision||entry.entry_type||'Dokumentiert';
-    var decisionClass=/keine/i.test(decision)?'tg':(/transaktion|kauf|verkauf|umschichtung/i.test(decision)?'ta':'tn');
-    var status=String(entry.status||'Empfohlen');
-    var statusClass=status==='Umgesetzt'?'tg':(status==='Beschlossen'?'tb':'ta');
-    var nextStatus=status==='Empfohlen'?'Beschlossen':(status==='Beschlossen'?'Umgesetzt':null);
-    var triggerMeta=entry.trigger_id?('Trigger: '+String(entry.trigger_id)):'Ohne Trigger-Verknüpfung';
-    var runMeta=entry.recommendation_run_id?('Berechnung '+String(entry.recommendation_run_id).slice(0,8)):'Keine Strategieberechnung verknüpft';
-    var actions=nextStatus
-      ? '<button class="btn" type="button" style="padding:4px 8px;font-size:10px">'+escapeHtml(nextStatus)+' setzen</button>'
-      : '<span style="font-size:10px;color:var(--pos);font-weight:500">Status abgeschlossen</span>';
-    return '<div class="logi" style="padding:10px 0"><div class="logh"><div class="logt">'+escapeHtml(entry.title||'Advisory-Eintrag')+'</div><div class="logm"><span class="logd">'+escapeHtml(formatDateSwiss(entry.entry_date||entry.created_at||''))+'</span><span class="tag '+decisionClass+'">'+escapeHtml(decision)+'</span><span class="tag '+statusClass+'">'+escapeHtml(status)+'</span></div></div><div class="logdesc">'+escapeHtml(entry.description||'Ohne Zusatzbegründung dokumentiert.')+'</div><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap"><div style="font-size:9px;color:var(--n4)">'+escapeHtml(triggerMeta)+' · '+escapeHtml(runMeta)+'</div>'+actions+'</div></div>';
-  }).join('');
+  root.innerHTML=items.map(advisoryLogCardHtml).join(''); // advisory-log-finma.js
   Array.prototype.forEach.call(root.querySelectorAll('.logi'),function(card,idx){
     var entry=items[idx];
     if(!entry)return;

@@ -89,6 +89,7 @@ from services.pdf import ReportLabRenderer
 # get_advisory_report_pdf); liefert auch den Suitability-Audit fuer den
 # Beratungsentscheid -- keine neue Import-Kante.
 from services.pdf.documents.advisory_report import (
+    AdvisoryLogIntegrityFailed,
     render_advisory_report_pdf,
     suitability_compliance_for_mandate,
 )
@@ -2200,7 +2201,7 @@ def get_contract_signoff_pdf(
 
 
 _SIGNOFF_LOAD_FAILED = ((
-    "Signatur-Status", "Signoff-Nachweis konnte nicht geladen werden -- prüfen",
+    "Signatur-Status", "Signatur-Nachweis konnte nicht geladen werden – bitte prüfen",
 ),)
 
 
@@ -2213,7 +2214,7 @@ def _risk_signoff_view(db: Session, ra) -> dict:
     if ra is not None and int(getattr(ra, "is_current", 0) or 0) != 1:
         return {"state": None, "lines": ((
             "Signatur-Status",
-            "Kein aktuelles Risikoprofil -- Signatur nicht ausweisbar",
+            "Kein aktuelles Risikoprofil – Signatur nicht ausweisbar",
         ),)}
     try:
         view = build_signoff_view(db, ra)
@@ -3429,13 +3430,22 @@ def get_advisory_report_pdf(
             require_channel_envelope(db, mandate, channel=CHANNEL_PDF, user=current_user, decision=decision)
     else:  # Entwurf: nur der IC-Vermerk (N-925-05), keine Pruefnummer
         decision_ref = {k: v for k, v in (decision_ref or {}).items() if k == "ic_release_status"} or None
-    pdf_bytes = render_advisory_report_pdf(
-        db, mandate, current_user,
-        # CCX-P4: nicht publizierte Strategie -> Entwurf (Vorrang vor "vorvertrag").
-        watermark_mode=unpublished
-        or ("vorvertrag" if kyc_release_is_draft(db, mandate) else "none"),
-        decision_ref=decision_ref,
-    )
+    try:
+        pdf_bytes = render_advisory_report_pdf(
+            db, mandate, current_user,
+            # CCX-P4: nicht publizierte Strategie -> Entwurf (Vorrang vor "vorvertrag").
+            watermark_mode=unpublished
+            or ("vorvertrag" if kyc_release_is_draft(db, mandate) else "none"),
+            decision_ref=decision_ref,
+        )
+    except AdvisoryLogIntegrityFailed as exc:
+        # KN9 / N-931-01: Protokolleintrag mit nicht passender Pruefsumme ->
+        # kein Kunden-PDF (fail-closed); die Berater-Ansicht warnt beim Eintrag.
+        raise HTTPException(
+            status_code=409,
+            detail={"reason_code": "ADVISORY_LOG_INTEGRITY_FAILED", "message": str(exc),
+                    "advisory_log_id": exc.entry_id},
+        ) from exc
     if pdf_bytes is None:
         # CERT-COST-PUBLICATION-001 (COST-PUBLICATION-GATE-001): degraded
         # cost-disclosure evidence blocks a client-ready export -- stable

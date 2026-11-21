@@ -228,13 +228,22 @@ function LatestEntry({ entry }: { entry: BeratungsprotokollEntry }) {
     entry.duration_minutes !== null && entry.duration_minutes !== undefined
       ? `${entry.duration_minutes} min`
       : '—';
-  const channel = entry.communication_channel
-    ? entry.communication_channel.charAt(0).toUpperCase() + entry.communication_channel.slice(1)
-    : '—';
-  const hashShort = entry.integrity_hash ? entry.integrity_hash.slice(0, 16) : '';
+  const channel = communicationChannelLabel(entry.communication_channel);
+  const reference = shortReference(entry.integrity_hash);
+  const integrityFailed = entry.integrity_verified === false;
 
   return (
     <section className="mt-section border border-rule">
+      {integrityFailed ? (
+        <div
+          role="alert"
+          className="border-b border-status-rot/40 bg-status-rot/10 px-5 py-3 text-caption text-status-rot"
+        >
+          <strong>Prüfsumme passt nicht zum Inhalt.</strong> Dieser Eintrag wurde nach dem
+          Speichern verändert oder ist beschädigt. Der Advisory-Report kann so nicht als
+          Kunden-PDF erzeugt werden. Bitte den Eintrag prüfen und neu erfassen.
+        </div>
+      ) : null}
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-rule px-5 py-4">
         <div>
           <h2 className="font-serif text-h3 text-ink">{entry.title || '—'}</h2>
@@ -277,21 +286,50 @@ function LatestEntry({ entry }: { entry: BeratungsprotokollEntry }) {
           </>
         ) : null}
 
-        {hashShort ? (
+        {reference ? (
           <>
             <dt className="text-micro uppercase tracking-widest text-ink-subtle">Integrität</dt>
             <dd className="text-caption text-ink-muted">
-              {/* C1: ehrliche Anzeige — das FE prüft den Hash NICHT, es liegt nur
-                  einer vor. "verifiziert" wäre eine irreführende FINMA-Aussage,
-                  solange das Backend kein integrity_verified-Flag liefert. */}
-              <span className="font-mono">{hashShort}…</span>{' '}
-              <span className="text-ink-subtle">Integritäts-Hash hinterlegt</span>
+              {/* KN9 / N-931-03: Kurzreferenz (erste 8 Zeichen, wie
+                  core.customer_terms.short_reference) statt 16 Zeichen Hash.
+                  Das Prüfergebnis kommt vom Backend (integrity_verified);
+                  "geprüft" nur bei true, das FE rechnet selbst nichts nach. */}
+              <span className="font-mono">Prüfsumme {reference}</span>{' '}
+              <span className={integrityFailed ? 'font-semibold text-status-rot' : 'text-ink-subtle'}>
+                {integrityStatusLabel(entry.integrity_verified)}
+              </span>
             </dd>
           </>
         ) : null}
       </dl>
     </section>
   );
+}
+
+// KN9 / N-931-02: Anzeigeform wie Erfassungsformular und Kunden-PDF
+// (COMMUNICATION_CHANNEL_DISPLAY); unbekannte Werte ergeben «—», nie den Rohschlüssel.
+const COMMUNICATION_CHANNEL_LABELS: Record<string, string> = {
+  persoenlich: 'Persönlich',
+  video: 'Video',
+  telefon: 'Telefon',
+  schriftlich: 'Schriftlich',
+  hybrid: 'Hybrid',
+};
+
+function communicationChannelLabel(value: string | null | undefined): string {
+  return COMMUNICATION_CHANNEL_LABELS[String(value ?? '').trim()] ?? '—';
+}
+
+/** Gleiche Regel wie core.customer_terms.short_reference: erste 8 Zeichen; leer -> ''. */
+function shortReference(value: string | null | undefined): string {
+  const text = String(value ?? '').trim();
+  return text ? text.slice(0, 8) : '';
+}
+
+function integrityStatusLabel(verified: boolean | null | undefined): string {
+  if (verified === true) return 'verifiziert';
+  if (verified === false) return 'nicht verifiziert – Eintrag verändert oder beschädigt';
+  return 'nicht geprüft';
 }
 
 function NoEntryHint() {

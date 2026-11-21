@@ -661,6 +661,8 @@ export interface BeratungsprotokollEntry {
   conflict_disclosure_ids: string[];
   suitability_check_id: string | null;
   integrity_hash: string | null;
+  /** True = Prüfsumme passt, False = Eintrag verändert/beschädigt, null = kein Hash. */
+  integrity_verified?: boolean | null;
   retain_until: string | null;
   version: number;
   supersedes_id: string | null;

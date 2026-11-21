@@ -1971,8 +1971,15 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # H-179 N-927R-01 / N-927S-01 (Alembic c7e1a9d3f5b2): eingefrorener
         # Stand des Freigebers und Postfach-Identitaeten (nur fuer SQLite-Dateien,
         # die die Tabelle vor dieser Fixrunde angelegt haben; nullable, kein
-        # Backfill -> solche Glieder sind unwirksam; ADD COLUMN feuert den
-        # Append-only-Trigger nicht).
+        # Backfill; ADD COLUMN feuert den Append-only-Trigger nicht).
+        # KN9 / N-927T-01: Eine solche Altzeile ist NICHT bloss ein unwirksames
+        # Glied. row_seal() rechnet das Siegel ueber ALLE Spalten, also auch
+        # ueber die neuen Spalten mit NULL; das passt nicht zum Siegel von
+        # damals. Ergebnis: resolve_owner_content meldet kette_ungueltig, der
+        # Schluessel bleibt gesperrt. Betroffen sind nur nie ausgelieferte
+        # Entwicklungs-/Demo-Dateien mit H-179-Freigaben (ebenso eine Alembic-DB,
+        # die schon auf dem alten c7e1a9d3f5b2 stand: gleiche Revisions-ID, sie
+        # bekommt die Spalten nie). Solche Dateien neu aufsetzen.
         'owner_content_approvals': [
             ('approver_role', 'TEXT'),
             ('approver_ready', 'INTEGER'),
