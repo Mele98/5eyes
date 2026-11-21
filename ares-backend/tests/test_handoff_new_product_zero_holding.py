@@ -41,6 +41,10 @@ from test_portfolio_handoff import (  # noqa: E402
     advisor_user,
     session_factory,
 )
+# CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
+# tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
+from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
+pytestmark = pytest.mark.usefixtures("assume_published_allocation")
 
 _PRICE = 10_000  # CHF 100.00 je Anteil
 

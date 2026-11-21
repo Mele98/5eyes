@@ -319,7 +319,8 @@ def test_invalid_enum_value_on_update_returns_422_not_500(
             {"label": "Vorsorgekonto", "position_type": "Vorsorge", "current_value_rappen": 5_000_000},
         ),
         (
-            "mortgage_type", "Gemischt",
+            # K1 PROP-2: "Gemischt" ist fuer neue Werte gesperrt (422, eigener Test).
+            "mortgage_type", "SARON",
             {"label": "Hypothek", "position_type": "Hypothek", "assignment": "Verbindlichkeit",
              "current_value_rappen": 78_000_000},
         ),
@@ -341,7 +342,8 @@ def test_invalid_enum_value_on_update_returns_422_not_500(
             {"label": "Sparkonto", "position_type": "Liquidität", "current_value_rappen": 2_000_000},
         ),
         (
-            "goal_funding_method", "Belehnung",
+            # K1 Property-Gate: Belehnung ist bis P1 gesperrt (409, eigener Test).
+            "goal_funding_method", "Ignorieren",
             {"label": "PE-Beteiligung", "position_type": "Alternative", "current_value_rappen": 10_000_000},
         ),
     ],

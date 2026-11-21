@@ -1,7 +1,11 @@
 """Sprint 2026-08-15 (DSG Art. 32 -- Recht auf Loeschung / Erasure).
 
-Testet POST /clients/{client_id}/erase (routers/clients.py::erase_client,
-services/client_erasure.py::erase_client_personal_data):
+Testet die Tier-A-Redaktion services/client_erasure.py::
+erase_client_personal_data. Seit H7 C-1 (2026-11-07) ruft sie nur noch der
+Datenschutz-Workflow auf (services/privacy_erasure.py::execute_erasure_case,
+nach Frist- und Legal-Hold-Entscheid). Der fruehere Direktpfad
+POST /clients/{client_id}/erase antwortet fail-closed mit 409 und veraendert
+nichts (siehe tests/test_h7_c1_single_erasure_path.py). Hier geprueft:
 
 - Happy path: direkt identifizierende Felder werden auf allen Tier-A-
   Tabellen redigiert (Client-Kernidentitaet, Mandat-Bankverbindung,
@@ -128,6 +132,17 @@ def _exec(session, sql: str, params: dict | None = None) -> None:
 
 def _scalar(session, sql: str, params: dict | None = None):
     return session.execute(text(sql), params or {}).scalar()
+
+
+def _erase_via_privacy_executor(session_factory, client_id: str, reason: str) -> dict:
+    """Ruft die Tier-A-Redaktion so auf, wie es der Datenschutz-Workflow
+    (privacy_erasure.execute_erasure_case) nach dem Fristentscheid tut."""
+    from services.client_erasure import erase_client_personal_data
+
+    with session_factory() as session:
+        result = erase_client_personal_data(session, client_id, reason=reason)
+        session.commit()
+    return result
 
 
 def _seed_admin(session) -> None:
@@ -410,13 +425,8 @@ def test_erase_client_redacts_all_tier_a_pii_and_returns_summary(admin_client, s
     with session_factory() as session:
         ids = _seed_full_client_chain(session)
 
-    response = admin_client.post(
-        f"/clients/{ids['client_id']}/erase",
-        json={"reason": "Kunde hat schriftlich sein Recht auf Loeschung nach DSG Art. 32 geltend gemacht."},
-    )
-
-    assert response.status_code == 200, response.text
-    payload = response.json()
+    response = _erase_via_privacy_executor(session_factory, ids['client_id'], "Kunde hat schriftlich sein Recht auf Loeschung nach DSG Art. 32 geltend gemacht.")
+    payload = response
     assert payload["status"] == "erased"
     assert payload["client_id"] == ids["client_id"]
     assert payload["redacted"]["clients"] == 1
@@ -516,11 +526,7 @@ def test_erase_client_leaves_tier_b_fideleg_records_untouched(admin_client, sess
     with session_factory() as session:
         ids = _seed_full_client_chain(session)
 
-    response = admin_client.post(
-        f"/clients/{ids['client_id']}/erase",
-        json={"reason": "Kunde verlangt Loeschung seiner Personendaten gemaess DSG Art. 32."},
-    )
-    assert response.status_code == 200, response.text
+    response = _erase_via_privacy_executor(session_factory, ids['client_id'], "Kunde verlangt Loeschung seiner Personendaten gemaess DSG Art. 32.")
 
     with session_factory() as session:
         advisory = session.execute(
@@ -544,7 +550,9 @@ def test_erase_client_leaves_tier_b_fideleg_records_untouched(admin_client, sess
 # Audit log: survives unmodified, immutability trigger not weakened
 # ---------------------------------------------------------------------------
 
-def test_erase_client_writes_auditable_clientase_event(admin_client, session_factory):
+def test_legacy_erase_endpoint_writes_auditable_refusal_event(admin_client, session_factory):
+    """H7 C-1: der stillgelegte Direktpfad loescht nichts, protokolliert
+    aber den Versuch (wer, wann, welcher Kunde, mit welcher Begruendung)."""
     with session_factory() as session:
         ids = _seed_full_client_chain(session)
 
@@ -552,7 +560,8 @@ def test_erase_client_writes_auditable_clientase_event(admin_client, session_fac
         f"/clients/{ids['client_id']}/erase",
         json={"reason": "Kunde verlangt Loeschung seiner Personendaten gemaess DSG Art. 32."},
     )
-    assert response.status_code == 200, response.text
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["reason_code"] == "LEGACY_ERASURE_DISABLED"
 
     with session_factory() as session:
         entry = (
@@ -562,9 +571,12 @@ def test_erase_client_writes_auditable_clientase_event(admin_client, session_fac
         )
         assert entry.user_id == "admin-erasure"
         assert entry.table_name == "clients"
+        assert entry.field_name == "erase_refused"
         assert entry.record_id == ids["client_id"]
+        assert "LEGACY_ERASURE_DISABLED" in (entry.new_value or "")
         assert "DSG Art. 32" in (entry.new_value or "")
         assert entry.integrity_hash
+        assert _scalar(session, "SELECT first_name FROM clients WHERE id=:id", {"id": ids["client_id"]}) == "Hans"
 
 
 def test_erase_client_does_not_delete_or_mutate_pre_existing_audit_rows(admin_client, session_factory):
@@ -588,11 +600,7 @@ def test_erase_client_does_not_delete_or_mutate_pre_existing_audit_rows(admin_cl
         before_hash = before.integrity_hash
         before_new_value = before.new_value
 
-    response = admin_client.post(
-        f"/clients/{ids['client_id']}/erase",
-        json={"reason": "Kunde verlangt Loeschung seiner Personendaten gemaess DSG Art. 32."},
-    )
-    assert response.status_code == 200, response.text
+    response = _erase_via_privacy_executor(session_factory, ids['client_id'], "Kunde verlangt Loeschung seiner Personendaten gemaess DSG Art. 32.")
 
     with session_factory() as session:
         after = session.query(AuditLog).filter(AuditLog.action == "CREATE").one()
@@ -647,17 +655,15 @@ def test_erase_client_is_idempotent_guarded_with_409(admin_client, session_facto
     with session_factory() as session:
         ids = _seed_full_client_chain(session)
 
-    first = admin_client.post(
-        f"/clients/{ids['client_id']}/erase",
-        json={"reason": "Kunde verlangt Loeschung seiner Personendaten gemaess DSG Art. 32."},
-    )
-    assert first.status_code == 200, first.text
+    first = _erase_via_privacy_executor(session_factory, ids['client_id'], "Kunde verlangt Loeschung seiner Personendaten gemaess DSG Art. 32.")
 
-    second = admin_client.post(
-        f"/clients/{ids['client_id']}/erase",
-        json={"reason": "Zweiter Versuch, sollte als bereits erledigt erkannt werden."},
-    )
-    assert second.status_code == 409
+    assert first["status"] == "erased"
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as excinfo:
+        _erase_via_privacy_executor(
+            session_factory, ids['client_id'], "Zweiter Versuch, sollte als bereits erledigt erkannt werden.",
+        )
+    assert excinfo.value.status_code == 409
 
 
 def test_erase_client_404_for_unknown_client(admin_client):
@@ -674,8 +680,4 @@ def test_erase_client_works_on_already_soft_deleted_client(admin_client, session
         _exec(session, "UPDATE clients SET deleted_at = :now WHERE id = :id", {"now": NOW, "id": ids["client_id"]})
         session.commit()
 
-    response = admin_client.post(
-        f"/clients/{ids['client_id']}/erase",
-        json={"reason": "Kunde verlangt Loeschung seiner Personendaten gemaess DSG Art. 32."},
-    )
-    assert response.status_code == 200, response.text
+    response = _erase_via_privacy_executor(session_factory, ids['client_id'], "Kunde verlangt Loeschung seiner Personendaten gemaess DSG Art. 32.")

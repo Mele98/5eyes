@@ -143,6 +143,8 @@ const hiddenImports = [
   // PyInstaller statisch-Analyse uebersieht das.
   'services.advisory_report',
   'services.advisory_log_service',
+  // H-180 (EXE-01): Import-Selbsttest des Artefakts (main.py --self-test-imports).
+  'packaging_selftest',
 ];
 
 const collectSubmodules = [
@@ -172,6 +174,62 @@ const collectSubmodules = [
   'routers',
   'models',
   'jurisdictions',
+  // H-180 (EXE-01): core/ und schemas/ wurden bisher nur ueber statische
+  // Imports erfasst; scipy 1.18 laedt scipy._external.array_api_compat.*
+  // dynamisch -- ohne diese Zeile fiel die gepackte EXE still vom
+  // stochastischen Optimizer auf den House-Matrix-Default zurueck.
+  'core',
+  'schemas',
+  'scipy._external',
+];
+
+// H-180 (EXE-03): Build-Kennung (Version aus package.json, Git-SHA) wird in die
+// EXE eingebettet (ares_build_info.json, gelesen von config.build_info) und als
+// Windows-Dateieigenschaften gesetzt. Nur unter build/ (gitignored) erzeugt;
+// der Build veraendert keine versionierte Datei.
+const desktopPackage = JSON.parse(fs.readFileSync(path.join(projectRoot, 'ares-desktop', 'package.json'), 'utf8'));
+function gitHeadSha() {
+  const result = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: projectRoot, encoding: 'utf8' });
+  const sha = (result.stdout || '').trim();
+  return /^[0-9a-f]{40}$/.test(sha) ? sha : 'unknown';
+}
+const buildInfo = {
+  product: desktopPackage.productName,
+  version: desktopPackage.version,
+  git_sha: process.env.ARES_BUILD_SHA || gitHeadSha(),
+};
+const generatedDir = path.join(backendRoot, 'build', 'ares-generated');
+fs.mkdirSync(generatedDir, { recursive: true });
+const buildInfoFile = path.join(generatedDir, 'ares_build_info.json');
+fs.writeFileSync(buildInfoFile, `${JSON.stringify(buildInfo, null, 2)}\n`, 'utf8');
+const versionParts = String(buildInfo.version).split('.').map((n) => Number.parseInt(n, 10) || 0);
+while (versionParts.length < 4) versionParts.push(0);
+const versionTuple = versionParts.slice(0, 4).join(', ');
+const versionFile = path.join(generatedDir, 'ares-api-version.txt');
+fs.writeFileSync(versionFile, `VSVersionInfo(
+  ffi=FixedFileInfo(filevers=(${versionTuple}), prodvers=(${versionTuple}), mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('040704b0', [
+      StringStruct('ProductName', '${buildInfo.product}'),
+      StringStruct('FileDescription', '${buildInfo.product} Backend'),
+      StringStruct('FileVersion', '${buildInfo.version}'),
+      StringStruct('ProductVersion', '${buildInfo.version}'),
+      StringStruct('InternalName', 'ares-api'),
+      StringStruct('OriginalFilename', 'ares-api.exe'),
+      StringStruct('Comments', 'Build ${buildInfo.git_sha}')])]),
+    VarFileInfo([VarStruct('Translation', [0x0407, 1200])])
+  ]
+)
+`, 'utf8');
+console.log(`Build-Kennung: ${buildInfo.product} ${buildInfo.version} (${buildInfo.git_sha})`);
+
+// H10 (DSG-Technikaudit 2026-11-11): versionierte Datenschutz-Daten
+// (Bearbeitungsverzeichnis, Egress-Manifest) liegen unter config/ und werden
+// zur Laufzeit gelesen; fehlen sie, bleibt die kundenwirksame Ausgabe bzw.
+// jeder externe Kanal gesperrt (fail-closed).
+const privacyConfigFiles = [
+  'config/processing_activities.json',
+  'config/outbound_processing_manifest.json',
 ];
 
 const pyInstallerArgs = [
@@ -186,10 +244,19 @@ const pyInstallerArgs = [
   fontDataArg,
   '--add-data',
   reportingDataArg,
+  '--add-data',
+  // Relativ zu ares-backend (shell:true, siehe reportingDataArg).
+  isWindows ? 'build/ares-generated/ares_build_info.json;.' : 'build/ares-generated/ares_build_info.json:.',
+  '--version-file',
+  'build/ares-generated/ares-api-version.txt',
 ];
 for (const manifest of jurisdictionPackManifests) {
   const targetDir = path.posix.dirname(manifest);
   pyInstallerArgs.push('--add-data', isWindows ? `${manifest};${targetDir}` : `${manifest}:${targetDir}`);
+}
+
+for (const file of privacyConfigFiles) {
+  pyInstallerArgs.push('--add-data', isWindows ? `${file};config` : `${file}:config`);
 }
 
 for (const mod of hiddenImports) {

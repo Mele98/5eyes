@@ -108,6 +108,7 @@ dritte Zeichenkette `'"current_goal_analysis"'` bleibt dagegen unberuehrt
 """
 
 from __future__ import annotations
+from core.risk_parameter_set import ParameterSetMissing
 
 import json
 import logging
@@ -116,8 +117,10 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
+from core import sustainability_preference as _sustainability
 from models.mandates import Mandate
 from models.review import Product, ProductUniverseEntry
+from models.tenant import DEFAULT_TENANT_ID as _DEFAULT_TENANT_ID
 from models.wealth import Goal
 from services.calendar_horizon import calendar_years_until
 from services.cashflow_timeline import future_value_with_cashflow_series, normalize_frequency
@@ -362,8 +365,14 @@ def _compute_goal_score(
 def _inflate_real_goal_target_rappen(target_rappen: int, years: int, inflation_series_bps: list[int] | None) -> int:
     target = max(1, int(target_rappen or 0))
     factor = 1.0
-    series = list(inflation_series_bps or [150])
-    last_bps = int(series[-1] if series else 150)
+    series = list(inflation_series_bps or [])
+    if not series and int(years or 0) > 0:
+        # CCX P5 / M-2: frueher lokal 150 bps -- eine zweite, nirgends
+        # freigegebene Inflationsannahme. Jetzt nur der CMA-Pfad.
+        raise ParameterSetMissing(
+            "Für die Teuerung des Ziels fehlt der Inflationspfad der Kapitalmarktannahmen."
+        )
+    last_bps = int(series[-1]) if series else 0
     for idx in range(max(0, int(years or 0))):
         infl_bps = int(series[idx]) if idx < len(series) else last_bps
         factor *= 1 + (infl_bps / 10000)
@@ -490,7 +499,10 @@ def _expected_death_year_offset_from_mandate(mandate, run_context=None) -> int |
         # Modulkante nach config (Architektur-Ratsche fan_out) ueber das
         # uebergebene Objekt: ist der Kontext nicht an dieses Mandat gebunden,
         # wirft ensure_bound_to die Mismatch-Exception erneut; sonst bleibt
-        # der bisherige Fallback unveraendert.
+        # der bisherige Fallback unveraendert. ``run_context`` ist ein
+        # ``config.RunContext`` (N-843-1); ein Objekt ohne ``ensure_bound_to``
+        # wirft hier bewusst AttributeError statt still ``None`` zu liefern --
+        # ``resolve_mortality_cutoff`` ruft dieselbe Methode ohnehin auf.
         if run_context is not None:
             run_context.ensure_bound_to(mandate)
         return None
@@ -797,24 +809,57 @@ def _build_bucket_response(
         "alternatives": (BUCKET_LABELS["alternatives"], target_allocation.target_alternatives_bps, target_allocation.band_alternatives_min_bps, target_allocation.band_alternatives_max_bps),
         "liquidity": (BUCKET_LABELS["liquidity"], target_allocation.target_liquidity_bps, target_allocation.band_liquidity_min_bps, target_allocation.band_liquidity_max_bps),
     }
-    bucket_response = []
-    for key in BUCKET_FIELDS:
-        label, target_bps, min_bps, max_bps = label_map[key]
-        current_amount = current_amounts[key]
-        current_bps = _bps(current_amount, advisory_wealth_rappen)
-        bucket_response.append(
-            {
-                "asset_class": label,
-                "current_weight_bps": current_bps,
-                "current_amount_rappen": current_amount,
-                "target_weight_bps": int(target_bps),
-                "target_amount_rappen": int(round(target_base_rappen * target_bps / 10000)) if target_base_rappen else 0,
-                "delta_weight_bps": int(target_bps) - current_bps,
-                "band_min_bps": int(min_bps),
-                "band_max_bps": int(max_bps),
-            }
-        )
-    return bucket_response
+    return _bucket_rows(label_map, current_amounts, advisory_wealth_rappen, target_base_rappen, bps=_bps)
+
+
+def _bucket_rows(label_map: dict, current_amounts: dict, advisory_wealth_rappen: int,
+                 strategy_base_rappen: int, *, bps) -> list[dict]:
+    """Ist/Soll je Anlageklasse auf DERSELBEN Basis (KN3-B E2E4-02).
+
+    Soll (``target_weight_bps``) und Baender beziehen sich auf die Strategiebasis
+    (Beratungsvermoegen ohne die Liquiditaetsreserve ausserhalb der Strategie).
+    Bisher stand das Ist auf dem ganzen Beratungsvermoegen: mit Reserve ergab
+    der Vergleich eine falsche Handelsrichtung (Obligationen "aufstocken", obwohl
+    in Franken zu reduzieren; Liquiditaet "reduzieren", obwohl die Reserve
+    fehlte). Jetzt wird die Reserve vom Liquiditaets-Ist abgezogen und getrennt
+    ausgewiesen (``reserve_rappen``/``reserve_funded_rappen``/
+    ``reserve_gap_rappen``); ``current_weight_bps`` ist der Strategieanteil des
+    Bestands auf der Strategiebasis (``current_strategy_amount_rappen``; ist die
+    Reserve groesser als die Liquiditaet, negativ = Reservelücke, ehrlich statt
+    gekappt). ``current_amount_rappen`` bleibt der TATSAECHLICHE Bestand (Summe =
+    Beratungsvermoegen = Soll-Summe + Reserve, externe Abnahme g). CHF-Delta je
+    Klasse = ``target_amount_rappen + reserve_rappen - current_amount_rappen``
+    (Reserve nur bei Liquiditaet) und hat immer dasselbe Vorzeichen wie
+    ``delta_weight_bps``. Ohne Reserve ist alles unveraendert.
+    ``label_map`` in Bucket-Reihenfolge; ``bps`` = portfolio_engine._bps."""
+    advisory = int(advisory_wealth_rappen or 0)
+    base = int(strategy_base_rappen if strategy_base_rappen is not None else advisory)
+    reserve = max(0, advisory - base) if base > 0 else 0
+    rows = []
+    for key, (label, target_bps, min_bps, max_bps) in label_map.items():
+        holding = int(current_amounts[key] or 0)
+        row_reserve = reserve if key == "liquidity" else 0
+        strategy_amount = holding - row_reserve
+        current_bps = bps(strategy_amount, base) if reserve else bps(holding, advisory)
+        row = {
+            "asset_class": label,
+            "current_weight_bps": current_bps,
+            "current_amount_rappen": holding,
+            "current_amount_total_rappen": holding,
+            "current_strategy_amount_rappen": strategy_amount,
+            "target_weight_bps": int(target_bps),
+            "target_amount_rappen": int(round(base * target_bps / 10000)) if base else 0,
+            "delta_weight_bps": int(target_bps) - current_bps,
+            "band_min_bps": int(min_bps),
+            "band_max_bps": int(max_bps),
+            "comparison_basis": "strategy" if reserve else "advisory_wealth",
+        }
+        if key == "liquidity":
+            funded = max(0, min(holding, reserve))
+            row.update({"reserve_rappen": reserve, "reserve_funded_rappen": funded,
+                        "reserve_gap_rappen": reserve - funded})
+        rows.append(row)
+    return rows
 
 
 # ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): Klassifikation der
@@ -836,7 +881,7 @@ THEME_DISPLAY_NAMES: dict[str, str] = {
     "defense": "Verteidigung",
     "tobacco": "Tabak",
     "alcohol": "Alkohol",
-    "gaming": "Gluecksspiel",
+    "gaming": "Glücksspiel",
     "nuclear": "Kernenergie",
 }
 _THEME_KEY_BY_SUB_ASSET_CLASS = {label: key for key, label in THEME_SUB_ASSET_CLASSES.items()}
@@ -896,12 +941,12 @@ ESG_POLICY_CRITERIA: dict[str, str] = {
     "best_in_class": (
         "nur Produkte nach SFDR Art. 8 oder 9 mit ESG-Rating AAA oder AA "
         "(Leader-Klasse der Rating-Skala AAA-CCC) oder ESG-Score von "
-        "mindestens 71.4/100; Produkte ohne Rating/Score sind nicht zulaessig"
+        "mindestens 71.4/100; Produkte ohne Rating/Score sind nicht zulässig"
     ),
     "impact": "nur Produkte nach SFDR Art. 9",
     "net_zero": (
         "nur Produkte nach SFDR Art. 8 oder 9 mit EU-Klima-Benchmark PAB oder "
-        "CTB (beides Pflicht); SFDR Art. 9 allein genuegt nicht"
+        "CTB (beides Pflicht); SFDR Art. 9 allein genügt nicht"
     ),
 }
 
@@ -916,9 +961,12 @@ ESG_POLICY_CRITERIA: dict[str, str] = {
 # mit eigener SFDR-Klasse, nicht nur Konto/Festgeld ohne Klassifikation.
 # Text und Bedingung teilen sich ESG_POLICY_EXEMPT_ASSET_CLASS.
 ESG_POLICY_EXEMPT_ASSET_CLASS = "Liquiditaet"
+# KN4-B (Rest aus KN3-B): Anzeigeform mit echtem Umlaut fuer den Kundentext;
+# die Bedingung vergleicht weiter den Datenschluessel oben.
+ESG_POLICY_EXEMPT_ASSET_CLASS_LABEL = "Liquidität"
 ESG_POLICY_LIQUIDITY_EXEMPTION = (
-    f"die gesamte Anlageklasse {ESG_POLICY_EXEMPT_ASSET_CLASS} (Konto, Festgeld "
-    "und Geldmarktfonds, unabhaengig von deren SFDR-Klassifikation) ist vom "
+    f"die gesamte Anlageklasse {ESG_POLICY_EXEMPT_ASSET_CLASS_LABEL} (Konto, Festgeld "
+    "und Geldmarktfonds, unabhängig von deren SFDR-Klassifikation) ist vom "
     "Kriterium ausgenommen"
 )
 
@@ -950,6 +998,11 @@ ESG_CUSTOMER_CLAIM_LABELS: tuple[str, ...] = (
     "Best in Class",
     "ESG-Integration",
     "Nachhaltig",
+    # E2 (Dok. 106, FINMA-AM 05/2021): auch das zweite Profil-Label der
+    # Vorlage ist als Produkt-/Portfolio-Claim gesperrt. Praeferenz-Begriffe
+    # der Kundin bzw. des Kunden: core/sustainability_preference.py::
+    # NEUTRAL_PREFERENCE_PHRASES / customer_text_claim_hits().
+    "Verantwortungsbewusst",
 )
 
 
@@ -1213,7 +1266,7 @@ def theme_look_through_disclosure(theme_keys) -> str:
     if "fossil" in keys:
         parts.append(
             "Fossile Energie: Themenprodukte sowie Fonds mit Energie-Sektoranteil > 10 % "
-            "(GICS 'Energy' gemaess gepflegter Sektor-Aufschluesselung) ausgeschlossen "
+            "(GICS 'Energy' gemäss gepflegter Sektor-Aufschlüsselung) ausgeschlossen "
             "(Look-through); Produkte ohne gepflegte Sektordaten werden nicht durchleuchtet."
         )
     others = [THEME_DISPLAY_NAMES[key] for key in keys if key != "fossil"]
@@ -1223,13 +1276,13 @@ def theme_look_through_disclosure(theme_keys) -> str:
             "(Sub-Anlageklasse 'Thema ...' oder Themen-Tag im Produktkatalog); kein "
             "Look-through, da diese Themen Sub-Industrien und aus Sektordaten nicht "
             "ableitbar sind -- breit diversifizierte Index- und Fondsprodukte werden "
-            "nicht durchleuchtet und koennen Titel dieser Themen enthalten."
+            "nicht durchleuchtet und können Titel dieser Themen enthalten."
         )
     if parts:
         # THEME-MISSINGNESS-001: die fail-closed-Regel gehoert in den Text.
         parts.append(
             "Andere Produkte (z.B. Einzeltitel) ohne Themen-Zuordnung im "
-            "Produktkatalog werden nicht ausgewaehlt."
+            "Produktkatalog werden nicht ausgewählt."
         )
     return " ".join(parts)
 
@@ -1514,6 +1567,27 @@ def _product_is_chf_or_fx_hedged(product: Product, home_currency: str = "CHF") -
     return any(marker in text for marker in markers)
 
 
+TER_STATUS_KNOWN = "known"
+TER_STATUS_MISSING = "missing"
+TER_STATUS_NOT_APPLICABLE = "not_applicable"
+# OWN-PE-05 (Dok. 116, interim): Konto-/Festgeldprodukte tragen keine TER.
+TER_NOT_APPLICABLE_PRODUCT_TYPES = frozenset({"cash"})
+# Groesser als die hoechste erfassbare TER (1000 bps, schemas/review.py) plus
+# die Summe aller Boni in _product_score (570): ein Produkt ohne TER liegt
+# damit hinter jedem Produkt mit bekannter TER im selben Slot.
+MISSING_TER_SCORE_PENALTY = 5000
+
+
+def product_ter_status(product) -> str:
+    """K1 / PE-S: ``known`` | ``missing`` | ``not_applicable`` (Cash)."""
+    if getattr(product, "ter_bps", None) is not None:
+        return TER_STATUS_KNOWN
+    product_type = str(getattr(product, "product_type", "") or "").strip().casefold()
+    if product_type in TER_NOT_APPLICABLE_PRODUCT_TYPES:
+        return TER_STATUS_NOT_APPLICABLE
+    return TER_STATUS_MISSING
+
+
 def _product_score(product: Product, sub_asset_class: str, prefs: dict, jurisdiction_ctx: dict | None = None) -> int:
     """WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): siehe
     _product_matches_constraints() -- ohne jurisdiction_ctx exakt das
@@ -1525,7 +1599,16 @@ def _product_score(product: Product, sub_asset_class: str, prefs: dict, jurisdic
     home_currency = ctx["home_currency"]
     home_equity_label = ctx["home_equity_label"]
     score = 1000
-    score -= int(product.ter_bps or 0)
+    # K1 / PE-S (Dok. 116 L-PE-1): eine fehlende TER ist nicht "TER 0". Vorher
+    # gewann ein Produkt ohne TER jede Rangfolge (``ter_bps or 0``). Jetzt ist
+    # es nachrangig: der Abschlag liegt ueber jeder erfassbaren TER plus allen
+    # Boni, ein Produkt mit bekannter TER (Score >= 0) geht immer vor; nur der
+    # Themen-Ausschluss (-10000) liegt noch tiefer. Ausnahme Konto-/Festgeld
+    # (``product_type='Cash'``, OWN-PE-05): dort entfaellt die TER.
+    if product_ter_status(product) == TER_STATUS_MISSING:
+        score -= MISSING_TER_SCORE_PENALTY
+    else:
+        score -= int(product.ter_bps or 0)
     if product.currency == home_currency:
         score += 40
     if product.sub_asset_class == sub_asset_class:
@@ -1560,6 +1643,23 @@ def _product_score(product: Product, sub_asset_class: str, prefs: dict, jurisdic
     return score
 
 
+def _product_selection_key(product: Product, sub_asset_class: str, prefs: dict, jurisdiction_ctx: dict | None = None) -> tuple:
+    """PO-13 (Audit 2026-11): Sortierschluessel der Produktwahl je Sleeve.
+
+    Hoechster Score zuerst; bei Gleichstand entscheidet nicht mehr die
+    Datenbank-Reihenfolge (SQLite: Einfuegereihenfolge, Postgres: undefiniert),
+    sondern ein stabiler Tie-Break: Produkte mit ISIN vor solchen ohne, dann
+    ISIN aufsteigend, dann Produkt-ID aufsteigend.
+    """
+    isin = str(getattr(product, "isin", None) or "").strip().upper()
+    return (
+        -_product_score(product, sub_asset_class, prefs, jurisdiction_ctx=jurisdiction_ctx),
+        0 if isin else 1,
+        isin,
+        str(getattr(product, "id", None) or ""),
+    )
+
+
 def _items_with_known_ter(items: list[dict]) -> list[dict]:
     return [item for item in items if item.get("ter_bps") is not None]
 
@@ -1582,14 +1682,40 @@ def _ter_coverage_bps(items: list[dict]) -> int:
 
 
 def _missing_ter_positions_count(items: list[dict]) -> int:
-    return sum(1 for item in items if item.get("ter_bps") is None)
+    # K1 / PE-S: Cash-Produkte ohne TER sind kein "TER fehlt" (ter_status).
+    return sum(
+        1 for item in items
+        if item.get("ter_bps") is None and item.get("ter_status") != TER_STATUS_NOT_APPLICABLE
+    )
+
+
+ZERO_STRATEGY_BASE_WARNING = (
+    "Keine investierbare Strategiebasis: Die Liquiditätsreserve beansprucht das "
+    "gesamte Beratungsvermögen. Die Produktpositionen zeigen nur die Gewichtung; "
+    "es wird nichts investiert (Zielvolumen 0)."
+)
+
+
+def resolve_investable_wealth_rappen(target_payload: dict, advisory_wealth_rappen: int) -> int:
+    """N-858-11: investierbare Strategiebasis der Empfehlung.
+
+    Nur eine FEHLENDE Angabe (``None``/Schluessel fehlt, Altbestand) faellt
+    auf das Beratungsvermoegen zurueck. Eine Basis von 0 ist eine Aussage --
+    die Reserve beansprucht alles -- und bleibt 0; vorher machte
+    ``x or advisory_wealth_rappen`` daraus das volle Vermoegen, und
+    Fonds-Zielvolumen, Kostenausweis und Handelsliste investierten die Reserve.
+    """
+    value = target_payload.get("investable_advisory_wealth_rappen")
+    return int(advisory_wealth_rappen) if value is None else int(value)
 
 
 def _implementation_steps(buckets: list[dict], target_total_rappen: int) -> list[str]:
     steps = []
     def amount_delta_rappen(item: dict) -> int:
         if item.get("target_amount_rappen") is not None and item.get("current_amount_rappen") is not None:
-            return int(item.get("target_amount_rappen") or 0) - int(item.get("current_amount_rappen") or 0)
+            # KN4-B / E2E4-02: Reserve ausserhalb der Strategie gehoert zum Liquiditaets-Soll.
+            return (int(item.get("target_amount_rappen") or 0) + int(item.get("reserve_rappen") or 0)
+                    - int(item.get("current_amount_rappen") or 0))
         return int(round(target_total_rappen * int(item.get("delta_weight_bps") or 0) / 10000))
 
     for bucket in sorted(buckets, key=lambda item: abs(amount_delta_rappen(item)), reverse=True):
@@ -1721,3 +1847,183 @@ def _filter_products_by_universe(
         ]
     allowed_product_ids = {entry.product_id for entry in entries}
     return [product for product in products if product.id in allowed_product_ids]
+
+
+UNIVERSE_EMPTIED_WARNING = (
+    "Positivliste (Fonds-Universum) {jurisdiction} ist leer, weil alle Eintraege "
+    "entfernt wurden. Die Empfehlung nutzt deshalb den vollen Katalog statt einer "
+    "kuratierten Auswahl. Bitte die Positivliste pruefen."
+)
+
+
+def universe_emptied_warning(db: Session, mandate: Mandate, run_context) -> str | None:
+    """AUDIT-FIX Fondsuniversum R5/F5 (2026-11): _filter_products_by_universe
+    faellt bei 0 aktiven Eintraegen auf den vollen Katalog zurueck. Fuer einen
+    Tenant, der NIE eine Liste hatte, ist das gewollt (Bestandsverhalten,
+    keine Warnung). Wurde die Liste aber geleert (nur noch soft-geloeschte
+    Eintraege), geschah der Rueckfall bisher still -- jetzt sichtbar als
+    Warnung im Generierungs-Ergebnis. Die Produktwahl selbst bleibt unveraendert."""
+    tenant_id = getattr(mandate, "tenant_id", None) or _DEFAULT_TENANT_ID
+    jurisdiction = run_context.ensure_bound_to(mandate).jurisdiction  # X2b: Lauf-Kontext
+    rows = db.query(ProductUniverseEntry.deleted_at).filter(
+        ProductUniverseEntry.tenant_id == tenant_id,
+        ProductUniverseEntry.jurisdiction == jurisdiction,
+    ).all()
+    if rows and all(row[0] is not None for row in rows):
+        return UNIVERSE_EMPTIED_WARNING.format(jurisdiction=jurisdiction)
+    return None
+
+
+# ══ E2b: Erfuellbarkeit der Strategie-Optionen ("nur Erfuellbares anbieten") ═
+# Eine Option ist nur anbietbar, wenn das AKTIVE Produktuniversum des Mandats
+# (_tenant_visible_products_query + _filter_products_by_universe, dieselbe
+# Quelle wie der Produktlauf) je benoetigter Sub-Anlageklasse mindestens ein
+# qualifizierendes Produkt hat. Benoetigt = Sub-Anlageklassen der aktuellen
+# Soll-Allokation (Gewicht > 0); ohne Strategie alle Sub-Anlageklassen des
+# Universums (konservativ). Liquiditaet ist ausgenommen (gleiche Ausnahme wie
+# ESG_POLICY_EXEMPT_ASSET_CLASS), Themenbausteine ebenfalls (entstehen nur
+# bei "Uebergewichten").
+#
+# - Kundenausschluss (``exclusion:<thema>``): ``exclusion_evidence(product,
+#   theme) -> Nachweis-ID|None`` (Aufrufer: freigegebener, gueltiger Nachweis
+#   aus product_sustainability_attributes). Unbekannt zaehlt nie.
+# - Restriktionen (chfOnly, hedgingRequired, noStructured, noLeverage,
+#   Themen-Ausschluss ``theme:<thema>``): derselbe Matcher wie der Produktlauf
+#   (_product_matches_constraints); fuer noStructured/noLeverage zaehlt nur ein
+#   Produkt mit gepflegtem Produkttyp (unbekannt != erfuellt).
+# ``normalize_preferences``/``jurisdiction_ctx`` reicht der Aufrufer herein
+# (services/portfolio_engine.py), damit hier keine neue Kopplung entsteht.
+STRATEGY_RESTRICTION_OPTIONS = (
+    ("chfOnly", "Nur Heimwährungs-Instrumente", {"geo": {"chfOnly": True}}),
+    ("hedgingRequired", "Absicherung obligatorisch", {"geo": {"hedgingRequired": True}}),
+    ("noStructured", "Keine Strukturierten", {"product": {"noStructured": True}}),
+    ("noLeverage", "Keine Hebelprodukte", {"product": {"noLeverage": True}}),
+)
+_COVERAGE_EXEMPT_ASSET_CLASSES = frozenset({"Liquiditaet", "Liquidität"})
+
+
+def _coverage_needed_sub_asset_classes(db: Session, mandate: Mandate, products: list) -> list[tuple[str, str]]:
+    """[(Sub-Anlageklasse, Anlageklasse)] -- aus der aktuellen Soll-Allokation
+    (Gewicht > 0), ohne Strategie aus dem Universum (konservativ)."""
+    ta = db.query(TargetAllocation).filter(
+        TargetAllocation.mandate_id == mandate.id,
+        TargetAllocation.is_current == 1,
+        TargetAllocation.deleted_at.is_(None),
+    ).first()
+    try:
+        subs = json.loads(getattr(ta, "sub_allocations_json", None) or "[]") if ta is not None else []
+    except (TypeError, ValueError):
+        subs = []
+    needed: dict[str, str] = {}
+    if isinstance(subs, list) and subs:
+        for sub in subs:
+            if not isinstance(sub, dict) or int(sub.get("target_weight_bps") or 0) <= 0:
+                continue
+            name = str(sub.get("sub_asset_class") or "").strip()
+            asset = str(sub.get("asset_class") or "").strip()
+            # Themenbausteine entstehen nur bei "Uebergewichten" und entfallen
+            # mit dem Ausschluss -- sie sind nie ein benoetigter Slot.
+            if name and asset not in _COVERAGE_EXEMPT_ASSET_CLASSES and name not in _THEME_KEY_BY_SUB_ASSET_CLASS:
+                needed.setdefault(name, asset)
+        return list(needed.items())
+    for product in products:
+        name = str(getattr(product, "sub_asset_class", None) or "").strip()
+        asset = str(getattr(product, "asset_class", None) or "").strip()
+        if name and asset not in _COVERAGE_EXEMPT_ASSET_CLASSES and name not in _THEME_KEY_BY_SUB_ASSET_CLASS:
+            needed.setdefault(name, asset)
+    return sorted(needed.items())
+
+
+def slot_exact(products: list, sub_asset_class) -> list:
+    """Slot-Regel des Produktlaufs (N-901-05, eine Quelle): exakt die
+    Sub-Anlageklasse des Slots."""
+    return [p for p in products if str(getattr(p, "sub_asset_class", None) or "") == str(sub_asset_class or "")]
+
+
+def slot_asset_fallback(products: list, asset_class, norm) -> list:
+    """Fallback-Slot des Produktlaufs: dieselbe Anlageklasse, normalisiert
+    wie die Engine (``norm`` = services.portfolio_engine._norm_text)."""
+    return [p for p in products if norm(getattr(p, "asset_class", None)) == norm(asset_class)]
+
+
+def slot_candidates(products: list, sub_asset_class, asset_class, norm) -> list:
+    """Kandidaten eines Slots: exakt, sonst Fallback der Anlageklasse --
+    genau die Reihenfolge von generate_recommendation_run()."""
+    return slot_exact(products, sub_asset_class) or slot_asset_fallback(products, asset_class, norm)
+
+
+def strategy_option_coverage(
+    db: Session,
+    mandate: Mandate,
+    *,
+    exclusion_evidence,
+    as_of: str,
+    normalize_preferences,
+    jurisdiction_ctx: dict | None,
+    norm,
+    eligible=None,
+    base_preferences: dict | None = None,
+    base_exclusions=(),
+    only_exclusions: bool = False,
+) -> dict:
+    """Erfuellbarkeit je Option (N-901-03): geprueft wird die KOMBINATION am
+    selben Produkt -- die Restriktionen der aktuellen Strategie
+    (``base_preferences``), alle bereits erfassten Ausschluesse
+    (``base_exclusions``) und die Option selbst; Kandidaten nur empfehlbare
+    Produkte (``eligible``) nach der Slot-Regel des Produktlaufs.
+    ``exclusion_evidence(product, themes) -> bool`` belegt alle Themen am
+    Produkt (freigegebene, gueltige Nachweise)."""
+    products = _filter_products_by_universe(db, mandate, _tenant_visible_products_query(db, mandate).all())
+    if eligible is not None:
+        products = [p for p in products if eligible(p)]
+    needed = _coverage_needed_sub_asset_classes(db, mandate, products)
+    names = [sub for sub, _asset in needed]
+    base = dict(base_preferences or {})
+    base_themes = [t for t in _sustainability.EXCLUSION_KEYS if t in set(base_exclusions or ())]
+
+    def _merged(patch: dict) -> dict:
+        merged = {k: dict(v) if isinstance(v, dict) else v for k, v in base.items()}
+        for key, value in patch.items():
+            merged[key] = {**(merged.get(key) or {}), **value} if isinstance(value, dict) else value
+        tilts = dict(merged.get("tilts") or {})
+        for theme in base_themes:
+            tilts[theme] = "exclude"
+        merged["tilts"] = tilts
+        return normalize_preferences(merged)
+
+    def _missing(prefs_patch, *, known_type=False, themes=()) -> list[str]:
+        prefs = _merged(prefs_patch)
+        all_themes = sorted(set(base_themes) | set(themes))
+
+        def qualifies(p):
+            return (
+                (not known_type or bool(str(getattr(p, "product_type", "") or "").strip()))
+                and _product_matches_constraints(p, prefs, 0, jurisdiction_ctx=jurisdiction_ctx)
+                and (not all_themes or str(getattr(p, "asset_class", None) or "").strip()
+                     in _COVERAGE_EXEMPT_ASSET_CLASSES or exclusion_evidence(p, all_themes))
+            )
+
+        qualified = [p for p in products if qualifies(p)]
+        return [sub for sub, asset in needed if not slot_candidates(qualified, sub, asset, norm)]
+
+    options = [] if only_exclusions else [
+        _sustainability.coverage_option(
+            key, label, _missing(patch, known_type=key in ("noStructured", "noLeverage")), names,
+        )
+        for key, label, patch in STRATEGY_RESTRICTION_OPTIONS
+    ]
+    for theme in () if only_exclusions else _sustainability.EXCLUSION_KEYS:
+        options.append(_sustainability.coverage_option(
+            "theme:" + theme, _sustainability.EXCLUSION_LABELS[theme],
+            _missing({"tilts": {theme: "exclude"}}), names,
+        ))
+    for theme in _sustainability.EXCLUSION_KEYS:
+        missing = _missing({"tilts": {theme: "exclude"}}, themes=(theme,))
+        option = _sustainability.coverage_option(
+            "exclusion:" + theme, _sustainability.EXCLUSION_LABELS[theme], missing, names,
+        )
+        others = [t for t in base_themes if t != theme]
+        if missing and others:
+            option["reason"] = _sustainability.combination_reason(others, missing)
+        options.append(option)
+    return {"as_of": as_of, "needed_sub_asset_classes": names, "options": options}

@@ -89,10 +89,15 @@ normaler Modul-Top-Level-Import -- das Modul haengt nicht von
 """
 from __future__ import annotations
 
+import copy
 import hashlib
+from collections import OrderedDict
 import json
 import math
 import random
+import sys
+import threading
+from dataclasses import fields, is_dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 
@@ -429,6 +434,41 @@ def _simulation_use_tail_risk(simulation_prefs: dict | None) -> bool:
     if isinstance(raw, bool):
         return raw
     return str(raw or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def path_simulation_distribution_phrase(simulation_prefs: dict | None) -> str:
+    """AUDIT-2026-11 D1: kundensichtbare Beschreibung der Renditeverteilung.
+
+    Der Methodentext sprach von normalverteilten Jahresrenditen. Gerechnet
+    wird mit lognormalen Jahresrenditen, seit CMA-TAIL-ACTIVATION-GOVERNANCE-
+    001 standardmaessig mit Cornish-Fisher-Korrektur fuer die Schiefe und
+    Woelbung aus den Kapitalmarktannahmen (``_simulation_use_tail_risk``).
+    Der Text folgt demselben Schalter wie die Rechnung.
+    """
+    if _simulation_use_tail_risk(simulation_prefs):
+        return (
+            "lognormalen Jahresrenditen mit Cornish-Fisher-Korrektur fuer "
+            "Schiefe und Woelbung (Tail-Risiken der Renditeverteilung)"
+        )
+    return (
+        "lognormalen Jahresrenditen ohne Tail-Korrektur "
+        "(Cornish-Fisher per Simulations-Einstellung deaktiviert)"
+    )
+
+
+def path_simulation_method_sentence(simulation_prefs: dict | None) -> str:
+    return (
+        "Eine Pfadsimulation mit "
+        f"{path_simulation_distribution_phrase(simulation_prefs)} quantifiziert "
+        "Zielwahrscheinlichkeit, Verlustband und Rebalancing-Risiko."
+    )
+
+
+def path_simulation_projection_sentence(simulation_prefs: dict | None) -> str:
+    return (
+        "Die Projektion wird zusaetzlich als Pfadsimulation mit "
+        f"{path_simulation_distribution_phrase(simulation_prefs)} verdichtet."
+    )
 
 
 def _target_bucket_values(total_rappen: int, weights_bps: dict[str, int]) -> dict[str, int]:
@@ -1585,6 +1625,95 @@ def _sequence_of_returns_depletion(
     return probability_pct, median_year
 
 
+# CCX-P3-FX (eine Simulation fuer App und Bericht): reine Memoisierung der
+# deterministischen Monte-Carlo-Funktion. Der Schluessel ist ein kanonischer
+# Fingerabdruck ALLER Eingaben (ORM-Spalten, Dataclasses, Listen/Dicts, exakte
+# Float-Darstellung) plus Bewertungsstichtag und Modellversion -- identische
+# Eingaben ergeben per Definition identische Pfade (fester Seed), jede Aenderung
+# eines Inputs ergibt einen neuen Schluessel. Keine Fachaenderung: Laeufe,
+# Seed, Horizont und Estimand bleiben unveraendert; der persistente,
+# invalidierbare Artefakt-Speicher ist PERF-RC-01.
+_MC_MEMO_LIMIT = 32
+_MC_MEMO: "OrderedDict[str, dict]" = OrderedDict()
+_MC_MEMO_LOCK = threading.Lock()
+_MC_MEMO_STATS = {"hits": 0, "misses": 0}
+
+
+def _mc_fingerprint(value):
+    """Kanonische, typtreue Darstellung fuer den Memo-Schluessel."""
+    if value is None or isinstance(value, (bool, int, str)):
+        return [type(value).__name__, value]
+    if isinstance(value, float):
+        return ["float", repr(value)]
+    if isinstance(value, dict):
+        # Schluessel typtreu ({1: x} != {"1": x}); Ordnung ueber die kanonische Form.
+        items = [[_mc_fingerprint(k), _mc_fingerprint(v)] for k, v in value.items()]
+        return ["dict", sorted(items, key=lambda item: json.dumps(item[0], sort_keys=True))]
+    if isinstance(value, (list, tuple)):
+        return [type(value).__name__, [_mc_fingerprint(v) for v in value]]
+    if is_dataclass(value):
+        return [type(value).__name__, [[f.name, _mc_fingerprint(getattr(value, f.name))] for f in fields(value)]]
+    table = getattr(value, "__table__", None)
+    if table is not None:
+        return [table.name, [[c.name, _mc_fingerprint(getattr(value, c.key, None))] for c in table.columns]]
+    raise TypeError(f"Monte-Carlo-Input ohne kanonischen Fingerabdruck: {type(value).__name__}")
+
+
+# Module, deren Namensraum die Simulation liest (Funktionen, Konstanten). Ihr
+# Zustand ist Teil des Schluessels: wird eine Funktion oder Konstante ersetzt
+# (z. B. Modellversion, Drawdown-Verfeinerung, Pfadzahl), entsteht ein neuer
+# Schluessel -- nie ein alter Treffer.
+_MC_ENVIRONMENT_MODULES = (
+    "services.portfolio_engine_mc_simulation", "services.portfolio_engine",
+    "services.portfolio_engine_gesamtvermoegen", "services.portfolio_engine_reserve",
+    "services.drawdown_refinement", "services.return_moments", "services.reserve_funding_ledger",
+    "services.cashflow_timeline", "services.calendar_horizon", "services.mortality.horizon",
+    "services.risk_scoring", "services.valuation_clock",
+)
+
+
+def _mc_environment_fingerprint() -> list:
+    out = []
+    for name in _MC_ENVIRONMENT_MODULES:
+        module = sys.modules.get(name)
+        if module is None:
+            out.append([name, None])
+            continue
+        out.append([name, hashlib.sha256(repr(sorted(
+            (key, id(value)) for key, value in vars(module).items() if not key.startswith("__")
+        )).encode("ascii")).hexdigest()])
+    return out
+
+
+def memoized_allocation_monte_carlo(**kwargs) -> dict:
+    """Memoisiert ``_run_allocation_monte_carlo`` (siehe oben)."""
+    try:
+        key_payload = json.dumps(
+            [valuation_date().isoformat(), _mc_environment_fingerprint(), _mc_fingerprint(kwargs)],
+            sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        )
+    except TypeError:
+        _MC_MEMO_STATS["misses"] += 1
+        return _run_allocation_monte_carlo(**kwargs)
+    # Memo-Schluessel ist der kanonische Text selbst (kein Evidenz-Hash).
+    key = key_payload
+    with _MC_MEMO_LOCK:
+        cached = _MC_MEMO.get(key)
+        if cached is not None:
+            _MC_MEMO.move_to_end(key)  # LRU: zuletzt genutzt bleibt
+    if cached is not None:
+        _MC_MEMO_STATS["hits"] += 1
+        return copy.deepcopy(cached)
+    _MC_MEMO_STATS["misses"] += 1
+    result = _run_allocation_monte_carlo(**kwargs)
+    with _MC_MEMO_LOCK:
+        _MC_MEMO[key] = copy.deepcopy(result)
+        _MC_MEMO.move_to_end(key)
+        while len(_MC_MEMO) > _MC_MEMO_LIMIT:
+            _MC_MEMO.popitem(last=False)  # am laengsten ungenutzter Eintrag
+    return result
+
+
 def _run_allocation_monte_carlo(
     *,
     advisory_summary: PortfolioSummary,
@@ -2096,6 +2225,12 @@ def _run_allocation_monte_carlo(
         "target_p10_series_rappen": [_percentile(values, 0.10) for values in target_by_year],
         "target_p50_series_rappen": [_percentile(values, 0.50) for values in target_by_year],
         "target_p90_series_rappen": [_percentile(values, 0.90) for values in target_by_year],
+        # CCX-P3-FX: weitere Quantile DERSELBEN Pfade fuer den Faecher des
+        # Beratungsberichts (eine Simulation fuer App und Bericht; keine
+        # Methodik-Aenderung, nur zusaetzliche Auswertung).
+        "target_p5_series_rappen": [_percentile(values, 0.05) for values in target_by_year],
+        "target_p25_series_rappen": [_percentile(values, 0.25) for values in target_by_year],
+        "target_p75_series_rappen": [_percentile(values, 0.75) for values in target_by_year],
         # F23: Total-Vermoegen-Pfade (Gesamtvermoegen, Liabilities mit Lebensluecke).
         # Leer wenn der Aufrufer kein total_summary uebergeben hat.
         "total_current_p10_series_rappen": (
