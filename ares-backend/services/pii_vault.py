@@ -69,6 +69,9 @@ SEALED_APPEND_ONLY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("financial_coverage_attestations", "note"),
     # E1 Nachhaltigkeitspraeferenzen: Begruendung eines Kundenverzichts.
     ("investment_preference_decisions", "waiver_reason_sealed"),
+    # L2b (H-190): Gruende der Empfehlung (Art. 15 FIDLEG, P-1).
+    ("advice_rationales", "client_needs"),
+    ("advice_rationales", "recommendation_reasons"),
 )
 
 
@@ -170,6 +173,31 @@ def reveal(db: Session, value: Any) -> str | None:
         return _fernet(row.key_material).decrypt(token.encode("ascii")).decode("utf-8")
     except InvalidToken:
         return None
+
+
+# L2b (H-190): Lesestatus eines gespeicherten Freitexts. "Geloescht" heisst
+# nur: der Kundenschluessel ist nachweislich vernichtet (Tombstone mit
+# shredded_at). Ein Umschlag, der sich mit vorhandenem Schluessel nicht
+# oeffnen laesst, ist dagegen "unlesbar" (kein DSG-Fall, Fehler sichtbar).
+REVEAL_PLAIN = "klartext"          # Altbestand, nicht versiegelt
+REVEAL_OPEN = "geoeffnet"          # versiegelt, Schluessel vorhanden
+REVEAL_SHREDDED = "geloescht"      # versiegelt, Schluessel vernichtet (DSG)
+REVEAL_UNREADABLE = "unlesbar"     # versiegelt, Schluessel fehlt/passt nicht
+
+
+def reveal_state(db: Session, value: Any) -> tuple[str | None, str]:
+    """(Klartext oder None, Status) eines gespeicherten Freitexts."""
+    if not is_sealed(value):
+        return value, REVEAL_PLAIN
+    key_id = value[len(ENVELOPE_PREFIX):].partition(":")[0]
+    row = db.execute(
+        text("SELECT key_material, shredded_at FROM client_pii_keys WHERE key_id = :key_id"),
+        {"key_id": key_id},
+    ).first()
+    if row is not None and row.key_material is None and row.shredded_at:
+        return None, REVEAL_SHREDDED
+    plain = reveal(db, value)
+    return plain, (REVEAL_OPEN if plain is not None else REVEAL_UNREADABLE)
 
 
 def shred_client_keys(db: Session, client_id: str) -> int:

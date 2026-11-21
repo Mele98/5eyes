@@ -196,6 +196,9 @@ def test_kern_integration_r3_band_pdfs_restart_and_amounts():
                                                           "home_jurisdiction": "CH"})
         assert st == 201, body
         api = _login_api(base)
+        from tests.fee_agreement_fixture import set_test_fee_agreement
+
+        set_test_fee_agreement(api)  # EXE-P (H-187): kein Gebuehren-Default mehr
         cid, mid, portfolio = _setup(api, db_path)
         start = _overview(api, mid)
 

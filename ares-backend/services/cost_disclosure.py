@@ -1146,6 +1146,25 @@ def calculate_cost_disclosure(
     }
 
 
+# EXE-P (H-187): ohne Gebuehrenvereinbarung (kein jaehrlicher Dienstleistungs-
+# satz im Gebuehrenmodell des Laufs) ist der Kostenausweis ein Entwurf --
+# Wasserzeichen, nie archiviert, nie ein angenommener Satz. Frueher fuellte die
+# automatisch erzeugte Vorlage-Policy 75 bps ein.
+FEE_AGREEMENT_MISSING = "COST_FEE_AGREEMENT_MISSING"
+_ANNUAL_FEE_KEYS = frozenset(key for keys, _label in _ANNUAL_RATE_KEYS for key in keys)
+
+
+def fee_agreement_missing(payload: Mapping[str, Any] | None) -> bool:
+    """True, wenn ein berechneter Kostenausweis keinen vereinbarten jaehrlichen
+    Dienstleistungssatz enthaelt (gleiches Urteil wie ``service_fee_known``)."""
+    if not isinstance(payload, Mapping) or payload.get("data_pending"):
+        return False
+    return not any(
+        isinstance(item, Mapping) and item.get("key") in _ANNUAL_FEE_KEYS
+        for item in (payload.get("cost_items") or [])
+    )
+
+
 def _rate_item(
     *,
     key: str,

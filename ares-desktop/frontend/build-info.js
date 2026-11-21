@@ -3,7 +3,7 @@
  *
  * Liest das oeffentliche /health des lokalen Backends (in der gepackten EXE mit
  * Version aus package.json und Git-SHA des Builds, siehe
- * ares-backend/core/build_info.py) und zeigt "Ares <Version> · Build <SHA7>"
+ * ares-backend/config.py: build_info/build_sha) und zeigt "Ares <Version> · Build <SHA7>"
  * im Anmeldefenster (#ares-build-info, unter "Advisory OS" angelegt). Im Quellbetrieb fehlt der SHA; dann
  * steht dort "Entwicklungsstand". Fehler bleiben still (rein informativ).
  */

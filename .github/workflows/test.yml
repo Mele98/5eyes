@@ -991,6 +991,16 @@ jobs:
         run: |
           python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/c890-ui             --startup-timeout 300 --test-timeout 300 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_c890_kyc_review_policy_ui.py -p no:xdist -rs --tb=short
 
+      # L2b (H-190): Beratungsvertrag in der Classic-Vertragsmaske im echten
+      # Browser (Ort Pflicht, Vorschau als Entwurf, deutsche Sperrgruende,
+      # Rolle Lesend ohne Schreibrecht). Playwright Pflicht.
+      - name: Beratungsvertrag-Maske (L2b, Playwright Pflicht)
+        working-directory: ares-backend
+        env:
+          ARES_REQUIRE_PLAYWRIGHT: "1"
+        run: |
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/l2b-ui             --startup-timeout 300 --test-timeout 300 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_l2b_advice_contract_ui.py -p no:xdist -rs --tb=short
+
       - name: Nachhaltigkeitspraeferenzen Flow und Strategiebausteine (E2a/E2b, Playwright Pflicht)
         working-directory: ares-backend
         env:

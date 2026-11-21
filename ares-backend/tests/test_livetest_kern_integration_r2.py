@@ -66,7 +66,11 @@ def _backend(frozen: bool):
     }
     # Gepackte Produktivinstallation: dasselbe Merkmal wie die PyInstaller-EXE
     # (sys.frozen), das config.foundation_example_available auswertet.
-    launcher = ("import sys; sys.frozen = True; import uvicorn; "
+    # EXE-P (H-187): config zuerst laden -- die SQLCipher-Pflicht der echten EXE
+    # (config.PACKAGED_BUILD, beim Import bestimmt) braucht DPAPI und den
+    # Treiber und ist im Packaging-Smoke belegt; hier geht es nur um die
+    # laufzeitabhaengigen Produktionsregeln (Demo-Sperre).
+    launcher = ("import config; import sys; sys.frozen = True; import uvicorn; "
                 f"uvicorn.run('main:app', host='127.0.0.1', port={port})") if frozen else None
     cmd = ([sys.executable, "-c", launcher] if frozen else
            [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port)])

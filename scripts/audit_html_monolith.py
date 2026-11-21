@@ -58,6 +58,10 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     # Datenschutzabschnitt, W033, Zuwendungen der Depotbank) mit Vier-Augen-
     # Freigabe; Mandatspruefung mit Gruenden der Empfehlung und W033-Bestaetigung.
     ("owner-content.js", "js"),
+    # L2b (H-190): Beratungsvertrag in der Classic-Vertragsmaske (Mandatstyp,
+    # Ort Pflicht, Vorschau als Entwurf, deutsche Sperrgruende);
+    # saveContractDocumentDraft umgezogen (Monolith-Budget).
+    ("advice-contract.js", "js"),
     # H10 (DSG-Technikaudit 2026-11-11): Datenschutz-Governance (Verzeichnis,
     # Owner-Angaben, Betroffenenanfragen, Vorfaelle, Egress) +
     # renderAuditLogPagination (umgezogen, Monolith-Budget).

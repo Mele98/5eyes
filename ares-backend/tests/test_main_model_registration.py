@@ -225,9 +225,14 @@ GOLDEN_SORTED_TABLES_SHA256 = "8646fc0d669e2430cdd34b3e48475143e7b2eae7102c036e4
 # Merge H-179 + P5b: beide additiv, aus dem Tree neu berechnet.
 # Merge r5/kern-integration (dedc2f24, L2/L3) in P5c: beide additiv, aus dem Tree
 # neu berechnet (api/openapi.json unveraendert gegen export_openapi.py).
+# H-187 ROL-05: nur additiv -- neu GET /publication-inbox, POST
+# /publication-inbox/{mandate_id}/approve (+ PublicationInboxItem/
+# PublicationInboxApproveRequest); kein bestehender Pfad, kein bestehendes Schema
+# geaendert (Feld-Diff api/openapi.json: 227 hinzugefuegte Zeilen, export_openapi.py).
 # K3 (H-189, N-915-06): nur additiv -- GET/PUT /mandates/{id}/external-holdings
 # [/{wp_id}] und Schemas ExternalHolding*; kein bestehender Pfad/Feld geaendert.
-GOLDEN_OPENAPI_SHA256 = "7757ab29a42d2f0b59d980e8c05a73e827c7bccb628e758cfa711105b7543bee"
+# Merge r5/kern-integration (56ec62fa) in K3: beide additiv, aus dem Tree neu berechnet.
+GOLDEN_OPENAPI_SHA256 = "fb27c60a1154f0a44a437b131f8f55e81e320ab6ab77658455d53e6204b6f508"
 
 _PROBE = """
 import hashlib, json

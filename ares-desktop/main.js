@@ -10,20 +10,17 @@ const net = require('net');
 const path = require('path');
 const { checkTrustedIpcSender, checkTrustedRendererUrl, describeSenderForLog } = require('./ipc-sender-guard');
 
+// N-935-01 (H-187 Fixrunde 1, CTO-Entscheid): die installierte App liest keine
+// .env-Datei (weder neben der App noch unter resources/backend noch im
+// Arbeitsverzeichnis) -- sonst kaeme eine abgelegte Datei ueber die Shell doch
+// beim Backend an. Nur der Entwicklungsstart liest sie wie bisher.
+function envFileCandidates(isPackaged = app.isPackaged) {
+  if (isPackaged) return [];
+  return [path.join(process.cwd(), '.env'), path.join(__dirname, '.env')];
+}
+
 function loadEnvIntoProcess() {
-  const candidates = [
-    path.join(process.cwd(), '.env'),
-    path.join(__dirname, '.env'),
-  ];
-
-  if (app.isPackaged) {
-    candidates.unshift(
-      path.join(path.dirname(process.execPath), '.env'),
-      path.join(process.resourcesPath, 'backend', '.env')
-    );
-  }
-
-  for (const envPath of candidates) {
+  for (const envPath of envFileCandidates()) {
     if (!fs.existsSync(envPath)) continue;
     try {
       const content = fs.readFileSync(envPath, 'utf8');
@@ -483,6 +480,29 @@ async function pickBackendRuntime() {
 // Der Pfad wird immer hier gesetzt -- eine .env kann ihn nicht umlenken. Die
 // KEK selbst kennt Electron nicht und loggt sie folglich nie.
 const TENANT_MASTER_KEK_STORE_FILE = path.join(app.getPath('userData'), 'tenant-master-kek.dpapi');
+// EXE-P (H-187): Ablageort des SQLCipher-Datenbankschluessels (DPAPI, Benutzer-
+// Scope) im userData-Ordner. Die gepackte Backend-EXE startet nur mit
+// verschluesselter Datenbank (config.ensure_packaged_db_key); den Schluessel
+// selbst kennt Electron nicht.
+const DB_KEY_STORE_FILE = path.join(app.getPath('userData'), 'db-key.dpapi');
+// N-935-01: Variablen, die das Backend nie aus der geerbten Umgebung bekommt --
+// unabhaengig von der Schreibweise (Windows und pydantic unterscheiden sie nicht).
+// Das Backend kennt seit Fixrunde 1 gar kein Testpaket mehr; die Sperre bleibt
+// als zweite Linie.
+const BACKEND_ENV_NEVER_INHERITED = ['TEST_REFERENCE_PACKAGE_FILE'];
+// Von der Shell selbst gesetzte Werte: eine geerbte Variante in anderer
+// Schreibweise wird vorher entfernt, damit nur der Wert der Shell ankommt.
+const BACKEND_ENV_SET_BY_SHELL = ['PYTHONUNBUFFERED', 'APP_HOST', 'APP_PORT', 'TENANT_MASTER_KEK_FILE',
+  'DB_KEY_FILE', 'DESKTOP_UPDATE_FEED_URL'];
+
+function inheritedBackendEnv(source = process.env) {
+  const blocked = new Set([...BACKEND_ENV_NEVER_INHERITED, ...BACKEND_ENV_SET_BY_SHELL]);
+  const env = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (!blocked.has(key.toUpperCase())) env[key] = value;
+  }
+  return env;
+}
 
 // N-899-13 (H10): Feed-URL aus der gepackten Build-Konfiguration (asar),
 // leer solange das Build-Gate zu ist. Das Backend liest keine package.json.
@@ -499,11 +519,12 @@ function ownerDbOptInAllowed(isPackaged = app.isPackaged, env = process.env) {
 
 function buildBackendChildEnv(runtime = backendRuntime) {
   const env = {
-    ...process.env,
+    ...inheritedBackendEnv(),
     PYTHONUNBUFFERED: '1',
     APP_HOST: runtime.host,
     APP_PORT: String(runtime.port),
     TENANT_MASTER_KEK_FILE: TENANT_MASTER_KEK_STORE_FILE,
+    DB_KEY_FILE: DB_KEY_STORE_FILE,
     // Immer gesetzt (auch leer): eine geerbte Umgebung kann den Kanal nicht vortaeuschen.
     DESKTOP_UPDATE_FEED_URL: desktopUpdateFeedUrl(),
   };
@@ -911,6 +932,10 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports.buildBackendChildEnv = buildBackendChildEnv;
   module.exports.ownerDbOptInAllowed = ownerDbOptInAllowed;
   module.exports.TENANT_MASTER_KEK_STORE_FILE = TENANT_MASTER_KEK_STORE_FILE;
+  module.exports.DB_KEY_STORE_FILE = DB_KEY_STORE_FILE;
+  // N-935-01: keine .env in der installierten App; geerbte Umgebung ohne Schreibweisen-Luecke.
+  module.exports.envFileCandidates = envFileCandidates;
+  module.exports.inheritedBackendEnv = inheritedBackendEnv;
   module.exports.notifyRendererUpdateState = notifyRendererUpdateState;
   module.exports._setMainWindowForTest = (win) => { mainWindow = win; };
 }

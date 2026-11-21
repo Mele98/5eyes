@@ -11,8 +11,8 @@
      die NIE durch die Backend-Middleware laeuft. contextIsolation+sandbox+
      nodeIntegration:false (main.js) mindern das Risiko bereits stark, aber
      eine CSP ist zusaetzliche Tiefenverteidigung gegen injizierte Skripte.
-     Policy 1:1 gespiegelt von core/middleware.py::DEFAULT_CSP_POLICY. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' app://. null; script-src 'self' 'unsafe-inline' app://. null; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; font-src 'self' data:; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'self'">
+     Policy = DEFAULT_CSP_POLICY ohne app://. und frame-ancestors (EXE-04). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' null; script-src 'self' 'unsafe-inline' null; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; font-src 'self' data:; form-action 'self'; object-src 'none'; base-uri 'self'">
 <title>Ares</title>
 <style>/* Vendored: system fonts replace Google Fonts (DM Sans + EB Garamond) */
 :root{--f-s:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--f-d:Georgia,"Times New Roman",serif;}
@@ -24931,54 +24931,6 @@ async function saveReviewTrigger(){
     setTimeout(function(){cm('m-nt');},700);
   }
 }
-async function saveContractDocumentDraft(){
-  var title=getInputValue('contract-title').trim();
-  var intro=getInputValue('contract-intro').trim();
-  var disclaimer=getInputValue('contract-disclaimer').trim();
-  var special=getInputValue('contract-special').trim();
-  var place=getInputValue('contract-place').trim();
-  var signDate=getInputValue('contract-date')||new Date().toISOString().slice(0,10);
-  var btn=document.getElementById('btn-contract-save');
-  var mid=getActiveMandateId();
-  if(!title){showModalFeedback('contract-error',btn,'Bitte Dokumenttitel eingeben.',true);return;}
-  var payload={
-    document_type:'Anlagestrategie',
-    title:title,
-    content_json:JSON.stringify({
-      intro:intro,
-      disclaimer:disclaimer,
-      special:special,
-      place:place,
-      sign_date:signDate,
-      client_name:currentPersona?((currentPersona.first_name||currentPersona.name||'')+' '+(currentPersona.last_name||'')).trim():null
-    })
-  };
-  if(btn){btn.disabled=true;btn.textContent='Speichern...';}
-  if(mid&&!isDemoMandateId(mid)){
-    try{
-      await API.post('/mandates/'+mid+'/documents',payload);
-      showModalFeedback('contract-error',btn,'✓ Dokument-Entwurf gespeichert',false);
-      await refreshReviewUI(mid);
-      try{showAppSuccess('Dokument-Entwurf gespeichert',{title:'Anlagestrategie-Dokument'});}catch(noticeErr){}
-      setTimeout(function(){cm('m-contract-edit');},500);
-    }catch(e){
-      var docErr='Fehler: '+(e.detail||e.message||'?');
-      showModalFeedback('contract-error',btn,docErr,true);
-      try{showAppError(docErr,{title:'Dokument-Entwurf nicht gespeichert'});}catch(noticeErr){}
-    }
-  } else {
-    currentReviewState.documents=[{
-      id:'demo-doc-'+Date.now(),
-      document_type:'Anlagestrategie',
-      title:title,
-      status:'Entwurf',
-      signed_by_advisor:0
-    }].concat(currentReviewState.documents||[]);
-    renderReviewState(currentReviewState);
-    showModalFeedback('contract-error',btn,'✓ Demo-Modus: Dokument ergänzt',false);
-    setTimeout(function(){cm('m-contract-edit');},700);
-  }
-}
 // 2026-08-05 (User-Direktive, E-Signing): signDocumentAsAdvisor() setzte
 // bisher nur signed_by_advisor=true per API-Call -- keine echte Unterschrift
 // wurde je erfasst, jeder authentifizierte Advisor-User konnte das fuer
@@ -26325,6 +26277,6 @@ function openStammdatenModal(){
 </div>
 <!-- ─────────────────────────────────────────────────────────── -->
 
-<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./owner-content.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./finalize-attestation.js"></script><script src="./fx-rates-editor.js"></script><script src="./advisor-guidance.js"></script><script src="./mandate-view.js"></script><script src="./kn3-ui.js"></script><script src="./kn4-ui.js"></script><script src="./kn5-ui.js"></script><script src="./p5c-ui.js"></script><script src="./sustainability-preferences.js"></script>
+<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./owner-content.js"></script><script src="./advice-contract.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./finalize-attestation.js"></script><script src="./fx-rates-editor.js"></script><script src="./advisor-guidance.js"></script><script src="./mandate-view.js"></script><script src="./kn3-ui.js"></script><script src="./kn4-ui.js"></script><script src="./kn5-ui.js"></script><script src="./p5c-ui.js"></script><script src="./sustainability-preferences.js"></script>
 </body>
 </html>

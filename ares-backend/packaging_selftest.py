@@ -41,6 +41,9 @@ RUNTIME_MODULES: tuple[str, ...] = (
     "reportlab.platypus",
 )
 
+# Nur im gepackten Artefakt Pflicht (Quell-/Test-Umgebungen haben den Treiber nicht immer).
+FROZEN_RUNTIME_MODULES: tuple[str, ...] = ("sqlcipher3",)
+
 # Module, die eine optionale, nicht gebuendelte Abhaengigkeit brauchen und das
 # selbst sauber abfangen. Leer: jede Ausnahme braucht eine Begruendung hier.
 OPTIONAL_MODULES: dict[str, str] = {}
@@ -63,7 +66,9 @@ def run_self_test() -> dict:
         candidates = _own_module_names()
     except BaseException as exc:  # noqa: BLE001 - jede Ausnahme ist ein Befund
         return {"ok": False, "checked": 0, "failures": {"<walk>": f"{type(exc).__name__}: {exc}"}}
-    for name in list(RUNTIME_MODULES) + candidates:
+    # EXE-P (H-187): die gepackte EXE startet nur mit SQLCipher -- im Artefakt Pflicht.
+    frozen_only = list(FROZEN_RUNTIME_MODULES) if getattr(sys, "frozen", False) else []
+    for name in list(RUNTIME_MODULES) + frozen_only + candidates:
         if name in checked:
             continue
         checked.append(name)

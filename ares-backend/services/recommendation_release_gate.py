@@ -44,6 +44,7 @@ from sqlalchemy.orm import Session
 from core import sustainability_preference as sustainability
 from core.evidence import SCHEME_V1, evidence_hash
 from core.reason_codes import DomainError, ReasonCode
+from models.allocation import TargetAllocation
 from services.portfolio_engine import run_exclusion_evidence_status
 
 RISK_BUDGET_EVIDENCE_MISSING = "RISK_BUDGET_EVIDENCE_MISSING"
@@ -170,8 +171,6 @@ def risk_budget_release_errors(allocation: Any) -> list[str]:
 
 
 def _current_allocation(db: Session, mandate: Any) -> Any:
-    from models.allocation import TargetAllocation
-
     return (
         db.query(TargetAllocation)
         .filter(
@@ -184,8 +183,6 @@ def _current_allocation(db: Session, mandate: Any) -> Any:
 
 
 def _run_allocation(db: Session, mandate: Any, run: Any) -> Any:
-    from models.allocation import TargetAllocation
-
     if not getattr(run, "target_allocation_id", None):
         return None
     return (
@@ -440,7 +437,8 @@ CLIENT_INFORMATION_DOCUMENT_TYPE = "Kundeninformation"
 # RC-CH-1 Teil 2b: -2 = Zahlendarstellung ueber den G7-Formatter (Half-up,
 # fehlender Betrag "—" statt 0) und Mandatswaehrung ohne CHF-Ersatz.
 # H-179 -4: Abschnitt Datenbearbeitung (Art. 19 DSG) und Zuwendungen der Depotbank.
-CLIENT_INFORMATION_TEMPLATE_VERSION = "ARES-KI-FIDLEG-4"
+# N-935-03 (H-187 Fixrunde 1): ohne Gebuehrenvereinbarung "Dienstleistungsgebühr: nicht vereinbart" statt Total.
+CLIENT_INFORMATION_TEMPLATE_VERSION = "ARES-KI-FIDLEG-5"
 # Dokumenttypen, deren Unterzeichnung den Vertragsabschluss markiert. Die
 # Kundeninformation muss VOR der ersten Unterschrift auf einem davon liegen.
 CONTRACT_CONCLUSION_DOCUMENT_TYPES = frozenset({
@@ -2388,7 +2386,9 @@ def owner_content_catalog() -> tuple[OwnerCatalogEntry, ...]:
                 key=contract_clause_key(slug, clause), group="vertrag",
                 label=f"Vertrag ({_contract_type_label(slug)}): {label}", kind=OWNER_KIND_TEXT,
                 placeholder=placeholder, owner_input=owner_input,
-                visible_in="Vertrags-PDF (Beratungsvertrag), Vertragsvorlagen-Hash",
+                visible_in=(f"Beratungsvertrag (PDF), Abschnitt «Vertragsbestimmungen», Klausel «{label}» – "
+                            + (f"nur Mandatstyp {_contract_type_label(slug)}" if slug != CONTRACT_SHARED_SLUG
+                               else "alle Mandatstypen ohne eigenen Text") + "; Prüfwert der Vertragsvorlage"),
                 # Je Typ genuegt der typspezifische ODER der gemeinsame Text.
                 required=False,
             ))
@@ -2397,7 +2397,7 @@ def owner_content_catalog() -> tuple[OwnerCatalogEntry, ...]:
             key=PRIVACY_KEY_PREFIX + section, group="datenschutz",
             label=f"Kundeninformation – Datenbearbeitung: {label}", kind=OWNER_KIND_TEXT,
             placeholder=placeholder, owner_input=owner_input,
-            visible_in="Kundeninformation (Abschnitt Datenbearbeitung)",
+            visible_in=f"Kundeninformation (PDF), Abschnitt «Datenbearbeitung», Zeile «{label}»",
         ))
     entries.extend((
         OwnerCatalogEntry(
@@ -2405,28 +2405,30 @@ def owner_content_catalog() -> tuple[OwnerCatalogEntry, ...]:
             label="Erklärung: Angaben wahr, wesentliche Änderungen werden gemeldet", kind=OWNER_KIND_TEXT,
             placeholder="__OWNER_W033_ANGABEN_WAHR_REQUIRED__",
             owner_input="Wortlaut der Kundenerklärung",
-            visible_in="Risikoprofil-PDF, Kundenbestätigung (W033)",
+            visible_in="Risikoprofil (PDF), Abschnitt «Erklärung des Kunden»; Kundenbestätigung unter «Mandat prüfen»",
         ),
         OwnerCatalogEntry(
             key=W033_HORIZON_ADVICE_KEY, group="w033",
             label="Abraten bei kurzem Anlagehorizont", kind=OWNER_KIND_TEXT,
             placeholder="__OWNER_W033_HORIZONT_ABRATEN_REQUIRED__",
             owner_input="Wortlaut des Abraten-Hinweises und der Kundenbestätigung",
-            visible_in="Risikoprofil-PDF, Kundenbestätigung (W033)",
+            visible_in=("Risikoprofil (PDF), Abschnitt «Hinweis zum Anlagehorizont» (nur bei Horizont unter dem "
+                        "Mindestanlagehorizont); Kundenbestätigung unter «Mandat prüfen»"),
         ),
         OwnerCatalogEntry(
             key=W033_MIN_HORIZON_KEY, group="w033",
             label="Mindestanlagehorizont in Jahren (Owner/IC)", kind=OWNER_KIND_INTEGER,
             placeholder="__OWNER_MIN_HORIZON_YEARS_REQUIRED__",
             owner_input="ganze Zahl Jahre (OWN-IC-05/06)",
-            visible_in="Gate Finalisierung/Signatur, Risikoprofil-PDF",
+            visible_in=("kein eigener Text: Grenze für den Abraten-Hinweis im Risikoprofil (PDF), Titel «Hinweis zum "
+                        "Anlagehorizont (unter … Jahren)», und Sperre bei Finalisierung/Signatur"),
         ),
         OwnerCatalogEntry(
             key=W033_DISTRIBUTION_KEY, group="w033",
             label="Hinweis Ausschüttung bei Kapitalunterschreitung", kind=OWNER_KIND_TEXT,
             placeholder="__OWNER_W033_AUSSCHUETTUNG_REQUIRED__",
             owner_input="Wortlaut (nur nötig, wenn ausschüttende Lösungen im Universum sind)",
-            visible_in="Risikoprofil-PDF (nur wenn freigegeben)",
+            visible_in="Risikoprofil (PDF), Abschnitt «Ausschüttungen» (nur wenn freigegeben)",
             required=False,
         ),
         OwnerCatalogEntry(
@@ -2434,7 +2436,8 @@ def owner_content_catalog() -> tuple[OwnerCatalogEntry, ...]:
             label="Protokoll: Hinweis zum Basisinformationsblatt (BIB)", kind=OWNER_KIND_TEXT,
             placeholder="__OWNER_PROTOKOLL_BIB_HINWEIS_REQUIRED__",
             owner_input="Wortlaut des BIB-Hinweises unter «abgegebene Informationen»",
-            visible_in="Beratungsprotokoll (Anlageberatung, nur wenn freigegeben)",
+            visible_in=("Beratungsprotokoll (PDF), Abschnitt «Abgegebene Informationen» "
+                        "(nur Anlageberatung und nur wenn freigegeben)"),
             required=False,
         ),
     ))
@@ -2474,7 +2477,8 @@ def owner_catalog_entry(key: str) -> Optional[OwnerCatalogEntry]:
             key=key, group="depotbank", label=f"Zuwendungen der Depotbank ({key[len(DEPOT_BANK_KEY_PREFIX):]})",
             kind=OWNER_KIND_DEPOT_BANK, placeholder=DEPOT_BANK_PLACEHOLDER,
             owner_input="keine | Satz + Basis | Verzicht mit Bandbreite; Beleg, Gültigkeit",
-            visible_in="Kundeninformation, Kostenausweis, Gate Finalisierung/Signatur",
+            visible_in=("Kundeninformation (PDF), Abschnitt «Kosten»; Kostenausweis (PDF), Abschnitt «Zuwendungen "
+                        "der Depotbank»; Sperre bei Finalisierung/Signatur"),
         )
     return None
 
@@ -3003,6 +3007,56 @@ def _depot_bank_findings(state: dict, mandate_type: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+# L2b (H-190, DSG): Beduerfnisse und Gruende liegen versiegelt in der
+# append-only Zeile (services/pii_vault.py, Muster SEALED_FREE_TEXT /
+# CRYPTO_SHRED). Das Zeilensiegel ``rationale_hash`` bindet den Umschlag und
+# wird beim Lesen nachgerechnet. Nach einer DSG-Loeschung (Schluessel
+# vernichtet) bleibt es gueltig: die Zeile ist «gelöscht (DSG)», nicht
+# manipuliert. Nur ein nicht passendes Siegel heisst «verändert».
+ADVICE_RATIONALE_TEXT_COLUMNS = ("client_needs", "recommendation_reasons")
+ADVICE_RATIONALE_OK = "ok"
+ADVICE_RATIONALE_ERASED = "geloescht_dsg"
+ADVICE_RATIONALE_TAMPERED = "veraendert"
+ADVICE_RATIONALE_ERASED_TEXT = "Gelöscht (DSG)."
+
+
+class AdviceRationaleSealError(RuntimeError):
+    """Versiegeln nicht moeglich (kein Kunde oder Kunde nach DSG geloescht)."""
+
+
+def seal_advice_rationale_texts(db: Session, client_id: Optional[str], needs: str, reasons: str) -> tuple[str, str]:
+    """Beide Freitexte versiegelt; fail-closed ``AdviceRationaleSealError``."""
+    from services.risk_profile_signoff import PiiVaultError, seal_protocol_text
+
+    try:
+        return seal_protocol_text(db, client_id, needs), seal_protocol_text(db, client_id, reasons)
+    except PiiVaultError as exc:
+        raise AdviceRationaleSealError(str(exc)) from exc
+
+
+def advice_rationale_view(db: Session, row: dict) -> dict:
+    """Gelesene Zeile -> Anzeigeform: Klartext (oder None nach Loeschung),
+    ``integrity_verified`` (Siegel passt) und ``state``."""
+    from services.risk_profile_signoff import reveal_protocol_text
+
+    view = dict(row)
+    view["integrity_verified"] = row_seal(row, "rationale_hash") == row.get("rationale_hash")
+    statuses = []
+    for column in ADVICE_RATIONALE_TEXT_COLUMNS:
+        plain, status = reveal_protocol_text(db, row.get(column))
+        view[column] = plain
+        statuses.append(status)
+    if not view["integrity_verified"] or "unlesbar" in statuses:
+        view["state"] = ADVICE_RATIONALE_TAMPERED
+        view["integrity_verified"] = False
+    elif "geloescht" in statuses:
+        view["state"] = ADVICE_RATIONALE_ERASED
+    else:
+        view["state"] = ADVICE_RATIONALE_OK
+    view["sealed"] = all(str(row.get(c) or "").startswith("pii-sealed:") for c in ADVICE_RATIONALE_TEXT_COLUMNS)
+    return view
+
+
 def latest_advice_rationale(db: Session, mandate_id: str, run_id: Optional[str]) -> Optional[dict]:
     if not run_id:
         return None
@@ -3010,13 +3064,24 @@ def latest_advice_rationale(db: Session, mandate_id: str, run_id: Optional[str])
         "SELECT * FROM advice_rationales WHERE mandate_id = :mid AND recommendation_run_id = :rid "
         "ORDER BY recorded_at DESC, id DESC LIMIT 1"
     ), {"mid": str(mandate_id), "rid": str(run_id)}).mappings().first()
-    return dict(row) if row is not None else None
+    return advice_rationale_view(db, dict(row)) if row is not None else None
 
 
 def _rationale_findings(db: Session, mandate: Any, run_id: Optional[str]) -> list[dict]:
     if str(getattr(mandate, "mandate_type", "") or "") not in RATIONALE_MANDATE_TYPES or not run_id:
         return []
     row = latest_advice_rationale(db, str(mandate.id), run_id)
+    if row and row["state"] == ADVICE_RATIONALE_ERASED:
+        # erfasst und nach DSG geloescht: kein Fehlen, keine Manipulation.
+        return []
+    if row and row["state"] == ADVICE_RATIONALE_TAMPERED:
+        return [_finding(
+            ReasonCode.ADVICE_RATIONALE_MISSING,
+            "Die Prüfsumme der erfassten Kundenbedürfnisse und Gründe der Empfehlung passt "
+            "nicht zum Inhalt (nach dem Speichern verändert oder beschädigt).",
+            "Berater: Bedürfnisse und Gründe der Empfehlung neu erfassen.",
+            "mandate", recommendation_run_id=str(run_id), integrity_verified=False,
+        )]
     if row and str(row.get("client_needs") or "").strip() and str(row.get("recommendation_reasons") or "").strip():
         return []
     return [_finding(

@@ -22126,6 +22126,144 @@
         "title": "PublicationFreshnessResponse",
         "type": "object"
       },
+      "PublicationInboxApproveRequest": {
+        "description": "ROL-05: Vier-Augen-Freigabe aus der Inbox -- genau der gepruefte Stand\n(keine Einzelfreigabe; die bleibt der Ein-Personen-Firma im Mandat).",
+        "properties": {
+          "target_allocation_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Target Allocation Id",
+            "type": "string"
+          },
+          "validation_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Validation Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_allocation_id",
+          "validation_hash"
+        ],
+        "title": "PublicationInboxApproveRequest",
+        "type": "object"
+      },
+      "PublicationInboxItem": {
+        "description": "ROL-05: eine zur Freigabe vorgelegte Akte, datenminimiert -- Mandat,\nvorbereitende Person und die zu publizierende Soll-Allokation; keine\nPersonalien, Vermoegenswerte oder Kundendokumente.",
+        "properties": {
+          "bands_bps": {
+            "additionalProperties": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "title": "Bands Bps",
+            "type": "object"
+          },
+          "blocker_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blocker Codes",
+            "type": "array"
+          },
+          "can_publish": {
+            "title": "Can Publish",
+            "type": "boolean"
+          },
+          "mandate_id": {
+            "title": "Mandate Id",
+            "type": "string"
+          },
+          "mandate_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mandate Number"
+          },
+          "mandate_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mandate Type"
+          },
+          "prepared_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prepared By"
+          },
+          "prepared_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prepared By Name"
+          },
+          "sealed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sealed At"
+          },
+          "target_allocation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Allocation Id"
+          },
+          "targets_bps": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Targets Bps",
+            "type": "object"
+          },
+          "validation_hash": {
+            "title": "Validation Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mandate_id",
+          "validation_hash",
+          "can_publish"
+        ],
+        "title": "PublicationInboxItem",
+        "type": "object"
+      },
       "RecommendationFinalizeResponse": {
         "description": "N-856-7 (Pruefrunde #856): Finalize-Antwort = Lauf + Warnungen.\n\n``warnings`` ist identisch zum Audit-Log-Eintrag (\"Final; Warnungen:\n...\"), ``warning_codes`` die daraus gelesenen Codes (z. B.\nSAA_BUCKET_DEVIATION, POSITION_LIMIT_EXCEEDED).",
         "properties": {
@@ -51026,6 +51164,95 @@
         "summary": "Update Baustein",
         "tags": [
           "Protocol-Bausteine"
+        ]
+      }
+    },
+    "/publication-inbox": {
+      "get": {
+        "description": "ROL-05: zur Freigabe vorgelegte Akten der eigenen Firma (datenminimiert).",
+        "operationId": "get_publication_inbox_publication_inbox_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PublicationInboxItem"
+                  },
+                  "title": "Response Get Publication Inbox Publication Inbox Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Publication Inbox",
+        "tags": [
+          "Allokation"
+        ]
+      }
+    },
+    "/publication-inbox/{mandate_id}/approve": {
+      "post": {
+        "description": "ROL-05: Vier-Augen-Freigabe einer vorgelegten Akte. Nicht vorgelegt,\nfremde Firma oder eigene Vorbereitung -> 404 (keine Auskunft).",
+        "operationId": "approve_from_publication_inbox_publication_inbox__mandate_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicationInboxApproveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllocationPublicationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve From Publication Inbox",
+        "tags": [
+          "Allokation"
         ]
       }
     },

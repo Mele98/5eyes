@@ -7,6 +7,29 @@
 
 ---
 
+## Produktionsmodus der gepackten EXE (EXE-P, H-187)
+
+- **SQLCipher ist Pflicht.** `build:backend` baut standardmaessig mit SQLCipher
+  (`BUILD_WITH_SQLCIPHER` ist `1`, wenn nicht ausdruecklich `0`) und bricht ab,
+  wenn `sqlcipher3` fehlt. Vorher installieren:
+  `pip install --require-hashes --only-binary=:all: -r ares-backend/requirements-sqlcipher.txt`.
+- Der Datenbankschluessel liegt DPAPI-geschuetzt (Benutzer-Scope) als
+  `db-key.dpapi` im userData-Ordner (wie die Master-KEK). Die Shell setzt
+  `DB_KEY_FILE`; ohne Ablageort, ohne SQLCipher oder bei vorhandener Datenbank
+  ohne Ablage startet die EXE mit klarem Fehler und oeffnet nie eine Klartext-DB.
+- Keine Hausannahmen zur Laufzeit, kein Muster-Fondskatalog, kein
+  Gebuehren-Default. Rechnen erst mit freigegebenem Referenzpaket und IC-Freigabe.
+- Der Server nimmt nie ein Testpaket an (N-935-01). Den Optimizer im Artefakt
+  belegt `ares-api.exe --self-test-strategy <paket>` (eigener Prozess, temporaere
+  DB, kein Server, kein Kundendokument); das Paket
+  `scripts/fixtures/packaging_smoke_test_reference_package.json` laedt nur dieser
+  Selbsttest.
+- Die gepackte EXE und die installierte Shell lesen keine `.env`-Datei.
+  Konfiguration kommt nur aus der Umgebung, die die Shell setzt (Ports,
+  Ablageorte von KEK und Datenbankschluessel, Update-Kanal) und aus geerbten
+  Prozessvariablen (z. B. API-Schluessel von Marktdatenquellen). Die Shell
+  entfernt verbotene Variablen unabhaengig von der Schreibweise.
+
 ## Build-Pipeline (One-Liner)
 
 ```bash

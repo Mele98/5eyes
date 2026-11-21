@@ -286,6 +286,8 @@ def get_current_user(
                         "aktiv -- bitte zuerst unter /auth/2fa/setup einrichten."),
             )
     _enforce_compliance_reviewer_scope(user, request)
+    _enforce_readonly_scope(user, request)
+    _enforce_client_portal_scope(user, request)
     if user.role == "super_admin":
         # Super-admins are unscoped by default: RLS sees no tenant and returns
         # no tenant-owned rows unless an operator path explicitly enables bypass.
@@ -326,6 +328,10 @@ _COMPLIANCE_REVIEWER_ALLOWED: tuple[tuple[str, str], ...] = (
     # freigeben -- Erfassen (POST /compliance/owner-content) bleibt gesperrt.
     ("GET", r"/compliance/owner-content"),
     ("POST", r"/compliance/owner-content/[^/]+/approve"),
+    # ROL-05 (CTO-Entscheid H-180): Freigabe-Inbox der Vier-Augen-Publikation --
+    # nur die vorgelegten Akten (datenminimiert) und deren Freigabe.
+    ("GET", r"/publication-inbox"),
+    ("POST", r"/publication-inbox/[^/]+/approve"),
 )
 
 
@@ -395,6 +401,91 @@ def assert_compliance_reviewer_ready(user: User) -> None:
         raise DomainError(code, (
             "Dieses Freigabekonto ist nicht ueber eine Einladung mit selbst gesetztem "
             "Passwort aktiviert und darf nicht freigeben."), http_status=status.HTTP_403_FORBIDDEN)
+
+
+# ROL-04 (CTO-Entscheid H-180): ``readonly`` = firmenweite Lesesicht ohne
+# jedes Schreibrecht. Zentral gesperrt wird jede nicht lesende Methode; erlaubt
+# bleibt nur die Selbstbedienung des eigenen Kontos (Abmelden, Token, eigenes
+# Passwort, eigene 2FA). So kann keine Route -- auch keine kuenftige mit nur
+# ``get_current_user`` -- der Rolle ein Schreibrecht geben.
+READONLY_ROLE = "readonly"
+READONLY_SCOPE = "READONLY_SCOPE"
+GLOBAL_CLIENT_READ_ROLES: tuple[str, ...] = ("admin", READONLY_ROLE)
+_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+_READONLY_SELF_SERVICE_WRITES: tuple[tuple[str, str], ...] = (
+    ("POST", r"/auth/logout"),
+    ("POST", r"/auth/refresh"),
+    ("POST", r"/auth/change-password"),
+    ("POST", r"/auth/2fa/(setup|enable|disable)"),
+    ("POST", r"/auth/2fa/recovery/regenerate"),
+)
+
+
+def readonly_may_call(method: str, path: str, user_id: str | None = None) -> bool:
+    """True, wenn ``readonly`` diese Route nutzen darf: jede Lesemethode,
+    sonst nur die Selbstbedienung des eigenen Kontos."""
+    method = str(method or "GET").upper()
+    if method in _READ_METHODS:
+        return True
+    clean = (path or "").rstrip("/") or "/"
+    if clean.startswith("/api/"):
+        clean = clean[4:]
+    if user_id and method == "PUT" and clean == f"/users/{user_id}/password":
+        return True
+    return any(method == m and re.fullmatch(pattern, clean) for m, pattern in _READONLY_SELF_SERVICE_WRITES)
+
+
+# ROL-03 (CTO-Entscheid H-180): ein Kundenportal-Token (Rolle ``client``) ist
+# auf allen Mitarbeiter-Routen gesperrt (403 statt einer leeren 200-Liste).
+# Zentral hier statt je Router, damit auch kuenftige Router mit nur
+# ``get_current_user`` erfasst sind -- gleiches Muster wie die Pfad-Allowlist
+# der externen Pruefperson. Erlaubt: das Kundenportal und das eigene Konto.
+CLIENT_ROLE = "client"
+CLIENT_PORTAL_SCOPE = "CLIENT_PORTAL_SCOPE"
+_CLIENT_PORTAL_ALLOWED: tuple[tuple[str, str], ...] = (
+    ("*", r"/client-portal(/.*)?"),
+    ("GET", r"/auth/me"),
+    ("POST", r"/auth/logout"),
+    ("POST", r"/auth/refresh"),
+    ("POST", r"/auth/change-password"),
+    ("GET", r"/auth/2fa/(status|recovery/status)"),
+    ("POST", r"/auth/2fa/(setup|enable|disable|recovery/regenerate)"),
+)
+
+
+def client_portal_may_call(method: str, path: str, user_id: str | None = None) -> bool:
+    """True, wenn ein Kundenportal-Login diese Route nutzen darf."""
+    method = str(method or "GET").upper()
+    clean = (path or "").rstrip("/") or "/"
+    if clean.startswith("/api/"):
+        clean = clean[4:]
+    if user_id and method == "PUT" and clean == f"/users/{user_id}/password":
+        return True
+    return any(m in ("*", method) and re.fullmatch(pattern, clean) for m, pattern in _CLIENT_PORTAL_ALLOWED)
+
+
+def _enforce_client_portal_scope(user: User, request) -> None:
+    if getattr(user, "role", None) != CLIENT_ROLE or request is None:
+        return
+    path = getattr(getattr(request, "url", None), "path", "") or ""
+    if not client_portal_may_call(getattr(request, "method", "GET"), path, str(getattr(user, "id", "") or "")):
+        raise DomainError(
+            CLIENT_PORTAL_SCOPE,
+            "Nur fuer Mitarbeitende: ein Kundenportal-Konto hat hier keinen Zugriff.",
+            http_status=status.HTTP_403_FORBIDDEN,
+        )
+
+
+def _enforce_readonly_scope(user: User, request) -> None:
+    if getattr(user, "role", None) != READONLY_ROLE or request is None:
+        return
+    path = getattr(getattr(request, "url", None), "path", "") or ""
+    if not readonly_may_call(getattr(request, "method", "GET"), path, str(getattr(user, "id", "") or "")):
+        raise DomainError(
+            READONLY_SCOPE,
+            "Dieses Konto hat nur Lesezugriff und darf keine Daten aendern.",
+            http_status=status.HTTP_403_FORBIDDEN,
+        )
 
 
 STAFF_ROLES: tuple[str, ...] = (
@@ -631,7 +722,13 @@ def enforce_cma_cross_tenant_read_scope(current_user: User, tenant_id: Optional[
 
 
 def has_global_client_access(current_user: User) -> bool:
-    return current_user.role == "admin"
+    """Sicht auf alle Kunden der eigenen Firma (Mandantenfilter gilt weiter).
+
+    ROL-04 (CTO-Entscheid H-180): ``readonly`` ist die firmenweite Lesesicht --
+    wie der Admin, aber ohne jedes Schreibrecht. Das Schreibverbot setzt
+    ``_enforce_readonly_scope`` zentral in ``get_current_user`` durch, nicht
+    die Sichtbarkeit. ``portfolio_management`` bleibt ohne Kundensicht."""
+    return current_user.role in GLOBAL_CLIENT_READ_ROLES
 
 
 def _effective_strict_tenant_isolation(settings_obj) -> bool:

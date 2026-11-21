@@ -268,6 +268,13 @@ def test_demo_b4_advisor_client_switch_without_403_and_b1_terms(server):
     DEMO-B1: Sub-Anlageklassen aus den Daten erscheinen im Portfolio mit Umlaut (aresTerm)."""
     sync_api = _sync_api()
     admin = _Api(server["base"]).login()
+    # OWN-LIC-01 (H-187): der Bootstrap-Admin zaehlt sofort gegen max_users
+    # (Ersteinrichtung: 1). Diese Probe braucht eine Mehrbenutzer-Lizenz --
+    # TESTWERT direkt in der Wegwerf-DB, die Lizenzpflege ist nicht Gegenstand.
+    import sqlite3
+
+    with sqlite3.connect(server["db"]) as conn:
+        conn.execute("UPDATE tenants SET max_users = NULL")
     user, pwd = f"berater{time.time_ns() % 100000}", "Berater-Probe-Passwort-2026!x"
     st, body = admin("POST", "/users", {"username": user, "password": pwd, "full_name": "Berta Beraterin-Fiktiv", "role": "advisor"})
     assert st in (200, 201), body

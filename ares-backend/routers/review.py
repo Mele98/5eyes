@@ -6303,10 +6303,17 @@ def create_advice_rationale(
             "reason_code": ReasonCode.ADVICE_RATIONALE_RUN_UNKNOWN.value,
             "message": "Empfehlung nicht gefunden.",
         })
+    # L2b (H-190, DSG): Freitexte VOR dem Siegeln mit dem Kundenschluessel
+    # versiegeln (pii_vault); das Siegel bindet den Umschlag. Fuer einen nach
+    # DSG geloeschten Kunden wird nichts gespeichert (409, nie Klartext).
+    needs, reasons = body.client_needs.strip(), body.recommendation_reasons.strip()
+    try:
+        sealed_needs, sealed_reasons = _gate.seal_advice_rationale_texts(db, mandate.client_id, needs, reasons)
+    except _gate.AdviceRationaleSealError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     record = AdviceRationale(
         id=new_uuid(), tenant_id=mandate.tenant_id, mandate_id=mandate.id, client_id=mandate.client_id,
-        recommendation_run_id=run.id, client_needs=body.client_needs.strip(),
-        recommendation_reasons=body.recommendation_reasons.strip(),
+        recommendation_run_id=run.id, client_needs=sealed_needs, recommendation_reasons=sealed_reasons,
         recorded_by=current_user.id, recorded_at=_now(),
     )
     record.rationale_hash = _oc_seal(record, "rationale_hash")
@@ -6317,7 +6324,7 @@ def create_advice_rationale(
         field_name="advice_rationale_recorded", new_value=f"run {run.id}; hash {record.rationale_hash}",
         mandate_id=mandate.id, ip_address=_extract_client_ip(request))
     db.commit()
-    return {k: v for k, v in _oc_row_dict(record).items()}
+    return {**_oc_row_dict(record), "client_needs": needs, "recommendation_reasons": reasons, "sealed": True}
 
 
 @router.post("/mandates/{mandate_id}/w033-declarations", status_code=201)

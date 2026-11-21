@@ -41,15 +41,11 @@ PRODUCT_NAME = 'Ares'
 # Fremdmarken/Geruest-Texte, die in sichtbaren Datei-Eigenschaften nie stehen duerfen.
 THIRD_PARTY_MARKERS = ('openai', 'build skeleton', 'electron shell', 'github', 'microsoft')
 SELF_TEST_MARKER = 'ARES_SELF_TEST_IMPORTS '
-# Befund EXE-04 (offen, CTO): die CSP-Meta von ares.html spiegelt den HTTP-Header
-# (test_electron_csp_meta_tag.py) und enthaelt darum 'app://.' und frame-ancestors,
-# die Chromium in einer <meta>-CSP als Fehler meldet. Genau diese drei Meldungen
-# sind bekannt; jeder andere Renderer-Fehler ist rot.
-KNOWN_CSP_META_WARNINGS = (
-    "directive 'default-src' contains an invalid source: 'app://.'",
-    "directive 'script-src' contains an invalid source: 'app://.'",
-    "The Content Security Policy directive 'frame-ancestors' is ignored when delivered via a <meta> element",
-)
+# EXE-04 (behoben in H-187): die CSP-Meta von ares.html enthaelt weder 'app://.'
+# noch frame-ancestors mehr (test_electron_csp_meta_tag.py). Der Shell-Smoke laesst
+# darum KEINEN Renderer-Fehler mehr zu.
+# N-926-01 (H-187): Hinweise auf einen stillen Optimizer-Rueckfall im Backend-Log.
+DEGRADED_LOG_MARKERS = ('not importable', 'Stochastic optimizer crashed', 'House-Matrix-Default bleibt aktiv')
 MIN_OWN_MODULES = 300
 TEXT_ARCHIVE_SUFFIXES = ('.json', '.yaml', '.yml', '.sql', '.html', '.txt', '.md', '.css', '.js')
 
@@ -95,9 +91,49 @@ def check_self_test_imports(exe_copy: Path, env: dict[str, str], fail, log, time
         f'({result["own_modules"]} eigene) importierbar, inkl. Optimizer/scipy und PDF')
 
 
+# ---------------------------------------------------------------------------
+# N-935-01 Strategie-Selbsttest (ersetzt das Testpaket im Server)
+# ---------------------------------------------------------------------------
+STRATEGY_SELF_TEST_MARKER = 'ARES_SELF_TEST_STRATEGY '
+
+
+def check_self_test_strategy(exe_copy: Path, env: dict[str, str], package: Path, ic_label: str,
+                             fallback_markers: tuple[str, ...], fail, log, timeout: float = 900.0) -> None:
+    """``ares-api.exe --self-test-strategy <paket>``: eigener Prozess mit temporaerer
+    DB, ohne Server und ohne Kundendokument. Verlangt den stochastischen Optimizer
+    ohne Rueckfall und den vollen Vermerk ``ic_label`` (N-935-02)."""
+    proc = subprocess.run([str(exe_copy), '--self-test-strategy', str(package)], cwd=str(exe_copy.parent),
+                          env=env, capture_output=True, text=True, encoding='utf-8', errors='replace',
+                          timeout=timeout)
+    output = (proc.stdout or '') + '\n' + (proc.stderr or '')
+    lines = [line for line in (proc.stdout or '').splitlines() if line.startswith(STRATEGY_SELF_TEST_MARKER)]
+    if not lines:
+        fail(f'Strategie-Selbsttest ohne Ergebniszeile (Exit {proc.returncode}).\n'
+             f'--- stdout ---\n{(proc.stdout or "")[-3000:]}\n--- stderr ---\n{(proc.stderr or "")[-3000:]}')
+    result = json.loads(lines[-1][len(STRATEGY_SELF_TEST_MARKER):])
+    if not result.get('frozen'):
+        fail('Strategie-Selbsttest lief nicht im gepackten Artefakt (frozen=false).')
+    if proc.returncode != 0 or not result.get('ok'):
+        fail('Strategie-Selbsttest der gepackten EXE rot: ' + json.dumps(result, ensure_ascii=False)
+             + f'\n--- stderr ---\n{(proc.stderr or "")[-3000:]}')
+    if result.get('optimizer') != 'stochastic' or int(result.get('constraints') or 0) < 1:
+        fail('Strategie-Selbsttest: kein stochastischer Optimizer-Lauf: ' + json.dumps(result, ensure_ascii=False))
+    if result.get('ic_label') != ic_label or result.get('ic_release_status') == 'RELEASED':
+        fail(f'Strategie-Selbsttest: Vermerk {ic_label!r} fehlt: ' + json.dumps(result, ensure_ascii=False))
+    if result.get('contract_documents'):
+        fail('Strategie-Selbsttest hat Kundendokumente angelegt.')
+    hits = [m for m in tuple(fallback_markers) + DEGRADED_LOG_MARKERS if m in output]
+    if hits:
+        fail(f'Strategie-Selbsttest meldet einen Rueckfall/ein fehlendes Modul: {hits}')
+    log(f'OK N-926-01/N-935-01 Strategie-Selbsttest im Artefakt: stochastischer Optimizer '
+        f'({result.get("status")}), {result["constraints"]} Constraints, kein Rueckfall, '
+        f'Vermerk "{ic_label}", Datenbank {result.get("database")}, keine Kundendokumente')
+
+
 def assert_no_degraded_modules(logtext: str, fail) -> None:
-    if 'not importable' in logtext:
-        fail('Backend-Log meldet ein nicht importierbares Modul ("not importable").')
+    hits = [marker for marker in DEGRADED_LOG_MARKERS if marker in logtext]
+    if hits:
+        fail(f'Backend-Log meldet einen degradierten Optimizer/ein fehlendes Modul: {hits}.')
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +257,11 @@ def check_product_hygiene(exe: Path, unpacked_dir: Path, fail, log) -> None:
                 if any(m in str(packaged.get(field) or '').lower() for m in THIRD_PARTY_MARKERS):
                     fail(f'Fremdmarke/Geruesttext in app.asar:package.json {field}.')
     log(f'OK EXE-02 app.asar: {count} Dateien ohne Altnamen, Paket-Metadaten ohne Fremdmarke')
+    # EXE-09 (H-187): keine Source-Maps im ausgelieferten asar.
+    maps = [path for path, _data in _asar_entries(asar) if path.lower().endswith('.map')]
+    if maps:
+        fail(f'Source-Maps im app.asar ausgeliefert (EXE-09): {maps[:10]}')
+    log('OK EXE-09 app.asar ohne Source-Maps')
 
     # Backend-EXE: Namen aller Eintraege und Text-Dateneintraege.
     from PyInstaller.archive.readers import CArchiveReader
@@ -286,8 +327,9 @@ def run_shell_smoke(unpacked_dir: Path, *, isolated_env, free_port, http_get, po
     proc = None
     try:
         env = isolated_env(root, port, root / 'data' / 'shell.db')
-        # Wie ein Benutzerstart: kein erzwungenes APP_ENV/DB-Verschluesselungs-Flag.
-        for key in ('APP_ENV', 'DB_USE_SQLCIPHER', 'TENANT_MASTER_KEK_FILE'):
+        # Wie ein Benutzerstart: kein erzwungenes APP_ENV/DB-Verschluesselungs-Flag;
+        # die Ablageorte (KEK, Datenbankschluessel) setzt die Shell selbst.
+        for key in ('APP_ENV', 'DB_USE_SQLCIPHER', 'TENANT_MASTER_KEK_FILE', 'DB_KEY_FILE'):
             env.pop(key, None)
         log(f'Starte Shell {shell.name} isoliert (userData={user_data}, Port {port})')
         proc = subprocess.Popen([str(shell), f'--user-data-dir={user_data}'], cwd=str(root), env=env,
@@ -332,13 +374,12 @@ def run_shell_smoke(unpacked_dir: Path, *, isolated_env, free_port, http_get, po
         if port_open(port):
             fail(f'Backend-Port {port} nach dem Beenden weiterhin belegt.')
         text = electron_log.read_text(encoding='utf-8', errors='replace')
-        renderer_errors = [line for line in text.splitlines()
-                           if 'Renderer error' in line and not any(m in line for m in KNOWN_CSP_META_WARNINGS)]
+        renderer_errors = [line for line in text.splitlines() if 'Renderer error' in line]
         if renderer_errors:
             fail('Renderer-Fehler beim Start:\n' + '\n'.join(renderer_errors[:20]))
         if 'Terminating managed backend process' not in text and 'Backend process exited' not in text:
             fail('Shell hat das Backend beim Beenden nicht sichtbar gestoppt (electron.log).')
-        for name in ('tenant-master-kek.dpapi',):
+        for name in ('tenant-master-kek.dpapi', 'db-key.dpapi'):
             if not (user_data / name).is_file():
                 fail(f'Shell: {name} nicht im isolierten userData-Ordner angelegt (Profil-Umlenkung unwirksam?).')
         log('OK EXE-05 Shell: Fenster ohne Renderer-Fehler, WM_CLOSE beendet Shell und Backend, '

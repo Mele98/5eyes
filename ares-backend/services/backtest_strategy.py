@@ -31,6 +31,7 @@ Pipeline) — dieselbe Endpoint-Signatur, dann nur intern andere Datenquelle.
 from __future__ import annotations
 
 import math
+import sys
 from bisect import bisect_right
 from typing import Any, Iterable, Mapping
 
@@ -39,6 +40,7 @@ from sqlalchemy.orm import Session
 from datetime import date as Date
 
 from core.reason_codes import DomainError, ReasonCode
+from core.risk_parameter_set import ReferenceDataPackageMissing
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
 from models.snapshots import AssetClassAnnualReturn, AssetClassFxHistory, AssetClassPriceHistory
@@ -72,7 +74,9 @@ BUCKET_LABELS_DE = {
 # ---------------------------------------------------------------------------
 
 
-def load_annual_returns_matrix(db: Session) -> dict[int, dict[str, int]]:
+def load_annual_returns_matrix(
+    db: Session, *, production_mode: bool | None = None,
+) -> dict[int, dict[str, int]]:
     """Lädt die annual_returns-Tabelle und liefert {year: {bucket_en: bps}}.
 
     Nur Jahre, in denen ALLE 5 Asset-Klassen gepflegt sind, werden
@@ -100,11 +104,25 @@ def load_annual_returns_matrix(db: Session) -> dict[int, dict[str, int]]:
             continue
         by_year.setdefault(year, {})[bucket_en] = bps
     # Filter: nur vollständige Jahre (alle 5 Buckets vorhanden)
-    return {
+    complete = {
         y: m
         for y, m in by_year.items()
         if all(b in m for b in BUCKETS)
     }
+    # N-935-05 (H-187): in Produktion bzw. der gepackten EXE gibt es kein
+    # Start-Seeding der Jahresrenditen; ohne freigegebene Daten typisierte
+    # Ablehnung (REFERENCE_DATA_PACKAGE_MISSING, 409) statt eines leeren Backtests.
+    # ``production_mode`` reicht der Aufrufer herein (``settings.production_mode``);
+    # ohne Angabe gilt die gepackte EXE (``sys.frozen``) immer als Produktion.
+    if production_mode is None:
+        production_mode = bool(getattr(sys, "frozen", False))
+    if not complete and production_mode:
+        raise ReferenceDataPackageMissing(
+            "Es fehlen freigegebene historische Jahresrenditen (Backtest). Die installierte "
+            "Version legt keine Referenzdaten automatisch an; sie kommen nur aus einem "
+            "freigegebenen Paket."
+        )
+    return complete
 
 
 # ---------------------------------------------------------------------------
@@ -1139,6 +1157,7 @@ def _run_strategy_backtest(
     benchmark_fee_bps: int | None = None,
     benchmark_sub_weights_bps: Mapping[str, int] | None = None,
     projection_gate: Any = None,
+    production_mode: bool | None = None,
 ) -> dict:
     """Master-Service: führt den SOLL-Strategie-Backtest für das Mandat aus.
 
@@ -1262,7 +1281,7 @@ def _run_strategy_backtest(
     # und liefern einen parallelen benchmark-Block. Die SOLL-Strategie bleibt
     # auf Top-Level (5 Buckets), weil TargetAllocation aktuell nur Top-Level-
     # Gewichte kennt. Sub-Asset-SOLL ist eine spaetere Sprint-Erweiterung.
-    matrix = load_annual_returns_matrix(db)
+    matrix = load_annual_returns_matrix(db, production_mode=production_mode)
     available_years_all = sorted(matrix.keys())
     if not available_years_all:
         return {
@@ -1385,6 +1404,7 @@ def run_strategy_backtest(
     benchmark_fee_bps: int | None = None,
     benchmark_sub_weights_bps: Mapping[str, int] | None = None,
     projection_gate: Any = None,
+    production_mode: bool | None = None,
 ) -> dict:
     """Oeffentlicher Einstieg; siehe ``_run_strategy_backtest``.
 
@@ -1401,6 +1421,7 @@ def run_strategy_backtest(
         benchmark_fee_bps=benchmark_fee_bps,
         benchmark_sub_weights_bps=benchmark_sub_weights_bps,
         projection_gate=projection_gate,
+        production_mode=production_mode,
     )
     if projection_gate is not None:
         result["projection_gate"] = projection_gate.to_payload()

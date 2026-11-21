@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import KekStoreError, build_sha, effective_version, ensure_tenant_master_kek, refuse_owner_db_settings, require_tenant_master_kek, settings
+from config import KekStoreError, PackagedDatabaseError, build_sha, effective_version, ensure_tenant_master_kek, refuse_owner_db_settings, require_packaged_database, require_tenant_master_kek, settings
 from core.logging_setup import configure_logging
 from core.middleware import (
     MaxBodySizeMiddleware,
@@ -97,6 +97,15 @@ async def lifespan(app: FastAPI):
         settings.price_scheduler_enabled,
         settings.db_use_sqlcipher,
     )
+    # EXE-P (H-187): die gepackte EXE startet nur mit SQLCipher und Schluessel
+    # aus der DPAPI-Ablage (config.ensure_packaged_db_key, beim Import von
+    # config angewendet) -- sonst klarer Startfehler, nie eine Klartext-DB.
+    try:
+        db_key_outcome = require_packaged_database(settings)
+    except PackagedDatabaseError as exc:
+        logger.critical('Start abgebrochen: %s', exc)
+        raise
+    logger.info('Datenbankschluessel (gepackte EXE): %s', db_key_outcome)
     # RB-1: Master-KEK vor init_db bereitstellen -- aus der DPAPI-Ablage laden
     # oder beim Erststart (noch keine Datenbank) erzeugen und ablegen. Aktiv
     # nur, wenn die Desktop-Shell TENANT_MASTER_KEK_FILE setzt. Geloggt wird
@@ -340,4 +349,10 @@ if __name__ == '__main__':
         import importlib  # dynamisch: kein Laufzeit-Import im Produktpfad (PyInstaller: hidden-import)
 
         sys.exit(importlib.import_module('packaging_selftest').main())
+    # N-935-01 (H-187 Fixrunde 1): Strategie-Selbsttest fuer den Packaging-Smoke;
+    # eigener Prozess mit temporaerer DB, kein Server, kein Kundendokument.
+    if '--self-test-strategy' in sys.argv[1:]:
+        import importlib  # dynamisch, wie oben (PyInstaller: hidden-import)
+
+        sys.exit(importlib.import_module('packaging_selftest_strategy').main())
     run()
