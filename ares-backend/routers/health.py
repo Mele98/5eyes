@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from database import SchemaNotReadyError, database_healthcheck, get_db
+from core.build_info import build_sha, effective_version
 from price_updater import get_price_runtime_status
 
 router = APIRouter(prefix="/health", tags=["Health"])
@@ -30,7 +31,9 @@ router = APIRouter(prefix="/health", tags=["Health"])
 def _base_payload() -> dict:
     return {
         "app": settings.app_name,
-        "version": settings.app_version,
+        # H-180 (EXE-03): in der gepackten EXE Version/Build-SHA des Artefakts.
+        "version": effective_version(settings.app_version),
+        "build_sha": build_sha(),
         "environment": settings.app_env,
         "host": settings.app_host,
         "port": settings.app_port,

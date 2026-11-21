@@ -12,7 +12,10 @@
      nodeIntegration:false (main.js) mindern das Risiko bereits stark, aber
      eine CSP ist zusaetzliche Tiefenverteidigung gegen injizierte Skripte.
      Policy 1:1 gespiegelt von core/middleware.py::DEFAULT_CSP_POLICY. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' app://. null; script-src 'self' 'unsafe-inline' app://. null; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; font-src 'self' data:; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'self'">
+<!-- H-180 (EXE-04): ohne 'app://.' (in Chromium ungueltige Quelle) und ohne
+     frame-ancestors (in <meta> wirkungslos); beides erzeugte bei jedem Start
+     Konsolenfehler. Der HTTP-Header (core/middleware.py) bleibt unveraendert. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' null; script-src 'self' 'unsafe-inline' null; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; font-src 'self' data:; form-action 'self'; object-src 'none'; base-uri 'self'">
 <title>Ares</title>
 <style>/* Vendored: system fonts replace Google Fonts (DM Sans + EB Garamond) */
 :root{--f-s:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--f-d:Georgia,"Times New Roman",serif;}
@@ -21,6 +24,7 @@ body{font-family:var(--f-s);}</style>
 <script src="vendor/chart.min.js"></script>
 <script src="./eligibility-overrides.js"></script>
 <script src="./desktop-api.js"></script>
+<script src="./build-info.js"></script>
 <script src="./trade-list-preview.js"></script>
 <script src="./goal-analysis-integrity.js"></script>
 <script src="./advisory-log-finma.js"></script><script src="./product-master-data.js"></script><script src="./presentation-rounding.js"></script>
@@ -198,6 +202,7 @@ body{font-family:var(--f-s);}</style>
       <div>
         <div style="font-size:15px;font-weight:600;color:var(--n8)">Ares</div>
         <div style="font-size:10px;color:var(--g3);letter-spacing:0.1em;text-transform:uppercase;">Advisory OS</div>
+        <div id="ares-build-info" style="font-size:10px;color:var(--g3);margin-top:2px;"></div>
       </div>
     </div>
     <div id="login-panel">

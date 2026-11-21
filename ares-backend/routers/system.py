@@ -939,9 +939,13 @@ def get_market_data_purge_history(
 def purge_market_data_cache_now(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_advisor),
+    current_user: User = Depends(require_admin_or_platform_scope_for_global_reference_data),
 ):
-    """Manual recovery trigger for the health-aware market-data cache purge."""
+    """Manual recovery trigger for the health-aware market-data cache purge.
+
+    H-180 (ROL-03): der Marktdaten-Cache ist global (alle Mandanten). Wie die
+    uebrigen Marktdaten-Ops-Trigger nur Admin (Tier 1) bzw. Plattform-Rolle;
+    vorher durfte jede Beraterin den globalen Cache leeren."""
     from services.market_data.cache_purge import run_daily_cache_purge
 
     result = run_daily_cache_purge(db)

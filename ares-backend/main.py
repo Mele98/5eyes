@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from config import KekStoreError, ensure_tenant_master_kek, refuse_owner_db_settings, require_tenant_master_kek, settings
+from core.build_info import build_sha, effective_version
 from core.logging_setup import configure_logging
 from core.middleware import (
     MaxBodySizeMiddleware,
@@ -311,7 +312,8 @@ def health():
     return {
         "status": "ok",
         "app": settings.app_name,
-        "version": settings.app_version,
+        "version": effective_version(settings.app_version),
+        "build_sha": build_sha(),
         "environment": settings.app_env,
         "host": settings.app_host,
         "port": settings.app_port,
@@ -333,4 +335,9 @@ def run() -> None:
 
 
 if __name__ == '__main__':
+    # H-180 (EXE-01): Import-Selbsttest des gepackten Artefakts fuer den
+    # Packaging-Smoke; startet keinen Server und oeffnet keine Datenbank.
+    if '--self-test-imports' in sys.argv[1:]:
+        from packaging_selftest import main as _self_test_imports
+        sys.exit(_self_test_imports())
     run()
