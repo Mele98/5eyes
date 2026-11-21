@@ -54,6 +54,22 @@ from services.optimizer.goal_liabilities import (
     _resolve_target_year_index,
     goal_to_liability,
 )
+from services.valuation_clock import bound_valuation_date
+
+
+# Fester Bewertungsstichtag ("heute") fuer diese Datei. Die Daten unten sind
+# feste Kalenderdaten ab Januar 2026; die Engine bezieht "heute" nur ueber
+# ``services.valuation_clock`` (ausserhalb eines Laufs die Wanduhr). Mit der
+# Wanduhr waeren ab dem Jahreswechsel 2026/27 die Raten von 2026 nicht mehr
+# im Horizont gewesen (Bucket-Index negativ): sechs der neun Tests waeren am
+# 2027-01-01 rot geworden (nachgestellt mit simulierter Wanduhr 2027-01-15).
+AS_OF = _date(2026, 1, 1)
+
+
+@pytest.fixture(autouse=True)
+def _fixed_valuation_date():
+    with bound_valuation_date(AS_OF):
+        yield
 
 
 # GEFIXT am 2026-10-11 (ADR-2c): _outflow_duration_years ist entfernt. Die
@@ -65,11 +81,11 @@ from services.optimizer.goal_liabilities import (
 def _bucket_of(calendar_year: int) -> int:
     """0-based Bucket-Index eines Kalenderjahres auf der Engine-Achse.
 
-    Bucket 0 ist das LAUFENDE Kalenderjahr (ADR-2). Diese Datei benutzt
-    feste Kalenderdaten, deshalb wird der Index abgeleitet und nicht
-    hartcodiert -- sonst wuerde sie beim Jahreswechsel still falsch werden.
+    Bucket 0 ist das Kalenderjahr des Stichtags (ADR-2). Diese Datei
+    benutzt feste Kalenderdaten und einen festen Stichtag (``AS_OF``), der
+    Index wird daraus abgeleitet.
     """
-    return int(calendar_year) - _date.today().year
+    return int(calendar_year) - AS_OF.year
 
 
 def _make_goal(
@@ -288,7 +304,7 @@ def test_resolve_target_year_index_keeps_month_end_anchor_fixed_across_years():
         start_date="2026-01-31",
         target_date="2031-01-30",
     )
-    # anchor liegt (weit) in der Vergangenheit relativ zu "heute" bei
-    # Testausfuehrung -> clamped auf den Minimalwert 1.
+    # Der Anker (Start 31.1.2026) liegt im Kalenderjahr des Stichtags
+    # (Bucket 1) -> Minimalwert 1.
     target_year = _resolve_target_year_index(goal, horizon_years=10)
     assert target_year == 1

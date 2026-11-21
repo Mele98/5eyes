@@ -67,13 +67,13 @@ def test_renders_table_with_5_metric_rows():
 
 def test_empty_payload_renders_section_header_without_crash():
     """Sprint-Update: bei leerem Payload rendert die Sektion weiterhin den
-    Section-Header (Sektion 18 / Policy-A/B-Vergleich), bricht aber nicht ab
+    Section-Header (Sektion 18 / Strategievergleich A/B), bricht aber nicht ab
     und crasht nicht (policy_a/policy_b werden zu {} defaulted)."""
     out = _build_ab_backtest_flowables({}, _styles())
     assert out  # nicht leer — Header wird gerendert
     header_text = " | ".join(getattr(f, "text", "") for f in out)
     assert "Sektion 18" in header_text
-    assert "Policy-A/B-Vergleich" in header_text
+    assert "Strategievergleich A/B" in header_text
 
 
 def test_policy_names_in_metrics_table_header():
@@ -96,12 +96,12 @@ def test_policy_names_in_metrics_table_header():
 
 
 def test_section_kicker_and_title():
-    """Sprint-Update: Kicker ist 'Sektion 18', Titel 'Policy-A/B-Vergleich'."""
+    """Kicker 'Sektion 18', Titel 'Strategievergleich A/B' (KN5: Kundentext)."""
     flowables = _build_ab_backtest_flowables(_sample_ab_payload(), _styles())
     kicker = getattr(flowables[0], "text", "")
     title = getattr(flowables[1], "text", "")
     assert "Sektion 18" in kicker
-    assert "Policy-A/B-Vergleich" in title
+    assert "Strategievergleich A/B" in title
 
 
 def test_table_includes_all_metric_labels():

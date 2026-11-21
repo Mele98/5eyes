@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS users (
     full_name           TEXT NOT NULL,
     email               TEXT COLLATE NOCASE,
     role                TEXT NOT NULL DEFAULT 'advisor'
-                        CHECK(role IN ('admin', 'advisor', 'readonly', 'super_admin', 'portfolio_management', 'client')),
+                        CHECK(role IN ('admin', 'advisor', 'readonly', 'super_admin', 'portfolio_management', 'client', 'compliance_reviewer')),
     is_active           INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
     last_login_at       TEXT,
     created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -156,7 +156,14 @@ CREATE TABLE IF NOT EXISTS client_opt_history (
                             'Opt-out zu Privatkunde',
                             'Opt-in zu Professionell',
                             'Qualifizierter Anleger bestätigt',
-                            'Klassifizierung überprüft')),
+                            'Klassifizierung überprüft',
+                            -- N-890-13 (H8): Bezeichnungen gemaess FIDLEG; die
+                            -- beiden vertauschten Altwerte oben bleiben nur fuer
+                            -- Bestandszeilen gueltig (API nimmt sie nicht mehr an).
+                            'Opting-out zu Professionell',
+                            'Opting-out zu Institutionell',
+                            'Opting-in zu Privatkunde',
+                            'Opting-in zu Professionell')),
     from_classification TEXT NOT NULL,
     to_classification   TEXT NOT NULL,
     client_requested    INTEGER NOT NULL DEFAULT 1 CHECK(client_requested IN (0,1)),
@@ -582,6 +589,52 @@ BEGIN SELECT RAISE(ABORT, 'risk_capacity_plausibility_evaluations is immutable')
 CREATE TRIGGER IF NOT EXISTS trg_risk_capacity_plausibility_evaluations_no_delete
 BEFORE DELETE ON risk_capacity_plausibility_evaluations FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'risk_capacity_plausibility_evaluations is immutable'); END;
+
+-- ===========================================================================
+-- E1 Nachhaltigkeitspraeferenzen (Dok. 106, 2026-11-07):
+-- InvestmentPreferenceDecisionV1 -- append-only Versionen je Mandat
+-- (database.py::INVESTMENT_PREFERENCE_DECISION_SQLITE_TABLE_DDL, textgleich).
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS investment_preference_decisions (
+    id                        TEXT PRIMARY KEY,
+    schema_version            TEXT NOT NULL DEFAULT 'InvestmentPreferenceDecisionV1',
+    tenant_id                 TEXT,
+    mandate_id                TEXT NOT NULL,
+    client_id                 TEXT,
+    sequence_no               INTEGER NOT NULL CHECK(sequence_no >= 1),
+    supersedes_id             TEXT,
+    questionnaire_version     TEXT NOT NULL,
+    definition_hash           TEXT NOT NULL,
+    derivation_version        TEXT NOT NULL,
+    response_status           TEXT NOT NULL CHECK(response_status IN ('answered','declined')),
+    esg_relevance             TEXT CHECK(esg_relevance IS NULL OR esg_relevance IN ('yes','not_relevant')),
+    esg_characteristic        TEXT CHECK(esg_characteristic IS NULL OR esg_characteristic IN ('sdg_alignment','esg_factors','no_specific')),
+    exclusions_json           TEXT NOT NULL,
+    preference_waived         INTEGER NOT NULL CHECK(preference_waived IN (0,1)),
+    waiver_reason_sealed      TEXT,
+    profile_code              TEXT NOT NULL CHECK(profile_code IN ('no_preference','sdg_goals','esg_factors','unspecified','declined')),
+    information_acknowledged  INTEGER NOT NULL CHECK(information_acknowledged IN (0,1)),
+    client_confirmed          INTEGER NOT NULL CHECK(client_confirmed IN (0,1)),
+    capture_channel           TEXT NOT NULL CHECK(capture_channel IN ('in_person','phone','video','written')),
+    mandate_type_at_capture   TEXT,
+    review_policy_version     TEXT NOT NULL,
+    review_policy_months      INTEGER NOT NULL,
+    review_due_on             TEXT NOT NULL,
+    captured_by               TEXT NOT NULL REFERENCES users(id),
+    captured_at               TEXT NOT NULL,
+    decision_hash             TEXT NOT NULL,
+    created_at                TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_investment_preference_decisions_sequence
+    ON investment_preference_decisions(mandate_id, sequence_no);
+CREATE INDEX IF NOT EXISTS ix_investment_preference_decisions_tenant_id
+    ON investment_preference_decisions(tenant_id);
+CREATE TRIGGER IF NOT EXISTS trg_investment_preference_decisions_no_update
+BEFORE UPDATE ON investment_preference_decisions FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'investment_preference_decisions is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_investment_preference_decisions_no_delete
+BEFORE DELETE ON investment_preference_decisions FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'investment_preference_decisions is immutable'); END;
 
 -- ===========================================================================
 -- RISK-PROFILE-SIGNOFF-001 (Codex-Closure-Review zu PR #657, 2026-10-20):
@@ -1052,6 +1105,7 @@ CREATE TABLE IF NOT EXISTS wealth_positions (
     is_available_for_goal_funding INTEGER NOT NULL DEFAULT 0 CHECK(is_available_for_goal_funding IN (0,1)),
     goal_funding_method         TEXT CHECK(goal_funding_method IN (
                                 'Verkauf','Belehnung','Ignorieren','Automatisch')),
+    property_gate_review_json   TEXT,
     notes                       TEXT,
     is_active                   INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
     created_at                  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -1263,6 +1317,8 @@ CREATE TABLE IF NOT EXISTS optimizer_policies (
     created_by              TEXT NOT NULL REFERENCES users(id) ON UPDATE CASCADE,
     created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ic_release_ref          TEXT,
+    ic_released_at          TEXT,
     CHECK(valid_to IS NULL OR valid_to >= valid_from)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_optimizer_one_current
@@ -1469,7 +1525,10 @@ CREATE TABLE IF NOT EXISTS contract_documents (
                         -- 2026-10-09): Standalone-Kostenausweis wird jetzt
                         -- render-once/archive-once via archive_generated_pdf()
                         -- archiviert, siehe schemas/review.py::ContractDocumentCreate.
-                        'Kostenausweis')),
+                        'Kostenausweis',
+                        -- H8 C-2 (2026-11-07): Kundeninformation Art. 8/9 FIDLEG,
+                        -- archiviert via archive_generated_pdf() (Abgabenachweis).
+                        'Kundeninformation')),
     title           TEXT NOT NULL,
     content_json    TEXT CHECK(content_json IS NULL OR json_valid(content_json)),
     pdf_path        TEXT,
@@ -1625,6 +1684,9 @@ CREATE TABLE IF NOT EXISTS recommendation_runs (
     weighting_regime            TEXT CHECK(weighting_regime IN ('Equal-Weight','Ranked-Weight','Custom')),
     fee_assumptions_json        TEXT CHECK(fee_assumptions_json IS NULL OR json_valid(fee_assumptions_json)),
     other_assets_included       INTEGER NOT NULL DEFAULT 0 CHECK(other_assets_included IN (0,1)),
+    product_evidence_snapshot_id TEXT REFERENCES product_evidence_snapshots(id),
+    product_evidence_hash       TEXT,
+    product_evidence_status     TEXT,
     result_status               TEXT NOT NULL DEFAULT 'Draft'
                                 CHECK(result_status IN ('Draft','Final','Rejected','Superseded')),
     created_by                  TEXT NOT NULL REFERENCES users(id) ON UPDATE CASCADE,
@@ -1652,6 +1714,77 @@ CREATE TABLE IF NOT EXISTS recommendation_positions (
 );
 CREATE INDEX IF NOT EXISTS idx_rec_positions_run ON recommendation_positions(run_id);
 CREATE INDEX IF NOT EXISTS idx_rec_positions_product ON recommendation_positions(product_id);
+
+-- C-COMP-02: granulare, nach Freigabe unveraenderliche Produktevidenz und
+-- unveraenderlicher Snapshot je Empfehlungslauf. Gleiche Spalten/Checks wie
+-- ORM und Alembic 9f4c2a7e1b63.
+CREATE TABLE IF NOT EXISTS product_evidence_items (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT REFERENCES tenants(id),
+    product_id TEXT NOT NULL REFERENCES products(id),
+    stable_instrument_id TEXT NOT NULL,
+    share_class_id TEXT,
+    jurisdiction TEXT NOT NULL,
+    evidence_kind TEXT NOT NULL CHECK(evidence_kind IN ('instrument_identity','kid','costs','retrocession','suitability','liquidity','currency','sustainability','price_source')),
+    source_type TEXT NOT NULL,
+    source_reference TEXT NOT NULL,
+    source_document_title TEXT NOT NULL,
+    source_document_version TEXT,
+    source_document_date TEXT,
+    retrieved_at TEXT NOT NULL,
+    source_document_sha256 TEXT NOT NULL,
+    canonical_payload_json TEXT NOT NULL,
+    canonical_payload_hash TEXT NOT NULL,
+    as_of TEXT NOT NULL,
+    valid_from TEXT NOT NULL,
+    valid_until TEXT,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','approved','retired','revoked')),
+    note TEXT,
+    created_by TEXT NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL,
+    approved_by TEXT REFERENCES users(id),
+    approved_at TEXT,
+    approval_mode TEXT,
+    supersedes_id TEXT REFERENCES product_evidence_items(id),
+    retired_or_revoked_by TEXT REFERENCES users(id),
+    retired_or_revoked_at TEXT,
+    reason_code TEXT,
+    updated_at TEXT NOT NULL,
+    CHECK(valid_until IS NULL OR valid_until >= valid_from),
+    CHECK(length(source_document_sha256) = 64 AND length(canonical_payload_hash) = 64),
+    CHECK(approved_by IS NULL OR approved_by <> created_by OR approval_mode = 'single_approver_attested')
+);
+CREATE INDEX IF NOT EXISTS ix_product_evidence_item_lookup ON product_evidence_items(product_id, tenant_id, jurisdiction, evidence_kind, status);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_product_evidence_item_active_tenant ON product_evidence_items(product_id, share_class_id, tenant_id, jurisdiction, evidence_kind, as_of) WHERE tenant_id IS NOT NULL AND status = 'approved';
+CREATE UNIQUE INDEX IF NOT EXISTS ux_product_evidence_item_active_global ON product_evidence_items(product_id, share_class_id, jurisdiction, evidence_kind, as_of) WHERE tenant_id IS NULL AND status = 'approved';
+CREATE TRIGGER IF NOT EXISTS trg_product_evidence_immutable_update BEFORE UPDATE ON product_evidence_items FOR EACH ROW WHEN OLD.status <> 'draft' AND NOT (OLD.status = 'approved' AND NEW.status IN ('retired','revoked') AND NEW.id IS OLD.id AND NEW.tenant_id IS OLD.tenant_id AND NEW.product_id IS OLD.product_id AND NEW.stable_instrument_id IS OLD.stable_instrument_id AND NEW.share_class_id IS OLD.share_class_id AND NEW.jurisdiction IS OLD.jurisdiction AND NEW.evidence_kind IS OLD.evidence_kind AND NEW.source_type IS OLD.source_type AND NEW.source_reference IS OLD.source_reference AND NEW.source_document_title IS OLD.source_document_title AND NEW.source_document_version IS OLD.source_document_version AND NEW.source_document_date IS OLD.source_document_date AND NEW.retrieved_at IS OLD.retrieved_at AND NEW.source_document_sha256 IS OLD.source_document_sha256 AND NEW.canonical_payload_json IS OLD.canonical_payload_json AND NEW.canonical_payload_hash IS OLD.canonical_payload_hash AND NEW.as_of IS OLD.as_of AND NEW.valid_from IS OLD.valid_from AND NEW.valid_until IS OLD.valid_until AND NEW.note IS OLD.note AND NEW.created_by IS OLD.created_by AND NEW.created_at IS OLD.created_at AND NEW.approved_by IS OLD.approved_by AND NEW.approved_at IS OLD.approved_at AND NEW.approval_mode IS OLD.approval_mode AND NEW.supersedes_id IS OLD.supersedes_id) BEGIN SELECT RAISE(ABORT, 'product_evidence_items: freigegebener Nachweis ist unveränderlich'); END;
+CREATE TRIGGER IF NOT EXISTS trg_product_evidence_immutable_delete BEFORE DELETE ON product_evidence_items FOR EACH ROW WHEN OLD.status <> 'draft' BEGIN SELECT RAISE(ABORT, 'product_evidence_items: freigegebener Nachweis ist unveränderlich'); END;
+
+CREATE TABLE IF NOT EXISTS product_evidence_snapshots (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id TEXT NOT NULL REFERENCES mandates(id),
+    recommendation_run_id TEXT NOT NULL REFERENCES recommendation_runs(id),
+    product_ids_json TEXT NOT NULL,
+    item_ids_json TEXT NOT NULL,
+    item_hashes_json TEXT NOT NULL,
+    eligibility_snapshot_id TEXT,
+    cost_snapshot_id TEXT,
+    conflict_snapshot_id TEXT,
+    as_of TEXT NOT NULL,
+    evaluated_at TEXT NOT NULL,
+    expires_at TEXT,
+    status TEXT NOT NULL CHECK(status IN ('verified','missing','stale','conflict','revoked','hash_mismatch')),
+    reason_codes_json TEXT NOT NULL DEFAULT '[]',
+    canonical_payload_json TEXT NOT NULL,
+    product_evidence_hash TEXT NOT NULL UNIQUE,
+    schema_version TEXT NOT NULL DEFAULT 'ares-product-evidence/v1',
+    evaluator_version TEXT NOT NULL DEFAULT 'ares-product-evidence/1',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_product_evidence_snapshot_run ON product_evidence_snapshots(recommendation_run_id);
+CREATE TRIGGER IF NOT EXISTS trg_product_evidence_snapshot_immutable_update BEFORE UPDATE ON product_evidence_snapshots FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'product_evidence_snapshots: Snapshot ist unveränderlich'); END;
+CREATE TRIGGER IF NOT EXISTS trg_product_evidence_snapshot_immutable_delete BEFORE DELETE ON product_evidence_snapshots FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'product_evidence_snapshots: Snapshot ist unveränderlich'); END;
 
 -- ============================================================
 -- 21. REPORT ARCHIV
@@ -1702,7 +1835,11 @@ CREATE TABLE IF NOT EXISTS audit_log (
         'INVITE_ACCEPT','INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
         'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
         'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
-        'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT'
+        'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT','COMPROMISE','INSERT','lifecycle_decision'
+        -- C-890-01 N-897-15: 'COMPROMISE' (Widerruf wegen Kompromittierung),
+        -- 'INSERT' (Eignungs-Override, routers/eligibility_overrides.py) und
+        -- 'lifecycle_decision' (Zielstatus, services/goal_lifecycle_transitions.py)
+        -- -- beide letzteren scheiterten bisher auf echten Installationen.
         -- DSG Art. 32 (2026-08-15): 'CLIENT_ERASE' hinzugefuegt fuer
         -- POST /clients/{id}/erase (services/client_erasure.py).
     )),
@@ -1762,7 +1899,7 @@ CREATE TABLE IF NOT EXISTS system_config (
 );
 
 INSERT OR IGNORE INTO system_config (key, value, description, updated_at, updated_by) VALUES
-('version',                '4.0.0',    '5Eyes App Version',                                              strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
+('version',                '4.0.0',    'Ares App Version',                                               strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
 ('schema_version',         '4.0.0',    'Datenbankschema Version',                                        strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
 ('default_currency',       'CHF',      'Standard-Währung',                                               strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
 ('default_language',       'DE',       'Standard-Sprache',                                               strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
@@ -1985,3 +2122,335 @@ BEGIN SELECT RAISE(ABORT, 'cma_policy_approvals is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_cma_policy_approvals_no_delete
 BEFORE DELETE ON cma_policy_approvals FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'cma_policy_approvals is immutable'); END;
+
+
+-- CCX-P1 Snapshot und Hash (Vertrag 2026-11-13 §4): textgleich mit
+-- database.py ADVISORY_ENVELOPE_SQLITE_TABLE_DDL / _TRIGGERS.
+CREATE TABLE IF NOT EXISTS advisory_decision_envelopes (
+    id                      TEXT PRIMARY KEY,
+    tenant_id               TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id              TEXT NOT NULL,
+    schema_version          TEXT NOT NULL DEFAULT 'ares/advisory-envelope/1'
+                            CHECK(schema_version = 'ares/advisory-envelope/1'),
+    status                  TEXT NOT NULL DEFAULT 'DRAFT'
+                            CHECK(status IN ('DRAFT','SEALED','SUPERSEDED')),
+    locale                  TEXT NOT NULL,
+    base_currency           TEXT NOT NULL,
+    canonical_payload_json  TEXT,
+    envelope_hash           TEXT CHECK(envelope_hash IS NULL OR length(envelope_hash) = 64),
+    predecessor_id          TEXT,
+    created_at              TEXT NOT NULL,
+    created_by              TEXT NOT NULL REFERENCES users(id),
+    sealed_at               TEXT,
+    sealed_by               TEXT REFERENCES users(id),
+    optimistic_version      INTEGER NOT NULL DEFAULT 1 CHECK(optimistic_version >= 1),
+    freshness_status        TEXT NOT NULL DEFAULT 'UNKNOWN' CHECK(freshness_status IN ('FRESH','STALE','UNKNOWN')),
+    stale_at                TEXT,
+    stale_reason_code       TEXT,
+    CONSTRAINT ck_advisory_decision_envelopes_sealed_complete CHECK(status = 'DRAFT' OR (
+        canonical_payload_json IS NOT NULL AND envelope_hash IS NOT NULL
+        AND sealed_at IS NOT NULL AND sealed_by IS NOT NULL)),
+    CONSTRAINT uq_advisory_decision_envelopes_tenant_hash UNIQUE (tenant_id, envelope_hash),
+    CONSTRAINT uq_advisory_decision_envelopes_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT fk_advisory_decision_envelopes_predecessor FOREIGN KEY (tenant_id, predecessor_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_advisory_decision_envelopes_tenant_id ON advisory_decision_envelopes(tenant_id);
+CREATE INDEX IF NOT EXISTS ix_advisory_decision_envelopes_mandate ON advisory_decision_envelopes(tenant_id, mandate_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_advisory_decision_envelopes_one_sealed ON advisory_decision_envelopes(tenant_id, mandate_id) WHERE status = 'SEALED';
+CREATE UNIQUE INDEX IF NOT EXISTS ux_advisory_decision_envelopes_one_successor ON advisory_decision_envelopes(predecessor_id) WHERE predecessor_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS advisory_envelope_bindings (
+    id              TEXT PRIMARY KEY,
+    tenant_id       TEXT NOT NULL,
+    envelope_id     TEXT NOT NULL,
+    binding_kind    TEXT NOT NULL,
+    object_type     TEXT NOT NULL,
+    object_id       TEXT NOT NULL,
+    object_version  INTEGER,
+    child_hash      TEXT NOT NULL CHECK(length(child_hash) = 64),
+    ordinal         INTEGER NOT NULL CHECK(ordinal >= 0),
+    created_at      TEXT NOT NULL,
+    created_by      TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_advisory_envelope_bindings_kind_ordinal UNIQUE (envelope_id, binding_kind, ordinal),
+    CONSTRAINT fk_advisory_envelope_bindings_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_advisory_envelope_bindings_tenant_id ON advisory_envelope_bindings(tenant_id);
+CREATE TABLE IF NOT EXISTS advisory_effective_input_manifests (
+    id                      TEXT PRIMARY KEY,
+    tenant_id               TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id              TEXT NOT NULL,
+    client_hash             TEXT NOT NULL,
+    mandate_hash            TEXT NOT NULL,
+    goals_hash              TEXT NOT NULL,
+    cashflows_hash          TEXT NOT NULL,
+    risk_hash               TEXT NOT NULL,
+    preference_hash         TEXT NOT NULL,
+    cma_hash                TEXT NOT NULL,
+    policy_hash             TEXT NOT NULL,
+    constraints_hash        TEXT NOT NULL,
+    holdings_hash           TEXT NOT NULL,
+    engine_version          TEXT NOT NULL,
+    random_stream_id        TEXT NOT NULL,
+    rounding_policy_version TEXT NOT NULL,
+    manifest_hash           TEXT NOT NULL CHECK(length(manifest_hash) = 64),
+    created_at              TEXT NOT NULL,
+    created_by              TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_advisory_effective_input_manifests_tenant_id UNIQUE (tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_advisory_effective_input_manifests_tenant_id ON advisory_effective_input_manifests(tenant_id);
+CREATE INDEX IF NOT EXISTS ix_advisory_effective_input_manifests_mandate ON advisory_effective_input_manifests(tenant_id, mandate_id);
+CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_insert_guard BEFORE INSERT ON advisory_decision_envelopes FOR EACH ROW WHEN NEW.status IS NOT 'DRAFT' OR NEW.optimistic_version IS NOT 1 OR NEW.canonical_payload_json IS NOT NULL OR NEW.envelope_hash IS NOT NULL OR NEW.sealed_at IS NOT NULL OR NEW.sealed_by IS NOT NULL BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes: insert only as DRAFT'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_no_replace BEFORE INSERT ON advisory_decision_envelopes FOR EACH ROW WHEN EXISTS (SELECT 1 FROM advisory_decision_envelopes e WHERE e.id = NEW.id) OR (NEW.predecessor_id IS NOT NULL AND EXISTS (SELECT 1 FROM advisory_decision_envelopes e WHERE e.predecessor_id = NEW.predecessor_id)) OR (NEW.envelope_hash IS NOT NULL AND EXISTS (SELECT 1 FROM advisory_decision_envelopes e WHERE e.tenant_id = NEW.tenant_id AND e.envelope_hash = NEW.envelope_hash)) BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes row already exists (no replace)'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_update_guard BEFORE UPDATE ON advisory_decision_envelopes FOR EACH ROW WHEN NEW.id IS NOT OLD.id OR NEW.tenant_id IS NOT OLD.tenant_id OR NEW.mandate_id IS NOT OLD.mandate_id OR NEW.schema_version IS NOT OLD.schema_version OR NEW.locale IS NOT OLD.locale OR NEW.base_currency IS NOT OLD.base_currency OR NEW.predecessor_id IS NOT OLD.predecessor_id OR NEW.created_at IS NOT OLD.created_at OR NEW.created_by IS NOT OLD.created_by OR NEW.optimistic_version IS NOT OLD.optimistic_version + 1 OR NOT ((OLD.status = 'DRAFT' AND NEW.status = 'DRAFT' AND OLD.freshness_status IN ('UNKNOWN', 'STALE') AND NEW.freshness_status IN (OLD.freshness_status, 'STALE')) OR (OLD.status = 'DRAFT' AND NEW.status = 'SEALED' AND OLD.freshness_status = 'UNKNOWN' AND NEW.freshness_status IN ('UNKNOWN', 'FRESH')) OR (OLD.status = 'SEALED' AND NEW.status IN ('SEALED', 'SUPERSEDED') AND NEW.canonical_payload_json IS OLD.canonical_payload_json AND NEW.envelope_hash IS OLD.envelope_hash AND NEW.sealed_at IS OLD.sealed_at AND NEW.sealed_by IS OLD.sealed_by AND ((NEW.status = 'SUPERSEDED' AND NEW.freshness_status IS OLD.freshness_status AND NEW.stale_at IS OLD.stale_at AND NEW.stale_reason_code IS OLD.stale_reason_code) OR (NEW.status = 'SEALED' AND NEW.freshness_status = 'STALE' AND (OLD.freshness_status IS NOT 'STALE' OR (NEW.stale_at IS OLD.stale_at AND NEW.stale_reason_code IS OLD.stale_reason_code)))))) OR (NEW.freshness_status = 'STALE' AND (NEW.stale_at IS NULL OR NEW.stale_reason_code IS NULL)) OR (NEW.freshness_status IS NOT 'STALE' AND (NEW.stale_at IS NOT NULL OR NEW.stale_reason_code IS NOT NULL)) BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes is append-only once sealed'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_seal_binding BEFORE UPDATE ON advisory_decision_envelopes FOR EACH ROW WHEN OLD.status = 'DRAFT' AND NEW.status = 'SEALED' AND NOT EXISTS (SELECT 1 FROM advisory_envelope_bindings b WHERE b.envelope_id = NEW.id AND b.binding_kind = 'effective_input_manifest') BEGIN SELECT RAISE(ABORT, 'CCX_BINDING_MISSING'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_no_delete BEFORE DELETE ON advisory_decision_envelopes FOR EACH ROW WHEN OLD.status IS NOT 'DRAFT' BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes is append-only once sealed'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_insert_guard BEFORE INSERT ON advisory_envelope_bindings FOR EACH ROW WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT 'DRAFT' BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings: envelope is not DRAFT'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_no_replace BEFORE INSERT ON advisory_envelope_bindings FOR EACH ROW WHEN EXISTS (SELECT 1 FROM advisory_envelope_bindings b WHERE b.id = NEW.id) OR EXISTS (SELECT 1 FROM advisory_envelope_bindings b WHERE b.envelope_id = NEW.envelope_id AND b.binding_kind = NEW.binding_kind AND b.ordinal = NEW.ordinal) BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings row already exists (no replace)'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_no_update BEFORE UPDATE ON advisory_envelope_bindings FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_no_delete BEFORE DELETE ON advisory_envelope_bindings FOR EACH ROW WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = OLD.envelope_id) IS NOT 'DRAFT' BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_no_replace BEFORE INSERT ON advisory_effective_input_manifests FOR EACH ROW WHEN EXISTS (SELECT 1 FROM advisory_effective_input_manifests m WHERE m.id = NEW.id) BEGIN SELECT RAISE(ABORT, 'advisory_effective_input_manifests row already exists (no replace)'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_no_update BEFORE UPDATE ON advisory_effective_input_manifests FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_effective_input_manifests is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_no_delete BEFORE DELETE ON advisory_effective_input_manifests FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_effective_input_manifests is immutable'); END;
+
+-- CCX-P2 Invalidation und Staleness (Vertrag 2026-11-13 §5): Abhaengigkeitskanten,
+-- Invalidationsereignisse und Frische-Trigger (textgleich database.py
+-- ADVISORY_FRESHNESS_SQLITE_*; PostgreSQL: Alembic CCX-P2-Revision).
+CREATE TABLE IF NOT EXISTS advisory_dependency_edges (
+    id                    TEXT PRIMARY KEY,
+    tenant_id             TEXT NOT NULL,
+    envelope_id           TEXT NOT NULL,
+    dependency_kind       TEXT NOT NULL,
+    dependency_object_id  TEXT NOT NULL,
+    dependency_version    INTEGER,
+    dependency_hash       TEXT NOT NULL CHECK(length(dependency_hash) = 64),
+    observed_at           TEXT NOT NULL,
+    created_by            TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_advisory_dependency_edges_kind_object UNIQUE (envelope_id, dependency_kind, dependency_object_id),
+    CONSTRAINT fk_advisory_dependency_edges_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_advisory_dependency_edges_tenant_id ON advisory_dependency_edges(tenant_id);
+CREATE INDEX IF NOT EXISTS ix_advisory_dependency_edges_object ON advisory_dependency_edges(dependency_kind, dependency_object_id);
+CREATE TABLE IF NOT EXISTS advisory_invalidation_events (
+    id                     TEXT PRIMARY KEY,
+    tenant_id              TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id             TEXT NOT NULL,
+    envelope_id            TEXT NOT NULL,
+    source_kind            TEXT NOT NULL,
+    source_object_id       TEXT NOT NULL,
+    old_hash               TEXT CHECK(old_hash IS NULL OR length(old_hash) = 64),
+    new_hash               TEXT CHECK(new_hash IS NULL OR length(new_hash) = 64),
+    reason_code            TEXT NOT NULL CHECK(reason_code = 'CCX_INPUT_STALE'),
+    invalidation_sequence  INTEGER NOT NULL CHECK(invalidation_sequence >= 1),
+    created_at             TEXT NOT NULL,
+    created_by             TEXT NOT NULL CHECK(length(created_by) > 0),
+    CONSTRAINT uq_advisory_invalidation_events_sequence UNIQUE (envelope_id, invalidation_sequence),
+    CONSTRAINT fk_advisory_invalidation_events_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_advisory_invalidation_events_tenant_id ON advisory_invalidation_events(tenant_id);
+CREATE INDEX IF NOT EXISTS ix_advisory_invalidation_events_mandate ON advisory_invalidation_events(tenant_id, mandate_id);
+CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_freshness_insert BEFORE INSERT ON advisory_decision_envelopes FOR EACH ROW WHEN NEW.freshness_status IS NOT 'UNKNOWN' OR NEW.stale_at IS NOT NULL OR NEW.stale_reason_code IS NOT NULL BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes: insert only as UNKNOWN'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_fresh_edges BEFORE UPDATE ON advisory_decision_envelopes FOR EACH ROW WHEN NEW.freshness_status = 'FRESH' AND OLD.freshness_status IS NOT 'FRESH' AND NOT EXISTS (SELECT 1 FROM advisory_dependency_edges d WHERE d.envelope_id = NEW.id) BEGIN SELECT RAISE(ABORT, 'CCX_FRESHNESS_UNKNOWN'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_dependency_edges_insert_guard BEFORE INSERT ON advisory_dependency_edges FOR EACH ROW WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT 'DRAFT' BEGIN SELECT RAISE(ABORT, 'advisory_dependency_edges: envelope is not DRAFT'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_dependency_edges_no_update BEFORE UPDATE ON advisory_dependency_edges FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_dependency_edges is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_dependency_edges_no_delete BEFORE DELETE ON advisory_dependency_edges FOR EACH ROW WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = OLD.envelope_id) IS NOT 'DRAFT' BEGIN SELECT RAISE(ABORT, 'advisory_dependency_edges is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_insert_mandate BEFORE INSERT ON advisory_invalidation_events FOR EACH ROW WHEN NEW.mandate_id IS NOT (SELECT e.mandate_id FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id AND e.tenant_id = NEW.tenant_id) BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_insert_stale BEFORE INSERT ON advisory_invalidation_events FOR EACH ROW WHEN (SELECT e.freshness_status FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT 'STALE' BEGIN SELECT RAISE(ABORT, 'CCX_INPUT_STALE: envelope must be stale'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_insert_sequence BEFORE INSERT ON advisory_invalidation_events FOR EACH ROW WHEN NEW.invalidation_sequence IS NOT (SELECT COALESCE(MAX(i.invalidation_sequence), 0) + 1 FROM advisory_invalidation_events i WHERE i.envelope_id = NEW.envelope_id) BEGIN SELECT RAISE(ABORT, 'CCX_INVALIDATION_RACE'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_dependency_edges_no_replace BEFORE INSERT ON advisory_dependency_edges FOR EACH ROW WHEN EXISTS (SELECT 1 FROM advisory_dependency_edges d WHERE d.id = NEW.id OR (d.envelope_id = NEW.envelope_id AND d.dependency_kind = NEW.dependency_kind AND d.dependency_object_id = NEW.dependency_object_id)) BEGIN SELECT RAISE(ABORT, 'advisory_dependency_edges row already exists (no replace)'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_no_replace BEFORE INSERT ON advisory_invalidation_events FOR EACH ROW WHEN EXISTS (SELECT 1 FROM advisory_invalidation_events i WHERE i.id = NEW.id OR (i.envelope_id = NEW.envelope_id AND i.invalidation_sequence = NEW.invalidation_sequence)) BEGIN SELECT RAISE(ABORT, 'advisory_invalidation_events row already exists (no replace)'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_no_update BEFORE UPDATE ON advisory_invalidation_events FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_invalidation_events is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_no_delete BEFORE DELETE ON advisory_invalidation_events FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_invalidation_events is append-only'); END;
+
+-- CCX-P3 Markt- und Depot-Wahrheit (Vertrag 2026-11-13 §6): textgleich mit
+-- database.py HOLDINGS_VALUATION_SQLITE_TABLE_DDL / _TRIGGERS.
+CREATE TABLE IF NOT EXISTS holdings_valuation_snapshots (
+    id                  TEXT PRIMARY KEY,
+    tenant_id           TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id          TEXT NOT NULL,
+    schema_version      TEXT NOT NULL DEFAULT 'ares/holdings-valuation/1'
+                        CHECK(schema_version = 'ares/holdings-valuation/1'),
+    as_of               TEXT NOT NULL,
+    source_observed_at  TEXT,
+    source_system       TEXT NOT NULL,
+    base_currency       TEXT NOT NULL,
+    fx_basis_hash       TEXT NOT NULL CHECK(length(fx_basis_hash) = 64),
+    fx_basis_json       TEXT NOT NULL,
+    coverage_status     TEXT NOT NULL CHECK(coverage_status IN ('COMPLETE','PARTIAL','UNKNOWN')),
+    holdings_basis      TEXT NOT NULL CHECK(holdings_basis IN ('recorded','confirmed_no_holdings')),
+    position_count      INTEGER NOT NULL CHECK(position_count >= 0),
+    total_base_minor    INTEGER,
+    advisory_base_minor INTEGER,
+    blocker_codes_json  TEXT NOT NULL,
+    manual_valuation_attested INTEGER NOT NULL DEFAULT 0 CHECK(manual_valuation_attested IN (0, 1)),
+    manual_valuation_max_age_days INTEGER,
+    snapshot_hash       TEXT NOT NULL CHECK(length(snapshot_hash) = 64),
+    created_at          TEXT NOT NULL,
+    created_by          TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT ck_holdings_valuation_snapshots_complete_total CHECK(coverage_status <> 'COMPLETE' OR (
+        total_base_minor IS NOT NULL AND advisory_base_minor IS NOT NULL AND blocker_codes_json = '[]')),
+    CONSTRAINT ck_holdings_valuation_snapshots_unknown_total CHECK(coverage_status = 'COMPLETE' OR (
+        total_base_minor IS NULL AND advisory_base_minor IS NULL AND blocker_codes_json <> '[]')),
+    CONSTRAINT ck_holdings_valuation_snapshots_no_holdings CHECK(holdings_basis = 'recorded' OR position_count = 0),
+    CONSTRAINT uq_holdings_valuation_snapshots_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT uq_holdings_valuation_snapshots_hash UNIQUE (tenant_id, mandate_id, snapshot_hash)
+);
+CREATE INDEX IF NOT EXISTS ix_holdings_valuation_snapshots_tenant_id ON holdings_valuation_snapshots(tenant_id);
+CREATE INDEX IF NOT EXISTS ix_holdings_valuation_snapshots_mandate ON holdings_valuation_snapshots(tenant_id, mandate_id, as_of);
+CREATE TABLE IF NOT EXISTS holdings_valuation_rows (
+    id                      TEXT PRIMARY KEY,
+    tenant_id               TEXT NOT NULL,
+    snapshot_id             TEXT NOT NULL,
+    position_id             TEXT NOT NULL,
+    source_kind             TEXT NOT NULL CHECK(source_kind IN ('wealth_position','depot_holding')),
+    instrument_id           TEXT,
+    assignment              TEXT,
+    quantity_decimal_string TEXT,
+    price_minor             INTEGER,
+    price_currency          TEXT,
+    source_amount_minor     INTEGER,
+    fx_rate_ppm             INTEGER,
+    fx_rate_ratio           TEXT,
+    fx_source               TEXT,
+    fx_observed_at          TEXT,
+    base_value_minor        INTEGER,
+    price_observed_at       TEXT,
+    data_quality            TEXT NOT NULL,
+    included_in_total       INTEGER NOT NULL CHECK(included_in_total IN (0, 1)),
+    row_hash                TEXT NOT NULL CHECK(length(row_hash) = 64),
+    CONSTRAINT ck_holdings_valuation_rows_ok_value CHECK(data_quality <> 'OK' OR base_value_minor IS NOT NULL),
+    CONSTRAINT uq_holdings_valuation_rows_position UNIQUE (snapshot_id, position_id),
+    CONSTRAINT fk_holdings_valuation_rows_snapshot FOREIGN KEY (tenant_id, snapshot_id)
+        REFERENCES holdings_valuation_snapshots(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_holdings_valuation_rows_tenant_id ON holdings_valuation_rows(tenant_id);
+CREATE TABLE IF NOT EXISTS position_decision_ledger (
+    id                    TEXT PRIMARY KEY,
+    tenant_id             TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id            TEXT NOT NULL,
+    envelope_id           TEXT NOT NULL,
+    position_id           TEXT NOT NULL,
+    decision              TEXT NOT NULL CHECK(decision IN ('KEEP','SELL','REVIEW')),
+    reason_code           TEXT NOT NULL,
+    source_snapshot_hash  TEXT NOT NULL CHECK(length(source_snapshot_hash) = 64),
+    created_at            TEXT NOT NULL,
+    created_by            TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_position_decision_ledger_position UNIQUE (envelope_id, position_id),
+    CONSTRAINT fk_position_decision_ledger_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_position_decision_ledger_tenant_id ON position_decision_ledger(tenant_id);
+CREATE INDEX IF NOT EXISTS ix_position_decision_ledger_mandate ON position_decision_ledger(tenant_id, mandate_id);
+CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_snapshots_no_replace BEFORE INSERT ON holdings_valuation_snapshots FOR EACH ROW WHEN EXISTS (SELECT 1 FROM holdings_valuation_snapshots s WHERE s.id = NEW.id) OR EXISTS (SELECT 1 FROM holdings_valuation_snapshots s WHERE s.tenant_id = NEW.tenant_id AND s.mandate_id = NEW.mandate_id AND s.snapshot_hash = NEW.snapshot_hash) BEGIN SELECT RAISE(ABORT, 'holdings_valuation_snapshots row already exists (no replace)'); END;
+CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_snapshots_no_update BEFORE UPDATE ON holdings_valuation_snapshots FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'holdings_valuation_snapshots is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_snapshots_no_delete BEFORE DELETE ON holdings_valuation_snapshots FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'holdings_valuation_snapshots is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_insert_guard BEFORE INSERT ON holdings_valuation_rows FOR EACH ROW WHEN (SELECT s.position_count FROM holdings_valuation_snapshots s WHERE s.id = NEW.snapshot_id AND s.tenant_id = NEW.tenant_id) IS NULL OR (SELECT count(*) FROM holdings_valuation_rows r WHERE r.snapshot_id = NEW.snapshot_id) >= (SELECT s.position_count FROM holdings_valuation_snapshots s WHERE s.id = NEW.snapshot_id) BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows: snapshot is closed'); END;
+CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_no_replace BEFORE INSERT ON holdings_valuation_rows FOR EACH ROW WHEN EXISTS (SELECT 1 FROM holdings_valuation_rows r WHERE r.id = NEW.id) OR EXISTS (SELECT 1 FROM holdings_valuation_rows r WHERE r.snapshot_id = NEW.snapshot_id AND r.position_id = NEW.position_id) BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows row already exists (no replace)'); END;
+CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_no_update BEFORE UPDATE ON holdings_valuation_rows FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_no_delete BEFORE DELETE ON holdings_valuation_rows FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_insert_guard BEFORE INSERT ON position_decision_ledger FOR EACH ROW WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT 'DRAFT' OR (SELECT e.mandate_id FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT NEW.mandate_id BEGIN SELECT RAISE(ABORT, 'position_decision_ledger: envelope is not DRAFT'); END;
+CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_no_replace BEFORE INSERT ON position_decision_ledger FOR EACH ROW WHEN EXISTS (SELECT 1 FROM position_decision_ledger d WHERE d.id = NEW.id) OR EXISTS (SELECT 1 FROM position_decision_ledger d WHERE d.envelope_id = NEW.envelope_id AND d.position_id = NEW.position_id) BEGIN SELECT RAISE(ABORT, 'position_decision_ledger row already exists (no replace)'); END;
+CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_no_update BEFORE UPDATE ON position_decision_ledger FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'position_decision_ledger is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_no_delete BEFORE DELETE ON position_decision_ledger FOR EACH ROW WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = OLD.envelope_id) IS NOT 'DRAFT' BEGIN SELECT RAISE(ABORT, 'position_decision_ledger is immutable'); END;
+
+-- CCX-P4 Allocation-Publish (Vertrag 2026-11-13 §7): textgleich mit
+-- database.py ALLOCATION_PUBLICATION_SQLITE_TABLE_DDL / _TRIGGERS.
+CREATE TABLE IF NOT EXISTS allocation_publication_decisions (
+    id                       TEXT PRIMARY KEY,
+    tenant_id                TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id               TEXT NOT NULL,
+    schema_version           TEXT NOT NULL CHECK(schema_version = 'ares/allocation-publication/1'),
+    envelope_id              TEXT,
+    target_allocation_id     TEXT REFERENCES target_allocations(id),
+    publication_sequence     INTEGER NOT NULL CHECK(publication_sequence >= 1),
+    validation_hash          TEXT NOT NULL CHECK(length(validation_hash) = 64),
+    approval_hash            TEXT CHECK(approval_hash IS NULL OR length(approval_hash) = 64),
+    approval_mode            TEXT CHECK(approval_mode IS NULL OR approval_mode IN ('four_eyes','single_approver_attested')),
+    approved_at              TEXT,
+    approved_by              TEXT REFERENCES users(id),
+    publishable              INTEGER NOT NULL CHECK(publishable IN (0, 1)),
+    blocker_codes_json       TEXT NOT NULL,
+    published_envelope_hash  TEXT CHECK(published_envelope_hash IS NULL OR length(published_envelope_hash) = 64),
+    created_at               TEXT NOT NULL,
+    created_by               TEXT NOT NULL REFERENCES users(id),
+    eligible_approver_count  INTEGER CHECK(eligible_approver_count IS NULL OR eligible_approver_count >= 0),
+    single_person_firm       INTEGER CHECK(single_person_firm IS NULL OR single_person_firm IN (0, 1)),
+    approval_key_version     INTEGER,
+    CONSTRAINT ck_allocation_publication_decisions_published CHECK(publishable = 0 OR (
+        envelope_id IS NOT NULL AND target_allocation_id IS NOT NULL AND approval_hash IS NOT NULL
+        AND approval_mode IS NOT NULL AND approved_at IS NOT NULL AND approved_by IS NOT NULL
+        AND published_envelope_hash IS NOT NULL AND blocker_codes_json = '[]'
+        AND eligible_approver_count IS NOT NULL AND single_person_firm IS NOT NULL)),
+    CONSTRAINT ck_allocation_publication_decisions_single CHECK(approval_mode IS NULL
+        OR approval_mode <> 'single_approver_attested'
+        OR (single_person_firm = 1 AND eligible_approver_count = 1)),
+    CONSTRAINT ck_allocation_publication_decisions_blocked CHECK(publishable = 1 OR (
+        published_envelope_hash IS NULL AND approval_hash IS NULL AND blocker_codes_json <> '[]')),
+    CONSTRAINT uq_allocation_publication_decisions_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT uq_allocation_publication_decisions_sequence UNIQUE (mandate_id, publication_sequence),
+    CONSTRAINT fk_allocation_publication_decisions_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_allocation_publication_decisions_tenant_id ON allocation_publication_decisions(tenant_id);
+CREATE INDEX IF NOT EXISTS ix_allocation_publication_decisions_mandate ON allocation_publication_decisions(tenant_id, mandate_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_allocation_publication_decisions_one_per_envelope ON allocation_publication_decisions(envelope_id) WHERE publishable = 1;
+CREATE TABLE IF NOT EXISTS allocation_active_publications (
+    id                       TEXT PRIMARY KEY,
+    tenant_id                TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id               TEXT NOT NULL,
+    publication_id           TEXT NOT NULL,
+    optimistic_version       INTEGER NOT NULL CHECK(optimistic_version >= 1),
+    updated_at               TEXT NOT NULL,
+    updated_by               TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_allocation_active_publications_mandate UNIQUE (mandate_id),
+    CONSTRAINT fk_allocation_active_publications_publication FOREIGN KEY (tenant_id, publication_id)
+        REFERENCES allocation_publication_decisions(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_allocation_active_publications_tenant_id ON allocation_active_publications(tenant_id);
+CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_no_replace BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW WHEN EXISTS (SELECT 1 FROM allocation_publication_decisions d WHERE d.id = NEW.id OR (d.mandate_id = NEW.mandate_id AND d.publication_sequence = NEW.publication_sequence)) BEGIN SELECT RAISE(ABORT, 'allocation_publication_decisions row already exists (no replace)'); END;
+CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_sequence BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW WHEN NEW.publication_sequence IS NOT (SELECT COALESCE(MAX(d.publication_sequence), 0) + 1 FROM allocation_publication_decisions d WHERE d.mandate_id = NEW.mandate_id) BEGIN SELECT RAISE(ABORT, 'CCX_PUBLICATION_RACE'); END;
+CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_envelope BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW WHEN NEW.publishable = 1 AND NOT EXISTS (SELECT 1 FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id AND e.tenant_id = NEW.tenant_id AND e.mandate_id = NEW.mandate_id AND e.status = 'SEALED' AND e.freshness_status = 'FRESH' AND e.envelope_hash = NEW.published_envelope_hash) BEGIN SELECT RAISE(ABORT, 'CCX_ALLOCATION_NOT_PUBLISHABLE'); END;
+CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_no_update BEFORE UPDATE ON allocation_publication_decisions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'allocation_publication_decisions is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_no_delete BEFORE DELETE ON allocation_publication_decisions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'allocation_publication_decisions is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_insert BEFORE INSERT ON allocation_active_publications FOR EACH ROW WHEN EXISTS (SELECT 1 FROM allocation_active_publications p WHERE p.id = NEW.id OR p.mandate_id = NEW.mandate_id) OR NEW.optimistic_version IS NOT 1 OR NOT EXISTS (SELECT 1 FROM allocation_publication_decisions d WHERE d.id = NEW.publication_id AND d.tenant_id = NEW.tenant_id AND d.mandate_id = NEW.mandate_id AND d.publishable = 1) BEGIN SELECT RAISE(ABORT, 'CCX_PUBLICATION_RACE'); END;
+CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_update BEFORE UPDATE ON allocation_active_publications FOR EACH ROW WHEN NEW.id IS NOT OLD.id OR NEW.tenant_id IS NOT OLD.tenant_id OR NEW.mandate_id IS NOT OLD.mandate_id OR NEW.optimistic_version IS NOT OLD.optimistic_version + 1 OR NOT EXISTS (SELECT 1 FROM allocation_publication_decisions d WHERE d.id = NEW.publication_id AND d.tenant_id = NEW.tenant_id AND d.mandate_id = NEW.mandate_id AND d.publishable = 1 AND d.publication_sequence > (SELECT o.publication_sequence FROM allocation_publication_decisions o WHERE o.id = OLD.publication_id)) BEGIN SELECT RAISE(ABORT, 'CCX_PUBLICATION_RACE'); END;
+CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_no_delete BEFORE DELETE ON allocation_active_publications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'allocation_active_publications: pointer is never deleted'); END;
+
+-- CCX-P5 Kanal-Envelope (Vertrag 2026-11-13 §8): textgleich mit
+-- database.py CHANNEL_PUBLICATION_SQLITE_TABLE_DDL / _TRIGGERS.
+CREATE TABLE IF NOT EXISTS advisory_channel_publications (
+    id                            TEXT PRIMARY KEY,
+    tenant_id                     TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id                    TEXT NOT NULL REFERENCES mandates(id),
+    envelope_id                   TEXT NOT NULL,
+    channel                       TEXT NOT NULL CHECK(channel IN ('API','CLASSIC','REACT','PDF','ADVISOR_SIGNATURE','ONSITE_SIGNATURE','HANDOFF','ARCHIVE')),
+    artifact_id                   TEXT NOT NULL,
+    schema_version                TEXT NOT NULL CHECK(schema_version = 'ares/channel-publication/1'),
+    channel_payload_hash          TEXT NOT NULL CHECK(length(channel_payload_hash) = 64),
+    render_hash                   TEXT CHECK(render_hash IS NULL OR length(render_hash) = 64),
+    rounding_policy_version       TEXT NOT NULL,
+    bound_envelope_hash           TEXT NOT NULL CHECK(length(bound_envelope_hash) = 64),
+    parameter_contract_version    TEXT NOT NULL,
+    parameter_set_hash            TEXT NOT NULL CHECK(length(parameter_set_hash) = 64),
+    goal_metric_contract_version  TEXT NOT NULL,
+    goal_metric_payload_hash      TEXT NOT NULL CHECK(length(goal_metric_payload_hash) = 64),
+    status                        TEXT NOT NULL CHECK(status = 'PUBLISHED'),
+    created_at                    TEXT NOT NULL,
+    created_by                    TEXT NOT NULL REFERENCES users(id),
+    channel_sequence              INTEGER NOT NULL CHECK(channel_sequence >= 1),
+    CONSTRAINT ck_advisory_channel_publications_render CHECK(
+        channel NOT IN ('PDF','ARCHIVE','ADVISOR_SIGNATURE','ONSITE_SIGNATURE') OR render_hash IS NOT NULL),
+    CONSTRAINT uq_advisory_channel_publications_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT uq_advisory_channel_publications_artifact UNIQUE (envelope_id, channel, artifact_id),
+    CONSTRAINT fk_advisory_channel_publications_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_advisory_channel_publications_tenant_id ON advisory_channel_publications(tenant_id);
+CREATE INDEX IF NOT EXISTS ix_advisory_channel_publications_mandate ON advisory_channel_publications(tenant_id, mandate_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_advisory_channel_publications_sequence ON advisory_channel_publications(mandate_id, channel_sequence);
+CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_envelope BEFORE INSERT ON advisory_channel_publications FOR EACH ROW WHEN NOT EXISTS (SELECT 1 FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id AND e.tenant_id = NEW.tenant_id AND e.mandate_id = NEW.mandate_id AND e.status = 'SEALED' AND e.envelope_hash = NEW.bound_envelope_hash) BEGIN SELECT RAISE(ABORT, 'CCX_CHANNEL_BINDING_MISSING'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_no_update BEFORE UPDATE ON advisory_channel_publications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_channel_publications is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_no_delete BEFORE DELETE ON advisory_channel_publications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_channel_publications is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_sequence BEFORE INSERT ON advisory_channel_publications FOR EACH ROW WHEN NEW.channel_sequence IS NOT (SELECT COALESCE(MAX(p.channel_sequence), 0) + 1 FROM advisory_channel_publications p WHERE p.mandate_id = NEW.mandate_id) BEGIN SELECT RAISE(ABORT, 'CCX_CHANNEL_SEQUENCE_RACE'); END;

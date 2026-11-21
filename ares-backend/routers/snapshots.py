@@ -7,7 +7,14 @@ from database import get_db
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
 from services.data_classification import enforce_data_classification
-from routers.auth import _extract_client_ip
+# CCX-P4: direkt aus services.auth (derselbe Helfer, den routers.auth nur
+# weiterreicht) -- Router importieren keine Router.
+from services.auth import extract_client_ip as _extract_client_ip
+# CCX-P4: "Portfolio umsetzen" nur mit publizierter, frischer Soll-Allokation.
+from services.allocation_publication_gate import (
+    published_allocation_matches_snapshot,
+    require_published_allocation,
+)
 from models.snapshots import StrategySnapshot, AssetClassAnnualReturn
 from models.mandates import Mandate
 from schemas.snapshots import StrategySnapshotCreate, StrategySnapshotResponse, DriftResult
@@ -96,7 +103,20 @@ def create_snapshot(
     current_user=Depends(require_advisor),
 ):
     enforce_data_classification(body.data_classification)
-    _get_mandate(mandate_id, db, current_user)
+    mandate = _get_mandate(mandate_id, db, current_user)
+    # CCX-P4: der Strategie-Snapshot ("Portfolio umsetzen") haelt nur die
+    # publizierte, frische Soll-Allokation fest -- und genau deren Quoten und
+    # Baender (kein Browserstand, kein Entwurf).
+    state = require_published_allocation(
+        db, mandate, channel="strategy_snapshot", user=current_user,
+        ip_address=_extract_client_ip(request),
+    )
+    if not published_allocation_matches_snapshot(db, state, body):
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "CCX_VALIDATION_HASH_MISMATCH",
+            "message": "Die Quoten weichen von der publizierten Soll-Allokation ab. Bitte neu laden.",
+            "channel": "strategy_snapshot",
+        })
     now = _now()
     snap = StrategySnapshot(
         id=str(uuid4()),

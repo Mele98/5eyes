@@ -75,6 +75,10 @@ class WealthPosition(Base):
     liquidity_available_from = Column(String)
     is_available_for_goal_funding = Column(Integer, nullable=False, default=0)
     goal_funding_method = Column(String)
+    # K1 Property-Gate (2026-11-19): Owner-Review-Fall, wenn die Migration aktive
+    # Werte deaktivierter Property-/Collateral-Funktionen neutralisiert hat (alter
+    # Wert + Aktion, core/property_gate.py). NULL = kein Fall.
+    property_gate_review_json = Column(String)
     notes = Column(String)
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
@@ -195,6 +199,11 @@ class WealthInflow(Base):
     # (services/wealth_inflow_certainty.py). Verknuepfte Vorsorgebezuege sind
     # immer 'sicher'.
     certainty = Column(String, nullable=True, default="sicher", server_default="sicher")
+    # CCX-P3-FX (2026-11-14): Waehrung des Zuflusses (ISO 4217). Bewusst ohne
+    # Default: NULL = nicht erfasst = unbekannt; Engine und Bericht rechnen
+    # nur nach belegter Waehrung in die Mandatswaehrung um und blockieren
+    # sonst typisiert (CCX_FX_BASIS_MISSING) -- die Waehrung wird nie geraten.
+    currency = Column(String, nullable=True)
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)

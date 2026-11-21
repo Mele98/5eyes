@@ -24,8 +24,8 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+from tests.p5_test_vectors import P5_TEST_RISKY_FRACTION as DEFAULT_BUCKET_RISKY_FRACTION  # CCX P5: Testvektor
 from services.optimizer.constraints import (
-    DEFAULT_BUCKET_RISKY_FRACTION,
     is_feasible,
     bands_from_house_matrix_row,
     build_constraint_set,

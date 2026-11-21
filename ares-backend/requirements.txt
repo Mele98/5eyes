@@ -66,10 +66,13 @@ pytest-rerunfailures==16.6.1
 pytest-xdist==3.8.0
 execnet==2.1.2
 pytest-split==0.11.0
+# time-machine: eingefrorene Wanduhr (tick=False) fuer Regressionstests, die
+# exakt dieselbe Sekunde brauchen (Codex C-860-01,
+# tests/test_c860_eligibility_timestamp_formats.py). Nur in Tests genutzt.
+time-machine==2.19.0
 httpx==0.27.2
 pyyaml==6.0.2
 # segno: 2FA-QR-Code (pure-python, keine C-Abhaengigkeit). Fehlt sie, faellt
 # das 2FA-Setup graceful auf das Text-Secret zurueck (kein 500).
 segno==1.6.6
-# Optional for encrypted production builds:
-# sqlcipher3-binary==0.5.4
+# Optional for encrypted production builds: requirements-sqlcipher.txt

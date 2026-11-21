@@ -67,8 +67,8 @@ from services.cma_validation import (
 NS_BASIS = (
     "Die Yield-Curve liefert einen Laufzeit-Zuschlag bzw. -Abschlag auf die "
     "Renditeerwartungen der Obligationen-Sub-Anlageklassen (Differenz zum "
-    "5-Jahres-Punkt). Kreditaufschlaege und die Differenzierung der "
-    "Sub-Anlageklassen bleiben erhalten; ohne Laufzeitpraeferenz ist der "
+    "5-Jahres-Punkt). Kreditaufschläge und die Differenzierung der "
+    "Sub-Anlageklassen bleiben erhalten; ohne Laufzeitpräferenz ist der "
     "Effekt null."
 )
 KGV_BASIS = (
@@ -77,7 +77,7 @@ KGV_BASIS = (
 )
 RISK_PREMIA_BASIS = (
     "Real Estate / Alternatives koppeln an die Yield-Curve "
-    "(short_rate + Risikopraemie) — atmen mit Zinsumfeld."
+    "(short_rate + Risikoprämie) — atmen mit Zinsumfeld."
 )
 
 
@@ -116,7 +116,7 @@ def _build_ns_status(cma: Any) -> dict[str, Any]:
             "lambda_x100": lam,
         },
         "applies_to": "bonds",
-        "activation_rule": "alle 4 Felder gesetzt UND wertebereichsgueltig",
+        "activation_rule": "alle 4 Felder gesetzt UND wertebereichsgültig",
     }
     if invalid_reason is not None:
         result["blocker_reason"] = "invalid_parameters"
@@ -194,7 +194,7 @@ def _build_kgv_status(cma: Any) -> dict[str, Any]:
             "alpha_x100": alpha,
         },
         "applies_to": "equity",
-        "activation_rule": "alle 3 Felder gesetzt UND wertebereichsgueltig",
+        "activation_rule": "alle 3 Felder gesetzt UND wertebereichsgültig",
     }
     if invalid_reason is not None:
         result["blocker_reason"] = "invalid_parameters"
@@ -223,7 +223,7 @@ def _build_risk_premia_status(
 
     return {
         "model_key": "risk_premia",
-        "label": "Risikopraemien (RE + Alternatives)",
+        "label": "Risikoprämien (RE + Alternatives)",
         "active": bool(active),
         "basis": RISK_PREMIA_BASIS,
         "parameters": {
@@ -232,7 +232,7 @@ def _build_risk_premia_status(
         },
         "applies_to": "real_estate_and_alternatives",
         "activation_rule": (
-            "mindestens eine Praemie gesetzt UND Nelson-Siegel aktiv"
+            "mindestens eine Prämie gesetzt UND Nelson-Siegel aktiv"
         ),
         "blocker_reason": blocker_reason,
     }

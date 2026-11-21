@@ -108,7 +108,7 @@ def _data() -> DepotCheckData:
             "cost_items": [
                 {
                     "label": "Produktkosten",
-                    "frequency": "jaehrlich",
+                    "frequency": "jährlich",
                     "rate_bps": 35,
                     "amount_rappen": 3_500_00,
                     "basis_label": "Zielportfolio",
@@ -169,7 +169,7 @@ def _data() -> DepotCheckData:
             },
         },
         qualitative_assessment=(
-            "Die Zielstruktur ist breit diversifiziert und fuer die "
+            "Die Zielstruktur ist breit diversifiziert und für die "
             "dokumentierte Beratung nachvollziehbar."
         ),
     )
@@ -187,14 +187,14 @@ def test_depotcheck_is_target_only_and_structurally_complete():
     for anchor in (
         "Hauptanlageklassen",
         "Subanlageklassen",
-        "Laenderallokation",
+        "Länderallokation",
         "Sektorallokation",
-        "Waehrungsallokation",
+        "Währungsallokation",
         "Risikoanalyse",
         "Diversifikation und Klumpenrisiken",
-        "Kosten und Gebuehren",
+        "Kosten und Gebühren",
         "Performancevergleich",
-        "Qualitative Einschaetzung",
+        "Qualitative Einschätzung",
     ):
         assert anchor in text
     assert "IST vs." not in text
