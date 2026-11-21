@@ -138,7 +138,10 @@ def main(argv: list[str]) -> int:
     if not db_path.exists():
         print(f"DB nicht gefunden: {db_path}", file=sys.stderr)
         return 2
-    conn = sqlite3.connect(str(db_path))
+    _default_db_path()  # Backend-Pfad fuer den Import (wie oben)
+    from config import guarded_sqlite_connect  # H11 N2: Owner-DB nur mit Freigabe
+
+    conn = guarded_sqlite_connect(str(db_path), context="data_integrity_audit")
     try:
         findings = scan_database(conn) + scan_orphans(conn)
     finally:

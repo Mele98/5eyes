@@ -17,19 +17,32 @@ WealthPosition + RecommendationPosition + Product-Tabellen.
 """
 from __future__ import annotations
 
+from datetime import date as _date
 from types import SimpleNamespace
 from typing import Iterable, Mapping
 
+from sqlalchemy import exists
 from sqlalchemy.orm import Session
 
+from core.band_rule import in_band as band_in_band
+from core import external_holdings_rule as external_rule
+from core.external_holdings_rule import (
+    ORIGIN_EXTERNAL,
+    STATUS_OK as EXTERNAL_STATUS_OK,
+    STATUS_TEXT as EXTERNAL_STATUS_TEXT,
+    unvalued_message,
+)
+from core.holdings_rule import DERIVED_IST_STATUS, ist_fully_derived, ist_partially_derived, select_valuation_runs  # noqa: F401
+from core.reason_codes import DomainError
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
-from models.review import Product, RecommendationPosition, RecommendationRun
+from models.review import Product, RecommendationHolding, RecommendationPosition, RecommendationRun
 from models.wealth import WealthPosition
+from services.fx_basis import load_fx_basis, normalize_currency
 from services.product_exposures import (
     aggregate_exposures,
     country_exposure_for_product,
-    currency_exposure_for_product,
+    currency_exposure_with_source,
     herfindahl_hirschman_index,
     sector_exposure_for_product,
 )
@@ -267,6 +280,11 @@ def _init_result_dict(mandate: Mandate) -> dict:
         "country_exposure_bps": {},
         "sector_exposure_bps": {},
         "currency_exposure_bps": {},
+        # PO-06: Herkunft des Waehrungs-Exposures je Quelle (bps des IST):
+        # produktdaten / produktdaten_absicherung / produktname_absicherung /
+        # sub_klassen_proxy /
+        # produktwaehrung / unbekannt.
+        "currency_exposure_source_bps": {},
         # Sprint U-P20 (2026-05-24): SOLL-Exposures + IST-SOLL-Drift pro
         # Country/Sector/Currency. Berechnet aus RecommendationPositions
         # target_amount_rappen (statt current_amount_rappen). Bleibt leer,
@@ -317,17 +335,15 @@ def _select_latest_run(db: Session, mandate: Mandate) -> RecommendationRun | Non
     # bereits etabliert in routers/review.py:2520-2524 und
     # services/review_engine.py:396 -- EINE Quelle der Wahrheit fuer "welcher
     # Lauf gilt gerade" statt einer vierten, divergierenden Auswahl-Logik.
+    # KN5 / N-917R4-03: dieselbe Regel wie das Live-Rebalancing
+    # (core.holdings_rule.select_valuation_runs).
     runs = (
         db.query(RecommendationRun)
         .filter(RecommendationRun.mandate_id == mandate.id)
-        .order_by(RecommendationRun.created_at.desc())
+        .order_by(RecommendationRun.created_at.desc(), RecommendationRun.id.desc())
         .all()
     )
-    return (
-        next((r for r in runs if r.result_status == "Final"), None)
-        or next((r for r in runs if r.result_status == "Draft"), None)
-        or (runs[0] if runs else None)
-    )
+    return select_valuation_runs(runs)[0]
 
 
 def _load_snapshot_positions(
@@ -341,7 +357,11 @@ def _load_snapshot_positions(
     keine Vermoegenspositionen. Fehlende Produktstammdaten -> ValueError.
     """
     held: dict[str, int] = {}
+    external_total = 0
     for item in holdings_snapshot.get("positions") or []:
+        if item.get("source_kind") == ORIGIN_EXTERNAL:  # K3: Fremdtitel, eigene Zeilen
+            external_total += _safe_int(item.get("amount_base_rappen"))
+            continue
         pid = str(item.get("product_id") or "")
         held[pid] = held.get(pid, 0) + _safe_int(item.get("amount_base_rappen"))
     target: dict[str, int] = {}
@@ -369,11 +389,182 @@ def _load_snapshot_positions(
         for pid in product_ids
         if pid in products
     ]
-    return positions, [], sum(held.values())
+    return positions, [], sum(held.values()) + external_total
+
+
+def _snapshot_external_items(holdings_snapshot: Mapping) -> list[dict]:
+    """K3: Fremdtitel eines Depot-Snapshots im Format von
+    ``services.external_holdings.value_external_holdings`` (alle bewertet --
+    ein Snapshot entsteht nur bei vollstaendiger Bewertung)."""
+    items = []
+    for item in holdings_snapshot.get("positions") or []:
+        if item.get("source_kind") != ORIGIN_EXTERNAL:
+            continue
+        items.append({
+            "id": item["position_id"], "label": item.get("label") or "Titel ohne Bezeichnung",
+            "isin": item.get("isin"), "asset_class": item.get("asset_class"),
+            "bucket": next(iter(item.get("bucket_weights_bps") or {}), None),
+            "currency": item.get("product_currency"), "valuation_date": item.get("holding_as_of_date"),
+            "amount_base_rappen": _safe_int(item.get("amount_base_rappen")),
+            "status": EXTERNAL_STATUS_OK, "status_text": EXTERNAL_STATUS_TEXT[EXTERNAL_STATUS_OK],
+        })
+    return items
+
+
+def advisory_depots(db: Session, client_id) -> list[WealthPosition]:
+    """K3: aktive Depot-Positionen des Beratungsvermoegens (stabile Reihenfolge)."""
+    if not client_id:
+        return []
+    rows = db.query(WealthPosition).filter(
+        WealthPosition.client_id == client_id, WealthPosition.deleted_at.is_(None),
+        WealthPosition.position_type == "Depot",
+    ).order_by(WealthPosition.id.asc()).all()
+    return [row for row in rows if external_rule.is_advisory_depot(row)]
+
+
+def has_external_holdings(db: Session, mandate: Mandate) -> bool:
+    """K3: ist fuer den Mandatskunden Fremdbestand erfasst?"""
+    return any(external_rule.parse_items(row.external_holdings_json)
+               for row in advisory_depots(db, getattr(mandate, "client_id", None)))
+
+
+def run_isins(db: Session, run) -> set[str]:
+    """K3: ISINs der Produkte eines Laufs (Doppelzaehlungs-Pruefung)."""
+    if run is None:
+        return set()
+    rows = db.query(Product.isin).join(
+        RecommendationPosition, RecommendationPosition.product_id == Product.id,
+    ).filter(RecommendationPosition.run_id == run.id).all()
+    return {external_rule.normalize_isin(row[0]) for row in rows if external_rule.normalize_isin(row[0])}
+
+
+def external_holdings_valuation(db: Session, mandate: Mandate, run, *, convert=None, today=None) -> dict:
+    """K3 / N-915-06: Fremdbestand des Mandatskunden, bewertet nach
+    ``core.external_holdings_rule.evaluate``. Ohne ``convert``: strikte FX-Basis
+    der Mandatswaehrung (wie die Vermoegenspositionen dieses Depotchecks)."""
+    depots = [(row.id, row.external_holdings_json)
+              for row in advisory_depots(db, getattr(mandate, "client_id", None)) if row.external_holdings_json]
+    target = getattr(mandate, "base_currency", None) or "CHF"
+    if convert is None and depots:
+        currencies = {str(i.get("currency") or "").upper().strip()
+                      for _id, raw in depots for i in external_rule.parse_items(raw)}
+        try:
+            basis = load_fx_basis(db, target, currencies - {""}, tenant_id=getattr(mandate, "tenant_id", None))
+        except DomainError:
+            basis = None
+        convert = external_rule.strict_converter(basis, target)
+    return external_rule.evaluate(depots, convert=convert or external_rule.strict_converter(None, target),
+                                  exclude_isins=run_isins(db, run), today=str(today or _date.today()))
+
+
+def _apply_external_items(result: dict, items: list[dict], total_rappen: int,
+                          bucket_amounts_rappen: dict, liquidity_buckets: dict, top: list) -> None:
+    """K3: Fremdtitel in IST, Top-Positionen und Liquiditaetsprofil; SOLL 0.
+    Ein nicht bewertbarer Titel erscheint mit Status, ohne Betrag."""
+    public = []
+    for item in items:
+        amount = item.get("amount_base_rappen")
+        weight = int(round(amount / total_rappen * 10000)) if amount and total_rappen > 0 else None
+        public.append({
+            "label": item["label"], "isin": item.get("isin") or "", "asset_class": item.get("asset_class") or "",
+            "currency": item.get("currency") or "", "valuation_date": item.get("valuation_date"),
+            "amount_rappen": amount, "weight_bps": weight,
+            "status": item["status"], "status_text": item["status_text"],
+        })
+        if amount is None or item["status"] != EXTERNAL_STATUS_OK:
+            continue
+        bucket = item.get("bucket") or "alternatives"
+        bucket_amounts_rappen[bucket] = bucket_amounts_rappen.get(bucket, 0) + amount
+        top.append({
+            "position_id": item["id"], "product_name": item["label"], "isin": item.get("isin") or "",
+            "asset_class": BUCKET_LABELS.get(bucket, bucket), "sub_asset_class": "",
+            "currency": item.get("currency") or "", "amount_rappen": amount, "weight_bps": weight or 0,
+            "ter_bps": 0, "ausserhalb_empfehlung": True,
+        })
+        # Ohne Produktdaten ist nur Liquiditaet sicher taeglich verfuegbar.
+        liquidity_buckets["daily" if bucket == "liquidity" else "unknown"] += amount
+    result["fremdbestand"] = public
+    result["fremdbestand_rappen"] = sum(p["amount_rappen"] or 0 for p in public)
+    result["fremdbestand_nicht_bewertbar"] = sum(1 for p in public if p["status"] != EXTERNAL_STATUS_OK)
+
+
+def _select_latest_run_with_holdings(db: Session, mandate: Mandate) -> tuple[RecommendationRun | None, bool]:
+    """Wie ``_select_latest_run``, plus "gibt es Holdings?" in DERSELBEN
+    Abfrage (KN4-B / EXT-01: kein zusaetzlicher SELECT im Report-Pfad).
+
+    KN5 / N-917R4-03: Lauf und Holdings nach DERSELBEN Regel wie das Live-
+    Rebalancing (``core.holdings_rule.select_valuation_runs``): Holdings stehen
+    am bewerteten Lauf ODER am Holdings-Lauf (juengster Draft/Final; je Produkt
+    uebernommen). Welche Position tatsaechlich einen Bestand hat, entscheidet
+    danach die Live-Bewertung selbst (``holding_present``)."""
+    has_holdings = exists().where(
+        RecommendationHolding.run_id == RecommendationRun.id,
+        RecommendationHolding.deleted_at.is_(None),
+    )
+    rows = (
+        db.query(RecommendationRun, has_holdings)
+        .filter(RecommendationRun.mandate_id == mandate.id)
+        .order_by(RecommendationRun.created_at.desc(), RecommendationRun.id.desc())
+        .all()
+    )
+    chosen, holdings_run = select_valuation_runs(rows, status=lambda row: row[0].result_status)
+    if chosen is None:
+        return None, False
+    return chosen[0], bool(chosen[1]) or bool(holdings_run is not None and holdings_run[1])
+
+
+def _live_holding_amounts(db: Session, mandate: Mandate, build_live_payload, run=None,
+                          has_holdings=None) -> dict[str, int]:
+    """KN4-B / EXT-01 (CTO-Entscheid): Bestaende aus der oeffentlichen Holding-
+    Route (``recommendation_holdings``) mit DERSELBEN Bewertung wie das Live-
+    Rebalancing (``build_live_rebalancing_payload``: Stueckzahl x Preis bzw.
+    Marktwert, strikte FX-Basis). Ergebnis: Positions-ID -> Bestandswert, nur fuer
+    Positionen mit erfasstem Bestand. Ohne Holdings oder Soll-Allokation leer."""
+    if has_holdings is None:
+        run, has_holdings = _select_latest_run_with_holdings(db, mandate)
+    if run is None or not has_holdings:
+        return {}
+    ta = db.query(TargetAllocation).filter(
+        TargetAllocation.mandate_id == mandate.id, TargetAllocation.is_current == 1,
+        TargetAllocation.deleted_at.is_(None),
+    ).first()
+    positions = db.query(RecommendationPosition).filter(RecommendationPosition.run_id == run.id).all()
+    if ta is None or not positions:
+        return {}
+    product_ids = [p.product_id for p in positions if p.product_id]
+    currencies = {normalize_currency(row[0]) for row in db.query(Product.currency).filter(
+        Product.id.in_(product_ids)).all()} if product_ids else set()
+    base = getattr(mandate, "base_currency", None) or "CHF"
+    basis = load_fx_basis(db, base, currencies - {""}, tenant_id=getattr(mandate, "tenant_id", None))
+    payload = build_live_payload(
+        db=db, allocation=ta, run=run, advisory_wealth_rappen=0, positions=positions,
+        fx_source=basis, target_currency=normalize_currency(base),
+    ) or {}
+    return {
+        str(entry["id"]): int(entry.get("current_market_value_rappen") or 0)
+        for entry in payload.get("position_drifts") or []
+        if entry.get("holding_present") and not entry.get("fx_conversion_failed")
+    }
+
+
+def _position_amount(rec_pos, held_amounts: Mapping[str, int], *, depot_recorded: bool = False) -> int:
+    """EIN Bestandswert je Position: Holding (Live-Bewertung), sonst
+    ``current_amount_rappen``, sonst Rueckfall auf den Zielbetrag.
+
+    K3 / N-915-06: ist Fremdbestand erfasst (``depot_recorded``), ist das Depot
+    erfasst -- ein Titel der Empfehlung ohne Bestand zaehlt 0, nie sein
+    Zielbetrag (sonst stuende das Soll neben dem echten Bestand: doppelt)."""
+    if str(rec_pos.id) in held_amounts:
+        return int(held_amounts[str(rec_pos.id)])
+    amount = _safe_int(getattr(rec_pos, "current_amount_rappen", 0))
+    if amount <= 0:
+        amount = 0 if depot_recorded else _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+    return amount
 
 
 def _load_positions(
-    db: Session, mandate: Mandate,
+    db: Session, mandate: Mandate, held_amounts: Mapping[str, int] | None = None, *, latest_run=False,
+    depot_recorded: bool = False,
 ) -> tuple[list[tuple[RecommendationPosition, Product]], list[tuple[WealthPosition, str]], int]:
     """Sprint U-39 (2026-06-06): Laedt Holdings + berechnet total_rappen.
 
@@ -383,10 +574,11 @@ def _load_positions(
     Original-Block in compute_depot_check.
     """
     positions_with_products: list[tuple[RecommendationPosition, Product]] = []
-    wealth_only_positions: list[tuple[WealthPosition, str]] = []
+    wealth_only_positions: list[tuple[WealthPosition, str, int]] = []
     total_rappen = 0
 
-    latest_run = _select_latest_run(db, mandate)
+    if latest_run is False:  # nicht vorgegeben -> selbst waehlen
+        latest_run = _select_latest_run(db, mandate)
     if latest_run is not None:
         rec_positions = (
             db.query(RecommendationPosition)
@@ -402,16 +594,17 @@ def _load_positions(
             prod = products_map.get(rec_pos.product_id)
             if prod is None:
                 continue
-            current_amount = _safe_int(getattr(rec_pos, "current_amount_rappen", 0))
-            if current_amount <= 0:
-                # Fallback auf target_amount wenn current_amount nicht gepflegt
-                current_amount = _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
-            if current_amount > 0:
+            # KN4-B / EXT-01: Holding-Bestand (Live-Bewertung) vor current_amount,
+            # Rueckfall auf target_amount nur ohne jeden erfassten Bestand.
+            current_amount = _position_amount(rec_pos, held_amounts or {}, depot_recorded=depot_recorded)
+            if current_amount > 0 or depot_recorded:
+                # K3: bei erfasstem Depot auch ungehaltene Titel (IST 0) fuer den SOLL-Vergleich.
                 positions_with_products.append((rec_pos, prod))
                 total_rappen += current_amount
 
-    # Fallback: WealthPositions wenn keine RecommendationPositions
-    if not positions_with_products:
+    # Fallback: WealthPositions wenn keine RecommendationPositions. K3: nicht bei
+    # erfasstem Fremdbestand -- der Depotwert stuende sonst neben seinen Titeln.
+    if not positions_with_products and not depot_recorded:
         client_id = getattr(mandate, "client_id", None)
         if client_id:
             wp_rows = (
@@ -424,13 +617,20 @@ def _load_positions(
                 )
                 .all()
             )
+            # N-913-04 (K1-Nachtrag 1): zeilenweise ueber die strikte FX-Basis in
+            # die Mandatswaehrung -- nie eine nominale Summe ueber Waehrungen;
+            # fehlender/abgelaufener/Ersatzkurs -> typisierter CCX_FX_BASIS_*-Block.
+            wp_rows = [wp for wp in wp_rows if _safe_int(getattr(wp, "current_value_rappen", 0)) > 0]
+            currencies = {normalize_currency(getattr(wp, "currency", None)) for wp in wp_rows}
+            basis = load_fx_basis(db, getattr(mandate, "base_currency", None) or "CHF", currencies - {""},
+                                  tenant_id=getattr(mandate, "tenant_id", None))
+            basis.require_convertible(currencies)
             for wp in wp_rows:
-                amount = _safe_int(getattr(wp, "current_value_rappen", 0))
-                if amount > 0:
-                    wealth_only_positions.append(
-                        (wp, _bucket_from_position_type(getattr(wp, "position_type", "")))
-                    )
-                    total_rappen += amount
+                amount = basis.convert(_safe_int(wp.current_value_rappen), wp.currency).converted_amount_minor
+                wealth_only_positions.append(
+                    (wp, _bucket_from_position_type(getattr(wp, "position_type", "")), amount)
+                )
+                total_rappen += amount
 
     return positions_with_products, wealth_only_positions, total_rappen
 
@@ -443,27 +643,28 @@ def _aggregate_warnings(result: dict) -> None:
     """
     if result.get("target_allocation_inputs_stale"):
         result["warnings"].append(
-            "Soll-Allokation ist veraltet: Vermoegen, Cashflows oder Ziele "
-            "haben sich seit der Berechnung geaendert -- Band-Vergleiche "
-            "unten sind nicht aussagekraeftig. Strategie neu berechnen."
+            "Soll-Allokation ist veraltet: Vermögen, Cashflows oder Ziele "
+            "haben sich seit der Berechnung geändert -- Band-Vergleiche "
+            "unten sind nicht aussagekräftig. Strategie neu berechnen."
         )
     elif result.get("target_allocation_stale"):
         result["warnings"].append(
-            "Soll-Allokation basiert auf einem frueheren, nicht mehr "
+            "Soll-Allokation basiert auf einem früheren, nicht mehr "
             "aktuellen Risikoprofil -- Band-Vergleiche unten sind nicht "
-            "aussagekraeftig. Strategie neu berechnen."
+            "aussagekräftig. Strategie neu berechnen."
         )
 
     hhi = result["concentration_hhi"]
     if hhi["country"] > _HHI_COUNTRY_WARNING_THRESHOLD:
         result["warnings"].append(
-            f"Hohe Länder-Konzentration (HHI={hhi['country']}, "
-            f">{_HHI_COUNTRY_WARNING_THRESHOLD} = Single-Country-dominiert)"
+            # KN6 / N-917R5-03: Kundentext statt «Single-Country-dominiert».
+            f"Hohe Länder-Konzentration (Herfindahl-Index {hhi['country']}; "
+            f"über {_HHI_COUNTRY_WARNING_THRESHOLD} dominiert ein einzelnes Land)"
         )
     if hhi["sector"] > _HHI_SECTOR_WARNING_THRESHOLD:
         result["warnings"].append(
-            f"Hohe Sektor-Konzentration (HHI={hhi['sector']}, "
-            f">{_HHI_SECTOR_WARNING_THRESHOLD} = wenig diversifiziert)"
+            f"Hohe Sektor-Konzentration (Herfindahl-Index {hhi['sector']}; "
+            f"über {_HHI_SECTOR_WARNING_THRESHOLD} wenig diversifiziert)"
         )
     if hhi["top_positions"] > _HHI_TOP_POSITIONS_WARNING_THRESHOLD:
         top_3_weight = sum(p["weight_bps"] for p in result["top_positions"][:3])
@@ -477,10 +678,10 @@ def _aggregate_warnings(result: dict) -> None:
         )
     if result["liquidity_profile"]["unknown_bps"] > _UNKNOWN_LIQUIDITY_WARNING_THRESHOLD_BPS:
         result["warnings"].append(
-            f"Liquiditaets-Einstufung unklar fuer "
+            f"Liquiditäts-Einstufung unklar für "
             f"{result['liquidity_profile']['unknown_bps']/100:.1f}% des Depots "
             f"(>{_UNKNOWN_LIQUIDITY_WARNING_THRESHOLD_BPS//100}%) -- Produkt-/"
-            "Positions-Metadaten pflegen, verdeckte Illiquiditaet kann "
+            "Positions-Metadaten pflegen, verdeckte Illiquidität kann "
             "andernfalls unerkannt bleiben."
         )
 
@@ -550,17 +751,63 @@ def compute_depot_check(
     Snapshot-Bestand -- ohne Rueckfall auf Zielbetraege.
     """
     result = _init_result_dict(mandate)
+    # Lookup zur Laufzeit (Zyklus-Haertung; eine Lazy-Kante fuer die ganze Funktion).
+    from services.portfolio_engine import (
+        _current_risk_assessment_or_none, build_live_rebalancing_payload, risk_assessment_semantics,
+    )
+    held_amounts: dict[str, int] = {}
+    external_items: list[dict] = []
 
     # Sprint U-39 (2026-06-06): Step 1+2 extrahiert in _load_positions().
     if holdings_snapshot is not None:
         positions_with_products, wealth_only_positions, total_rappen = _load_snapshot_positions(
             db, mandate, holdings_snapshot,
         )
+        external_items = _snapshot_external_items(holdings_snapshot)
     else:
-        positions_with_products, wealth_only_positions, total_rappen = _load_positions(db, mandate)
+        try:
+            # KN4-B / EXT-01: dieselbe Bestandsquelle wie das Live-Rebalancing.
+            run, run_has_holdings = _select_latest_run_with_holdings(db, mandate)
+            held_amounts = _live_holding_amounts(
+                db, mandate, build_live_rebalancing_payload, run=run, has_holdings=run_has_holdings)
+            # K3 / N-915-06: Fremdbestand aus derselben Quelle wie Snapshot und Handelsliste.
+            external = external_holdings_valuation(db, mandate, run)
+            external_items = external["items"]
+            positions_with_products, wealth_only_positions, total_rappen = _load_positions(
+                db, mandate, held_amounts, latest_run=run, depot_recorded=bool(external_items))
+            total_rappen += external["total_rappen"]
+        except DomainError as exc:  # N-913-04: FX-Sperre statt Rohsumme, Analyse ohne Betraege
+            if db.query(TargetAllocation.id).filter(
+                TargetAllocation.mandate_id == mandate.id, TargetAllocation.is_current == 1,
+                TargetAllocation.deleted_at.is_(None),
+            ).first() is not None:
+                raise  # mit Soll-Allokation sperren die Kundenkanaele typisiert (wie bisher, P3)
+            result["total_advisory_wealth_rappen"] = None
+            result["fx_block_reason_code"] = str(exc.reason_code)
+            result["warnings"].append(exc.message)
+            return result
 
     result["total_advisory_wealth_rappen"] = total_rappen
+    # H-172: ohne erfassten Bestand ist das IST der Rueckfall auf die Zielbetraege
+    # (IST = SOLL per Konstruktion) -- dann ist keine Bandaussage moeglich.
+    # KN4-B / N-917R3-03 + EXT-01: eine Definition (core/holdings_rule.py).
+    # ``ist_basiert_auf_soll``: kein einziger erfasster Bestand (IST = SOLL);
+    # ``ist_teilweise_abgeleitet``: mindestens eine Position faellt auf den
+    # Zielbetrag zurueck -- beides ohne Bandaussage.
+    held_ids = tuple((held_amounts or {}).keys()) if holdings_snapshot is None else ()
+    run_positions = [rec for rec, _prod in positions_with_products]
+    result["ist_basiert_auf_soll"] = bool(run_positions) and holdings_snapshot is None and (
+        ist_fully_derived(run_positions, held_ids))
+    result["ist_teilweise_abgeleitet"] = bool(run_positions) and holdings_snapshot is None and (
+        ist_partially_derived(run_positions, held_ids))
+    if external_items:
+        # K3: erfasstes Depot -- kein Titel faellt auf seinen Zielbetrag zurueck.
+        result["ist_basiert_auf_soll"] = result["ist_teilweise_abgeleitet"] = False
     if total_rappen <= 0:
+        if external_items:  # K3: nur nicht bewertbarer Fremdbestand -- sichtbar, ohne Betrag
+            _apply_external_items(result, external_items, 0, {}, {"daily": 0, "unknown": 0}, [])
+            result["warnings"].append(unvalued_message(external_items))
+            return result
         result["warnings"].append("Kein Beratungsvermögen erfasst. Bitte WealthPositions oder RecommendationRun anlegen.")
         return result
 
@@ -571,6 +818,7 @@ def compute_depot_check(
     position_country_exp: dict[str, dict[str, int]] = {}
     position_sector_exp: dict[str, dict[str, int]] = {}
     position_currency_exp: dict[str, dict[str, int]] = {}
+    position_currency_source: dict[str, str] = {}
     position_records_for_top: list[dict] = []
     ter_weighted_sum = 0
     duration_weighted_sum = 0
@@ -593,9 +841,10 @@ def compute_depot_check(
         # zwei Stellen fuer dieselbe Position haette total_rappen (Nenner
         # JEDER Prozentangabe im gesamten Depot-Check) von der Summe der
         # tatsaechlich gebuckten Betraege abkoppeln koennen.
-        amount = _safe_int(getattr(rec_pos, "current_amount_rappen", 0))
-        if amount <= 0 and holdings_snapshot is None:
-            amount = _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+        if holdings_snapshot is None:
+            amount = _position_amount(rec_pos, held_amounts or {}, depot_recorded=bool(external_items))
+        else:
+            amount = _safe_int(getattr(rec_pos, "current_amount_rappen", 0))
         # Exposures vor dem Ueberspringen: im Snapshot-Modus braucht der
         # SOLL-Vergleich (5b) auch Produkte, die (noch) nicht gehalten werden.
         # Ohne Snapshot ist hier jede Position > 0 (_load_positions filtert).
@@ -607,11 +856,21 @@ def compute_depot_check(
             getattr(prod, "sector_exposure_json", None),
             getattr(prod, "sub_asset_class", None),
         )
-        position_currency_exp[rec_pos.id] = currency_exposure_for_product(
+        # PO-06 (Audit 2026-11): Exposure aus den Produktdaten (gepflegtes
+        # JSON, sonst Absicherungs-Kennzeichen + Produktwaehrung); der
+        # Sub-Klassen-Proxy nur, wenn Produktdaten fehlen. Herkunft je Position.
+        position_currency_exp[rec_pos.id], currency_source = currency_exposure_with_source(
             getattr(prod, "currency_exposure_json", None),
             getattr(prod, "sub_asset_class", None),
-            fallback_currency=getattr(prod, "currency", None),
+            product_currency=getattr(prod, "currency", None),
+            product_name=getattr(prod, "product_name", None),
+            product_type=getattr(prod, "product_type", None),
+            # N-856-1: kuenftiges Stammdatenfeld (P1), dreiwertig; fehlt es
+            # (heute immer), gilt None = unbekannt -> Namens-Heuristik/Proxy.
+            is_hedged=getattr(prod, "is_hedged", None),
+            hedge_currency=getattr(prod, "hedge_currency", None),
         )
+        position_currency_source[rec_pos.id] = currency_source
         if amount <= 0:
             continue
         bucket = _bucket_key_from_product(prod)
@@ -628,6 +887,7 @@ def compute_depot_check(
             "amount_rappen": amount,
             "weight_bps": weight_bps,
             "ter_bps": _safe_int(getattr(prod, "ter_bps", 0)),
+            "currency_exposure_source": position_currency_source[rec_pos.id],
         })
         # Fund-Characteristics gewichtet
         ter = _safe_int(getattr(prod, "ter_bps", 0))
@@ -645,9 +905,14 @@ def compute_depot_check(
         tier = _product_liquidity_tier(prod, bucket)
         liquidity_buckets[tier] += amount
 
+    if external_items:
+        _apply_external_items(result, external_items, total_rappen, bucket_amounts_rappen,
+                              liquidity_buckets, position_records_for_top)
+        if result["fremdbestand_nicht_bewertbar"]:
+            result["warnings"].append(unvalued_message(external_items))
+
     # Fallback aus WealthPositions (kein Produkt → keine Exposure-Tiefe)
-    for wp, bucket in wealth_only_positions:
-        amount = _safe_int(getattr(wp, "current_value_rappen", 0))
+    for wp, bucket, amount in wealth_only_positions:  # amount in Mandatswaehrung (N-913-04)
         bucket_amounts_rappen[bucket] = bucket_amounts_rappen.get(bucket, 0) + amount
         weight_bps = int(round(amount / total_rappen * 10000))
         position_records_for_top.append({
@@ -684,12 +949,9 @@ def compute_depot_check(
     # konform meldete -- ein intern widerspruechliches Dokument. Siehe
     # services.risk_assessment_semantics.target_allocation_predates_current_
     # assessment fuer die (jetzt EINE, geteilte) Pruef-Logik.
-    from services.portfolio_engine import _current_risk_assessment_or_none
-    from services.risk_assessment_semantics import (
-        target_allocation_predates_current_assessment,
-    )
     current_ra = _current_risk_assessment_or_none(db, mandate.id)
-    result["target_allocation_stale"] = target_allocation_predates_current_assessment(
+    # Lookup zur Laufzeit ueber das Modul (eine Kante weniger, N-913-04).
+    result["target_allocation_stale"] = risk_assessment_semantics.target_allocation_predates_current_assessment(
         ta, getattr(current_ra, "id", None), current_ra
     )
     # ALLOCATION-INPUT-STALENESS-001: Payload/Finalisierung/Strategie-PDF
@@ -710,11 +972,18 @@ def compute_depot_check(
         soll_bps = 0
         band_min_bps = 0
         band_max_bps = 0
+        in_band = None  # ohne Soll-Allokation: nicht bewertbar
         if ta is not None:
             soll_bps = _safe_int(getattr(ta, f"target_{bucket}_bps", 0))
-            band_min_bps = _safe_int(getattr(ta, f"band_{bucket}_min_bps", 0))
-            band_max_bps = _safe_int(getattr(ta, f"band_{bucket}_max_bps", 0))
-        in_band = (band_min_bps <= ist_bps <= band_max_bps) if (band_min_bps or band_max_bps) else None
+            raw_min = getattr(ta, f"band_{bucket}_min_bps", None)
+            raw_max = getattr(ta, f"band_{bucket}_max_bps", None)
+            band_min_bps = _safe_int(raw_min)
+            band_max_bps = _safe_int(raw_max)
+            # KN3-B Nachtrag 2 (CTO): 0/0 = Obergrenze 0 (core/band_rule.py);
+            # nur eine fehlende Grenze (None) ist "nicht bewertbar".
+            in_band = None if (result.get("ist_basiert_auf_soll") or result.get("ist_teilweise_abgeleitet")
+                               or result.get("fremdbestand_nicht_bewertbar")) \
+                else band_in_band(ist_bps, raw_min, raw_max)
         result["buckets"][bucket] = {
             "label": BUCKET_LABELS[bucket],
             "ist_bps": ist_bps,
@@ -743,6 +1012,12 @@ def compute_depot_check(
         result["country_exposure_bps"] = aggregate_exposures(position_weights_bps, position_country_exp)
         result["sector_exposure_bps"] = aggregate_exposures(position_weights_bps, position_sector_exp)
         result["currency_exposure_bps"] = aggregate_exposures(position_weights_bps, position_currency_exp)
+        # PO-06: Herkunft des Waehrungs-Exposures (Gewicht je Quelle, bps).
+        source_weights: dict[str, int] = {}
+        for pos_id, weight in position_weights_bps.items():
+            source = position_currency_source.get(pos_id, "unbekannt")
+            source_weights[source] = source_weights.get(source, 0) + int(weight or 0)
+        result["currency_exposure_source_bps"] = dict(sorted(source_weights.items()))
 
     # 5b. Sprint U-P20: SOLL-Exposures + IST-SOLL-Drift pro Dimension.
     # SOLL = target_amount_rappen aus RecommendationPositions (das was der
@@ -828,3 +1103,63 @@ def compute_depot_check(
     # Sprint U-39 (2026-06-06): Warnings-Aggregation extrahiert.
     _aggregate_warnings(result)
     return result
+
+
+class ExternalHoldingsWriteError(ValueError):
+    """K3: Fremdbestand nicht speicherbar (``status_code`` 404/409/422)."""
+
+    def __init__(self, status_code: int, detail):
+        super().__init__(str(detail))
+        self.status_code = status_code
+        self.detail = detail
+
+
+def external_holdings_overview(db: Session, mandate: Mandate) -> dict:
+    """K3: Fremdbestand je Depot mit Status (dieselbe Bewertung wie der Depotcheck)."""
+    valuation = external_holdings_valuation(db, mandate, _select_latest_run(db, mandate))
+    by_depot: dict[str, list[dict]] = {}
+    for item in valuation["items"]:
+        by_depot.setdefault(item["wealth_position_id"], []).append(item)
+    return {
+        "mandate_id": str(mandate.id),
+        "base_currency": str(getattr(mandate, "base_currency", None) or "CHF").upper(),
+        "depots": [{
+            "wealth_position_id": str(depot.id),
+            "depot_label": str(depot.label or "").strip() or "Depot",
+            "items": by_depot.get(str(depot.id), []),
+        } for depot in advisory_depots(db, mandate.client_id)],
+        "total_base_rappen": valuation["total_rappen"],
+        "unvalued_count": valuation["unvalued_count"],
+    }
+
+
+def replace_external_holdings(db: Session, mandate: Mandate, wp_id: str, items: list[dict], *, now: str):
+    """K3: ersetzt die Fremdtitel eines Depots (leere Liste = keine). Nur an einem
+    aktiven Depot im Beratungsvermoegen; eine ISIN der aktuellen Empfehlung wird
+    abgelehnt (Doppelzaehlung). Returns ``(alte Anzahl, neue Anzahl)`` oder
+    ``None``, wenn sich nichts aendert. Kein Commit."""
+    depot = db.query(WealthPosition).filter(
+        WealthPosition.id == wp_id, WealthPosition.client_id == mandate.client_id,
+        WealthPosition.deleted_at.is_(None),
+    ).first()
+    if depot is None:
+        raise ExternalHoldingsWriteError(404, "Vermögensposition nicht gefunden")
+    if not external_rule.is_advisory_depot(depot):
+        raise ExternalHoldingsWriteError(422, (
+            "Titel ausserhalb der Empfehlung lassen sich nur an einem aktiven Wertschriftendepot "
+            "im Beratungsvermögen erfassen."))
+    in_recommendation = run_isins(db, _select_latest_run(db, mandate))
+    duplicates = sorted({i["isin"] for i in items if i.get("isin") and i["isin"] in in_recommendation})
+    if duplicates:
+        raise ExternalHoldingsWriteError(409, {
+            "reason_code": "EXTERNAL_HOLDING_IN_RECOMMENDATION",
+            "message": (f"{', '.join(duplicates)} steht in der Empfehlung. Den Bestand bitte bei der "
+                        "Empfehlungsposition erfassen, sonst wird er doppelt gezählt."),
+        })
+    new_json = external_rule.dump_items(items)
+    if new_json == depot.external_holdings_json:
+        return None
+    old_count = len(external_rule.parse_items(depot.external_holdings_json))
+    depot.external_holdings_json = new_json
+    depot.updated_at = now
+    return depot.id, old_count, len(items)

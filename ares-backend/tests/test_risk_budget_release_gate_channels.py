@@ -207,6 +207,11 @@ def test_signature_of_non_recommendation_document_is_not_gated(session_factory):
     advisor_id, mid, _aid, _alloc = _setup(session_factory, "rbg-sign-contract", mode="violated")
     doc_id = _add_document(session_factory, mid, advisor_id, "Beratungsvertrag")
     with session_factory() as db:
+        # H8 C-2/C-5: Vertragsunterzeichnung erst nach Kundeninformation und KYC.
+        from client_onboarding_fixture import satisfy_client_onboarding
+
+        satisfy_client_onboarding(db, db.get(Mandate, mid))
+        db.commit()
         advisor = db.query(User).filter(User.id == advisor_id).one()
         doc = sign_document(
             mandate_id=mid, doc_id=doc_id,

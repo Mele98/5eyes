@@ -27,12 +27,19 @@ import json
 from datetime import datetime, timezone
 from typing import Sequence
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import new_uuid
 from models.mandates import Mandate
-from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet
-from models.review import Product
+from core import sustainability_preference as sustainability
+from core.reason_codes import DomainError, ReasonCode
+from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet, ProductSustainabilityAttribute
+from models.review import Product, RecommendationPosition
+from core.db_integrity import raise_if_check_violation
+from services.product_eligibility_governance import TENANT_PRODUCT_RULE_SOURCE as _TENANT_PRODUCT_RULE_SOURCE
+from services.product_eligibility_governance import parse_utc_timestamp
+from services.product_eligibility_governance import effective_sustainability_threshold, evaluate_criterion
 from schemas.product_eligibility import (
     DimensionStatus,
     KnowledgeCategory,
@@ -55,6 +62,22 @@ def canonical_hash(payload: dict) -> str:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _effective_at(row, cutoff) -> bool:
+    """Point-in-Time: freigegeben (approved_at <= cutoff) und cutoff im
+    halboffenen Fenster [valid_from, valid_to). Fehlende/unlesbare Zeitpunkte
+    -> nicht wirksam (fail-closed)."""
+    approved_at = parse_utc_timestamp(row.approved_at)
+    valid_from = parse_utc_timestamp(row.valid_from)
+    if approved_at is None or valid_from is None:
+        return False
+    if approved_at > cutoff or valid_from > cutoff:
+        return False
+    if row.valid_to is None:
+        return True
+    valid_to = parse_utc_timestamp(row.valid_to)
+    return valid_to is not None and cutoff < valid_to
 
 
 def map_product_to_knowledge_categories(product: Product) -> list[KnowledgeCategory]:
@@ -153,34 +176,73 @@ def resolve_active_rules_for_product(
     band and otherwise reports `AMBIGUOUS_RULE_MATCH`.
     """
     from services.product_eligibility_governance import (
+        instant_within_validity,
         rule_visible_to_tenant,
         selector_matches_product,
     )
 
-    as_of = as_of or _now_iso()
-    rows = (
-        db.query(ProductEligibilityRule, ProductEligibilityRuleSet)
-        .join(
-            ProductEligibilityRuleSet,
-            ProductEligibilityRuleSet.id == ProductEligibilityRule.rule_set_id,
-        )
-        .filter(
-            ProductEligibilityRule.status == "approved",
-            ProductEligibilityRule.jurisdiction == jurisdiction,
-            ProductEligibilityRule.valid_from <= as_of,
-            (ProductEligibilityRule.valid_to.is_(None)) | (ProductEligibilityRule.valid_to > as_of),
-            ProductEligibilityRuleSet.status == "approved",
-            ProductEligibilityRuleSet.valid_from <= as_of,
-            (ProductEligibilityRuleSet.valid_to.is_(None)) | (ProductEligibilityRuleSet.valid_to > as_of),
-            (ProductEligibilityRule.product_id == product.id)
-            | (
-                ProductEligibilityRule.product_id.is_(None)
-                & ProductEligibilityRule.product_category_selector.isnot(None)
-            ),
-        )
-        .order_by(ProductEligibilityRule.profile_from, ProductEligibilityRule.id)
-        .all()
+    product_match = (ProductEligibilityRule.product_id == product.id) | (
+        ProductEligibilityRule.product_id.is_(None)
+        & ProductEligibilityRule.product_category_selector.isnot(None)
     )
+    if as_of is None:
+        # Aktueller Stand: Status `approved`. C-860-01: die Gueltigkeitsfenster
+        # von Regel und RuleSet als echte UTC-Zeitpunkte nach dem Laden, nicht
+        # als SQL-Textvergleich ('...SS+00:00' sortierte vor '...SS.000Z' --
+        # eine eben geseedete Regel galt bis zum Sekundenwechsel als ungueltig).
+        as_of = _now_iso()
+        candidates = (
+            db.query(ProductEligibilityRule, ProductEligibilityRuleSet)
+            .join(
+                ProductEligibilityRuleSet,
+                ProductEligibilityRuleSet.id == ProductEligibilityRule.rule_set_id,
+            )
+            .filter(
+                ProductEligibilityRule.status == "approved",
+                ProductEligibilityRule.jurisdiction == jurisdiction,
+                ProductEligibilityRuleSet.status == "approved",
+                product_match,
+            )
+            .order_by(ProductEligibilityRule.profile_from, ProductEligibilityRule.id)
+            .all()
+        )
+        rows = [
+            (rule, rule_set) for rule, rule_set in candidates
+            if instant_within_validity(rule.valid_from, rule.valid_to, as_of)
+            and instant_within_validity(rule_set.valid_from, rule_set.valid_to, as_of)
+        ]
+    else:
+        # Point-in-Time (N-855-6, C-855-01 / N-855-9, 2026-11): galt die Regel
+        # zum Stichtag? Regel UND Regelset muessen zum Stichtag bereits
+        # freigegeben gewesen sein (approved_at gesetzt und <= as_of; Legacy-
+        # Zeilen ohne Freigabezeitpunkt historisch fail-closed), und as_of muss
+        # im halboffenen Fenster [valid_from, valid_to) liegen. Eine durch eine
+        # Folgeregel abgeloeste Regel (retired, valid_to gesetzt) zaehlt in
+        # ihrem Fenster; nie freigegebene Entwuerfe nie. Alle Zeitvergleiche
+        # als UTC-datetime, nicht als String ('Z' und '+00:00' gemischt).
+        cutoff = parse_utc_timestamp(as_of)
+        if cutoff is None:
+            raise ValueError(f"as_of ist kein ISO-Zeitstempel: {as_of!r}")
+        candidates = (
+            db.query(ProductEligibilityRule, ProductEligibilityRuleSet)
+            .join(
+                ProductEligibilityRuleSet,
+                ProductEligibilityRuleSet.id == ProductEligibilityRule.rule_set_id,
+            )
+            .filter(
+                ProductEligibilityRule.status.in_(("approved", "retired")),
+                ProductEligibilityRule.jurisdiction == jurisdiction,
+                ProductEligibilityRuleSet.status == "approved",
+                product_match,
+            )
+            .order_by(ProductEligibilityRule.profile_from, ProductEligibilityRule.id)
+            .all()
+        )
+        rows = [
+            (rule, rule_set) for rule, rule_set in candidates
+            if (rule.status == "approved" or rule.valid_to is not None)
+            and _effective_at(rule, cutoff) and _effective_at(rule_set, cutoff)
+        ]
     visible = [
         rule for rule, rule_set in rows
         if rule_visible_to_tenant(rule, rule_set, tenant_id)
@@ -312,7 +374,9 @@ def ensure_rule_set(
         with db.begin_nested():
             db.add(rule_set)
             db.flush()
-    except IntegrityError:
+    except IntegrityError as exc:
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         winner = _find_open()
         if winner is None:
             raise
@@ -429,6 +493,7 @@ def author_default_catalog_rule(
     source_label: str = DEFAULT_CATALOG_BOOTSTRAP_IDENTITY,
     now: str | None = None,
     approved_by: str | None = _SAME_AS_AUTHOR,
+    supersedes_id: str | None = None,
 ) -> ProductEligibilityRule:
     """Author one product-specific governed rule.
 
@@ -479,7 +544,7 @@ def author_default_catalog_rule(
         prohibited=int(prohibited),
         valid_from=now,
         valid_to=None,
-        supersedes_id=None,
+        supersedes_id=supersedes_id,
     )
     rule = ProductEligibilityRule(
         id=new_uuid(),
@@ -507,7 +572,9 @@ def author_default_catalog_rule(
 # created_by/approved_by MUST be that real advisor's user id (Section 11:
 # "never a synthetic system sentinel" applies in full force here, unlike
 # the bootstrap-catalog case above).
-TENANT_PRODUCT_RULE_SOURCE = "tenant_product_creation_v1"
+# N-855-7: definiert in services.product_eligibility_governance (eine Quelle,
+# dort fuer das Neu-Binden des Hashes bei der Freigabe gebraucht).
+TENANT_PRODUCT_RULE_SOURCE = _TENANT_PRODUCT_RULE_SOURCE
 
 
 def author_tenant_product_rule(
@@ -523,6 +590,7 @@ def author_tenant_product_rule(
     requires_appropriateness: bool = False,
     requires_override: bool = False,
     now: str | None = None,
+    supersedes_id: str | None = None,
 ) -> ProductEligibilityRule:
     """Author the one tenant-scoped governed rule for a product an advisor
     just added to their own tenant's catalog, attributed to that advisor.
@@ -557,7 +625,104 @@ def author_tenant_product_rule(
         source_label=TENANT_PRODUCT_RULE_SOURCE,
         now=now,
         approved_by=None,
+        supersedes_id=supersedes_id,
     )
+
+
+# AUDIT-FIX Fondsuniversum R7/F3 (2026-11): Eignungsfelder einer Import-Zeile
+# (ProductCreate) -> Spalte der governed Regel.
+_IMPORT_SUITABILITY_RULE_FIELDS = (
+    ("suitability_profile_from", "profile_from"),
+    ("suitability_profile_to", "profile_to"),
+    ("suitability_service_modes", "service_modes"),
+    ("suitability_prohibited", "prohibited"),
+    ("suitability_requires_appropriateness", "requires_appropriateness"),
+    ("suitability_requires_override", "requires_override"),
+    ("suitability_max_position_bps", "max_position_bps"),
+)
+
+
+def _rule_policy_view(rule: ProductEligibilityRule) -> dict:
+    return {
+        "profile_from": int(rule.profile_from),
+        "profile_to": int(rule.profile_to),
+        "service_modes": sorted(json.loads(rule.service_modes_json or "[]")),
+        "prohibited": bool(rule.prohibited),
+        "requires_appropriateness": bool(rule.requires_appropriateness),
+        "requires_override": bool(rule.requires_override),
+        "max_position_bps": rule.max_position_bps,
+    }
+
+
+def reauthor_tenant_product_rule_on_import(
+    db: Session,
+    *,
+    product: Product,
+    jurisdiction: str,
+    created_by_user_id: str,
+    row: dict,
+    explicit_fields: set[str],
+    now: str | None = None,
+) -> tuple[ProductEligibilityRule | None, list[str]]:
+    """AUDIT-FIX Fondsuniversum R7/F3 (2026-11): ein Re-Import (Upsert) hat
+    die Eignungsfelder bisher still verworfen -- eine verschaerfte Eignung im
+    monatlichen Upload blieb ohne Hinweis wirkungslos.
+
+    Jetzt derselbe Weg wie beim Erfassen: weicht die Eignung der Zeile von
+    der aktuell massgebenden Regel ab (offener Entwurf, sonst freigegebene
+    Regel), entsteht ein neuer Regel-ENTWURF (Vier-Augen-Freigabe ueber
+    POST /products/{id}/eligibility-rule/approve). Die freigegebene Regel
+    bleibt bis zur Freigabe in Kraft (supersedes_id) und wird erst bei der
+    Freigabe abgeloest (product_eligibility_governance.approve_rule). Ein
+    offener, noch nie wirksamer Vorgaenger-Entwurf wird zurueckgezogen.
+    Nicht gelieferte bzw. leere Eignungsfelder gelten als "unveraendert".
+    Gibt (neuer Entwurf oder None, IDs der zurueckgezogenen Entwuerfe)
+    zurueck; der Aufrufer protokolliert beides im Audit-Log (N-855-4)."""
+    rules = (
+        db.query(ProductEligibilityRule)
+        .filter(
+            ProductEligibilityRule.product_id == product.id,
+            ProductEligibilityRule.jurisdiction == jurisdiction,
+            ProductEligibilityRule.status.in_(("draft", "approved")),
+        )
+        .order_by(ProductEligibilityRule.created_at, ProductEligibilityRule.id)
+        .all()
+    )
+    drafts = [rule for rule in rules if rule.status == "draft"]
+    approved = [rule for rule in rules if rule.status == "approved"]
+    reference = drafts[-1] if drafts else (approved[-1] if approved else None)
+    current = _rule_policy_view(reference) if reference is not None else None
+    desired: dict = {}
+    for row_field, rule_field in _IMPORT_SUITABILITY_RULE_FIELDS:
+        value = row.get(row_field)
+        given = row_field in explicit_fields and value is not None
+        if not given and current is not None:
+            desired[rule_field] = current[rule_field]
+        else:
+            desired[rule_field] = sorted(value) if rule_field == "service_modes" else value
+    if desired["prohibited"]:
+        desired["service_modes"] = []
+    elif not desired["service_modes"]:
+        desired["service_modes"] = sorted(row.get("suitability_service_modes") or [])
+    if current is not None and desired == current:
+        return None, []
+    for draft in drafts:
+        draft.status = "retired"
+        draft.updated_at = now or _now_iso()
+    return author_tenant_product_rule(
+        db,
+        product=product,
+        created_by_user_id=created_by_user_id,
+        jurisdiction=jurisdiction,
+        profile_from=desired["profile_from"],
+        profile_to=desired["profile_to"],
+        service_modes=list(desired["service_modes"]),
+        max_position_bps=desired["max_position_bps"],
+        requires_appropriateness=bool(desired["requires_appropriateness"]),
+        requires_override=bool(desired["requires_override"]),
+        now=now,
+        supersedes_id=approved[-1].id if approved else None,
+    ), [draft.id for draft in drafts]
 
 
 def evaluate_product_eligibility(
@@ -812,3 +977,168 @@ def is_eligible_candidate(
         tenant_id=tenant_id,
     )
     return decision.decision == "eligible"
+
+
+# ===========================================================================
+# E2b Nachtrag 1 (Owner-Vertretung 2026-11-12): Durchsetzung der
+# Kundenausschluesse AM PRODUKT. Ist in der aktuellen Nachhaltigkeits-
+# praeferenz ein Ausschluss erfasst, waehlt die Produktselektion nur Produkte,
+# deren freigegebener, am Stichtag gueltiger, fuer den Tenant sichtbarer
+# Nachweis (product_sustainability_attributes, evaluate_criterion) jedes
+# Ausschluss-Kriterium erfuellt. Keine Katalog-Themenzuordnung ohne Nachweis,
+# unbekannt != erfuellt. Liquiditaet ist ausgenommen (gleiche Ausnahme wie
+# die Abdeckungspruefung). Fehlt zur Laufzeit ein Nachweis -> fail-closed
+# (SUSTAINABILITY_EVIDENCE_MISSING, kurze Meldung + Detail).
+# ===========================================================================
+_EVIDENCE_EXEMPT_ASSET_CLASSES = frozenset({"Liquiditaet", "Liquidität"})
+
+
+class CustomerExclusionEvidence:
+    """Praedikat + Belege fuer die Ausschluesse einer Erfassung."""
+
+    def __init__(self, db: Session, mandate: Mandate, decision: dict, themes: list, as_of: str):
+        self.db, self.mandate, self.themes, self.as_of = db, mandate, list(themes), as_of
+        self.decision_hash = decision.get("decision_hash")
+        self._tenant = getattr(mandate, "tenant_id", None)
+        self._categories = {t: sustainability.EXCLUSION_EVIDENCE_CATEGORIES[t] for t in self.themes}
+        self._thresholds = {
+            t: effective_sustainability_threshold(db, self._tenant, c, as_of) for t, c in self._categories.items()
+        }
+        self._evaluate = evaluate_criterion
+        self._labels = sustainability.EXCLUSION_LABELS
+        self._by_product: dict[str, list] = {}
+        for row in db.query(ProductSustainabilityAttribute).filter(
+            ProductSustainabilityAttribute.status == "approved",
+        ).all():
+            self._by_product.setdefault(row.product_id, []).append(row)
+        self._cache: dict[str, dict] = {}
+
+    @staticmethod
+    def exempt(product) -> bool:
+        return str(getattr(product, "asset_class", None) or "").strip() in _EVIDENCE_EXEMPT_ASSET_CLASSES
+
+    def evidence(self, product) -> dict:
+        """{thema: Nachweis-ID|None} je Ausschluss (Liquiditaet: leer)."""
+        if self.exempt(product):
+            return {}
+        if product.id not in self._cache:
+            rows = self._by_product.get(product.id) or []
+            found = {}
+            for theme, category in self._categories.items():
+                result = self._evaluate(
+                    self.db, product, category, self._thresholds[theme], self.as_of,
+                    tenant_id=self._tenant, attributes=rows,
+                ) if rows else None
+                found[theme] = result.attribute_id if result is not None and result.satisfied else None
+            self._cache[product.id] = found
+        return self._cache[product.id]
+
+    def __call__(self, product) -> bool:
+        return all(self.evidence(product).values())
+
+    def satisfies(self, product, themes) -> bool:
+        """Belegt das Produkt ALLE genannten Themen (Kombination am selben
+        Produkt)? Liquiditaet ausgenommen."""
+        if self.exempt(product):
+            return True
+        ev = self.evidence(product)
+        return all(ev.get(t) for t in themes)
+
+    def missing_themes(self, product) -> list:
+        return [t for t, ev in self.evidence(product).items() if not ev]
+
+    def raise_if_uncovered(self, eligible_products, sub_allocations, slot_candidates) -> None:
+        """Vor der Selektion: je Slot ein belegtes Produkt nach DERSELBEN
+        Slot-Regel wie die Engine (``slot_candidates``: exakt, sonst
+        Anlageklasse normalisiert), sonst kurze fail-closed-Meldung."""
+        missing = []
+        for sub in sub_allocations:
+            if str(sub.get("asset_class") or "").strip() in _EVIDENCE_EXEMPT_ASSET_CLASSES:
+                continue
+            if not slot_candidates(eligible_products, sub.get("sub_asset_class"), sub.get("asset_class")):
+                missing.append(str(sub.get("sub_asset_class") or ""))
+        if missing:
+            self._raise("Produktauswahl gesperrt", missing)
+
+    def _raise(self, label: str, subs: list) -> None:
+        themes = ", ".join(self._labels[t] for t in self.themes)
+        raise DomainError(
+            ReasonCode.SUSTAINABILITY_EVIDENCE_MISSING,
+            f"{label}: Für den Ausschluss ({themes}) fehlt ein gültiger Produktnachweis. "
+            "Einstellung: Nachweise im Produktuniversum. Bitte Nachweis erneuern oder Präferenz neu erheben.",
+            http_status=409,
+            extra={"detail": "Betroffen: " + ", ".join(subs), "themes": list(self.themes)},
+        )
+
+    def snapshot(self, products) -> str:
+        """Belege der gewaehlten Produkte (an der Empfehlung gespeichert)."""
+        positions = {p.id: self.evidence(p) for p in products if not self.exempt(p)}
+        return json.dumps({
+            "decision_hash": self.decision_hash, "themes": list(self.themes), "as_of": self.as_of,
+            "positions": positions,
+            "complete": all(all(ev.values()) for ev in positions.values()),
+        }, sort_keys=True)
+
+
+def customer_exclusion_evidence(db: Session, mandate: Mandate, as_of: str | None = None):
+    """``CustomerExclusionEvidence`` der aktuellen Erfassung oder None (keine
+    Ausschluesse). Unlesbare Erfassung -> None; die Untergrenze sperrt dann
+    bereits fail-closed (SUSTAINABILITY_PREFERENCE_UNREADABLE)."""
+    row = db.execute(text(sustainability.CURRENT_DECISION_SQL), {"mandate_id": mandate.id}).mappings().first()
+    decision = dict(row) if row else None
+    try:
+        themes = sustainability.effective_exclusions(decision)
+    except (TypeError, ValueError):
+        return None
+    if not themes:
+        return None
+    return CustomerExclusionEvidence(
+        db, mandate, decision, themes, as_of or datetime.now(timezone.utc).date().isoformat(),
+    )
+
+
+def assert_run_positions_evidenced(db: Session, mandate: Mandate, run, *, label: str) -> None:
+    """Finalisierung: jede Position der Empfehlung muss den Ausschluss HEUTE
+    belegt erfuellen (abgelaufener/zurueckgezogener Nachweis -> 409)."""
+    check = customer_exclusion_evidence(db, mandate)
+    if check is None:
+        return
+    product_ids = [p.product_id for p in db.query(RecommendationPosition).filter(
+        RecommendationPosition.run_id == run.id,
+    ).all()]
+    products = db.query(Product).filter(Product.id.in_(product_ids)).all() if product_ids else []
+    bad = [p for p in products if not check(p)]
+    if bad:
+        check._raise(label, [str(p.product_name or p.id) for p in bad])
+
+
+RUN_EVIDENCE_NO_RUN = "no_run"
+
+
+def run_exclusion_evidence_status(db: Session, mandate: Mandate, run_id) -> str:
+    """N-901-02: Beleg-Status der Produktauswahl eines Laufs, HEUTE neu
+    bewertet (Nachweis gueltig, nicht zurueckgezogen/abgelaufen, Tenant) --
+    nie aus einem eingefrorenen Snapshot. ``none`` = kein Ausschluss aktiv,
+    ``no_run`` = Ausschluss aktiv, aber kein Lauf, ``ok``/``missing``."""
+    check = customer_exclusion_evidence(db, mandate)
+    if check is None:
+        return sustainability.RUN_EVIDENCE_NONE
+    if not run_id:
+        return RUN_EVIDENCE_NO_RUN
+    product_ids = [r.product_id for r in db.query(RecommendationPosition).filter(
+        RecommendationPosition.run_id == run_id,
+    ).all()]
+    if not product_ids:
+        return sustainability.RUN_EVIDENCE_MISSING
+    products = db.query(Product).filter(Product.id.in_(product_ids)).all()
+    if len(products) != len(set(product_ids)) or not all(check(p) for p in products):
+        return sustainability.RUN_EVIDENCE_MISSING
+    return sustainability.RUN_EVIDENCE_OK
+
+
+def assert_product_evidenced(db: Session, mandate: Mandate, product) -> None:
+    """N-901-02: bei aktivem Ausschluss ist eine unbelegte Position nicht
+    hinzufuegbar (409, kurze Meldung)."""
+    check = customer_exclusion_evidence(db, mandate)
+    if check is not None and not check(product):
+        check._raise("Position kann nicht hinzugefügt werden", [str(product.product_name or product.id)])

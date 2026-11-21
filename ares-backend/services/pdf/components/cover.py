@@ -55,7 +55,9 @@ def make_cover_page(
     table_width = page_width - 24 * mm
 
     flowables: list = []
-    org = advisor_org or ctx.advisor_org or DEFAULT_ADVISOR_ORG or ctx.advisor_name or "Emanuele Konzelmann"
+    # KN-B Nachtrag 1: kein Personenname als Fallback -- ohne Firma/Berater entfaellt die Zeile.
+    # KN3-B E2E3-04: nie der Beratername als Firma.
+    org = advisor_org or ctx.advisor_org or DEFAULT_ADVISOR_ORG or ""
 
     # ---- Brand-Block + Titel ----
     flowables.append(Spacer(1, 12 * mm))

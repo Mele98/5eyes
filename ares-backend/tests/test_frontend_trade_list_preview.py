@@ -19,6 +19,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = REPO_ROOT / "ares-desktop" / "frontend"
@@ -38,6 +39,7 @@ function escapeHtml(v){return String(v==null?'':v);}
 function formatRappen(v){return 'R'+String(v);}
 function formatBpsPercent(v){return 'B'+String(v);}
 function formatCompactCHFAmount(v){return String(v);}
+function fmtNumber(v,d){return Number(v).toFixed(d==null?0:d);}
 function getActiveMandateId(){return 'm-1';}
 function renderPortfolioHandoffSection(){calls.handoffSections++;}
 var _tlHandoffCtx=null;
@@ -128,7 +130,7 @@ def test_other_rejections_show_reason_without_confirmation_offer():
 
 
 def test_monolith_loads_module_and_forwards_confirmation():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     assert '<script src="./trade-list-preview.js"></script>' in html
     assert "function openTradeList(" not in html
     start = html.index("async function submitPortfolioHandoff()")

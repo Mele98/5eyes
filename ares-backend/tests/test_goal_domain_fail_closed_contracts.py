@@ -310,8 +310,16 @@ def test_goal_update_preserves_supported_german_and_legacy_spellings(
     )
 
     assert response.status_code == 200, response.text
+    # RC-CH-1-F1: Legacy-Schreibweisen bleiben als EINGABE gueltig, gespeichert
+    # und ausgeliefert wird der DB-Wert (CHECK in ares_schema.sql kennt nur die
+    # Umlaut-Form; die Rohform endete auf dem echten Schema als 500).
+    canonical = {
+        "Primaer": "Primär",
+        "Beratungsvermoegen": "Beratungsvermögen",
+        "Gesamtvermoegen": "Gesamtvermögen",
+    }
     for field, value in patch.items():
-        assert response.json()[field] == value
+        assert response.json()[field] == canonical.get(value, value)
 
 
 RAW_INVALID_CASES = (
