@@ -6806,11 +6806,8 @@ def generate_recommendation_run(
     # Produkt ausserhalb seines Risikobands/Service-Modus wird nicht mehr
     # als letzter Ausweg wieder zum Kandidaten (Spec Section 9.2).
     from services.product_eligibility import (
-        customer_exclusion_evidence,
-        derive_service_mode,
-        is_eligible_candidate,
-        mandate_tenant_id,
-        snapshot_run_product_evidence,
+        customer_exclusion_evidence, derive_service_mode, is_eligible_candidate,
+        mandate_tenant_id, snapshot_run_product_evidence,
     )
     service_mode, run_tenant_id = derive_service_mode(mandate), mandate_tenant_id(mandate)
     exclusion_evidence = customer_exclusion_evidence(db, mandate)  # E2b N1: nur belegte Produkte
