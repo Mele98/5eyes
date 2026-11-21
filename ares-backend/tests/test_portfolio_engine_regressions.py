@@ -87,6 +87,8 @@ def _make_cma(**overrides) -> CapitalMarketAssumption:
                 }
             }
         ),
+        # CCX P5 / M-2: ohne CMA-Inflationspfad fail-closed; explizite Testreihe (frueher stiller 70-bps-Ersatz).
+        "inflation_path_json": '{"2026": 70}',
         "created_by": "advisor-1",
         "created_at": "2026-04-20T00:00:00.000Z",
         "updated_at": "2026-04-20T00:00:00.000Z",

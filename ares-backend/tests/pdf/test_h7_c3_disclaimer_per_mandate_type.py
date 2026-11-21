@@ -198,6 +198,11 @@ def test_pdf_context_builder_carries_mandate_type_and_jurisdiction(monkeypatch):
             return _Result()
 
     monkeypatch.setattr(pdf_reports, "_audit_hash_for_mandate", lambda mandate: "h")
+    # CCX P5: der Kontext liest auch den Beratungsentscheid fuer den Fuss; der
+    # Stub hat keine Tabellen -- hier geht es nur um Mandatstyp/Jurisdiktion.
+    from services.allocation_publication_gate import ChannelDecision
+
+    monkeypatch.setattr(pdf_reports, "evaluate_channel_envelope", lambda *_a, **_k: ChannelDecision(applicable=False))
     mandate = SimpleNamespace(
         id="m1", client_id="c1", mandate_number="M-1", base_currency="EUR",
         mandate_type="Anlageberatung", jurisdiction="DE",

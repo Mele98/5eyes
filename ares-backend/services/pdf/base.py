@@ -51,6 +51,10 @@ class PDFContext:
     # C-890-01 Nachtrag 4 (N-897-12): "vorvertrag" fuer kundenwirksame Berichte
     # ohne jede KYC-Bestaetigung (Entwurf vor Vertragsabschluss), sonst "none".
     watermark_mode: str = "none"
+    # CCX P5 (Vertrag §8): Envelope-Hash/Version des versiegelten, auslieferbaren
+    # Beratungsentscheids fuer den Fuss jedes Kunden-PDFs; None = kein solcher
+    # Entscheid gebunden (Entwurf oder Dokument ohne Entscheid).
+    decision_ref: Mapping[str, str] | None = None
 
 
 # E2E2-03: Verzehr-Hinweis fuer die Kunden-PDFs (pure Funktion, eine Quelle:

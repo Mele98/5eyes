@@ -710,6 +710,14 @@ class Settings(BaseSettings):
     sub_class_intra_correlation: float = 1.0
 
     @property
+    def ic_release_required(self) -> bool:
+        """CCX P5 / N-925-05 (CTO-Entscheid H-180): ohne IC-Freigabe der
+        Risikoparameter keine Berechnung in Produktion -- ``app_env=production``
+        ODER gepackte Desktop-EXE (``sys.frozen``), dieselbe Linie wie
+        ``foundation_example_available``."""
+        return self.app_env == 'production' or bool(getattr(sys, 'frozen', False))
+
+    @property
     def foundation_example_available(self) -> bool:
         """KN-B / E2E2-10: Der Demo-Systemfall ("Foundation Case laden") nur im
         Entwicklungs-/Demo-/Testbetrieb. Gesperrt in ``app_env=production`` und

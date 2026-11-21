@@ -142,6 +142,8 @@ from services.recommendation_release_gate import (
     row_seal,
     contract_concluded_at,
     risk_budget_release_errors,
+    record_signature_publication,
+    require_signature_envelope,
 )
 from services.review_engine import (
     ReviewAnchorDataError,
@@ -1961,6 +1963,14 @@ def sign_document(
     from services.signature_artifact import assert_signable_artifact
 
     assert_signable_artifact(doc)
+    # CCX P5 (Vertrag §8.4): ein Empfehlungsdokument ist nur signierbar, wenn
+    # der aktuelle Entscheid auslieferbar ist (SEALED+FRESH, FX jetzt,
+    # Parametersatz/Zielkennzahl) und -- fuer Entscheid-Dokumente -- genau
+    # dieses archivierte PDF als Artefakt dieses Envelopes ausgeliefert wurde.
+    p5_signature = require_signature_envelope(
+        db, mandate, doc, channel="ADVISOR_SIGNATURE", user=current_user,
+        ip_address=_extract_client_ip(request),
+    )
     # REC-006 (Codex-Audit 2026-08-25): dieser Endpoint hatte keinerlei
     # Status-Gate -- ein zweiter Aufruf mit signed_by_advisor/signed_by_client
     # ueberschrieb klaglos Bild/Name/Zeitstempel/IP einer bereits geleisteten
@@ -2004,6 +2014,11 @@ def sign_document(
         table_name="contract_documents", record_id=doc_id, action="UPDATE",
         field_name="status", new_value=doc.status, mandate_id=mandate_id,
         ip_address=signer_ip)
+    if p5_signature is not None:
+        record_signature_publication(
+            db, p5_signature, mandate=mandate,
+            artifact_id=f"{doc.id}:{'advisor' if body.signed_by_advisor else 'client'}", user=current_user,
+        )
     db.commit()
     db.refresh(doc)
     return doc

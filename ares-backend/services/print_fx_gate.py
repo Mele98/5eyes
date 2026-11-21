@@ -9,12 +9,10 @@ Depot-Check (N-909-02): beim Druck muss jede Waehrung der Betragsquellen des
 Mandats heute strikt konvertierbar sein (belegt, frisch nach Tenant-Frist,
 kein Ersatzkurs) -- sonst ``CCX_FX_BASIS_*``.
 
-Ein versiegelter Lauf traegt seine FX-Basis im Envelope (Bewertungs-Snapshot
-mit ``fx_basis_hash``); er wird hier nicht erneut gegen heute geprueft --
-H12: nur solange der Entscheid FRESH ist (P2 setzt bei einer Invalidierung
-``freshness_status`` auf STALE/UNKNOWN, ``status`` bleibt SEALED). Die
-endgueltige Ausnahme gilt kuenftig nur fuer das gespeicherte, hashgebundene
-P5-Artefakt (Codex N-909-22); H12 schaerft nur die bestehende Ausnahme nach.
+CCX P5 (Codex N-909-22, Vertrag §8.3): die fruehere Ausnahme fuer einen
+versiegelten, FRESHen Lauf ist entfallen. Jedes Live-Neurendern prueft die
+heutige strikte FX-Basis; eine Ausnahme gilt nur fuer die Wiedergabe des
+gespeicherten, hashgebundenen P5-Artefakts (Archiv/Signatur).
 
 H12 (N-909-20, Codex: route-spezifisches FX-Quelleninventar): welche Route
 welche FX-abhaengigen Betraege druckt und welche Pruefung deshalb gilt, steht
@@ -132,12 +130,15 @@ def run_is_sealed(db: Session, mandate: Any, run_id: str | None) -> bool:
 
 def assert_print_fx_basis_current(db: Session, mandate: Any, *, run_id: str | None = None) -> None:
     """Sperrt typisiert (``CCX_FX_BASIS_*``), wenn eine Waehrung der
-    Betragsquellen heute nicht strikt konvertierbar ist und der Lauf nicht
-    versiegelt ist. Ohne Fremdwaehrung: keine Kursabfrage."""
-    if run_id is None:
-        run_id = current_run_id(db, str(mandate.id))
-    if run_is_sealed(db, mandate, run_id):
-        return
+    Betragsquellen heute nicht strikt konvertierbar ist. Ohne Fremdwaehrung:
+    keine Kursabfrage.
+
+    CCX P5 (Vertrag §8.3, N-909-22): die fruehere Ausnahme fuer einen
+    SEALED+FRESH-Lauf entfaellt. Eine Ausnahme gilt nur fuer die Wiedergabe des
+    exakten, hashgebundenen P5-Artefakts; jedes Live-Neurendern -- auch
+    desselben versiegelten Laufs -- prueft die heutige strikte FX-Basis.
+    ``run_id`` bleibt fuer Aufrufer erhalten (keine Wirkung mehr)."""
+    del run_id
     target = normalize_currency(getattr(mandate, "base_currency", None))
     currencies = mandate_amount_currencies(db, mandate)
     if not currencies - {target}:

@@ -115,6 +115,7 @@ from types import SimpleNamespace
 
 from sqlalchemy.orm import Session
 
+from core.risk_parameter_set import ParameterSetMissing
 from database import new_uuid
 from models.allocation import OptimizerRun
 from services.allocation_messages import classify_messages
@@ -501,6 +502,8 @@ def _run_stochastic_optimizer_pass(
     if rf_per_bucket is None and building_blocks_rows is not None:
         try:
             rf_per_bucket = bucket_risky_fractions_from_building_blocks(building_blocks_rows)
+        except ParameterSetMissing:
+            raise  # CCX P5 / N-925-06: fail-closed, nie zu None geschluckt
         except Exception as exc:  # noqa: BLE001
             logger.warning("Risky-fraction extraction failed: %s", exc)
             rf_per_bucket = None
@@ -1224,6 +1227,8 @@ def _build_shadow_comparison_with_evaluations(
     if building_blocks_rows is not None:
         try:
             rf_per_bucket = bucket_risky_fractions_from_building_blocks(building_blocks_rows)
+        except ParameterSetMissing:
+            raise  # CCX P5 / N-925-06: fail-closed, nie zu None geschluckt
         except Exception as exc:  # noqa: BLE001
             logger.warning("Shadow-comparison: risky-fraction extraction failed: %s", exc)
             rf_per_bucket = None
@@ -1441,6 +1446,8 @@ def _build_optimizer_explainability(
     if building_blocks_rows is not None:
         try:
             rf_per_bucket = bucket_risky_fractions_from_building_blocks(building_blocks_rows)
+        except ParameterSetMissing:
+            raise  # CCX P5 / N-925-06: fail-closed, nie zu None geschluckt
         except Exception as exc:  # noqa: BLE001
             logger.warning("Explainability: risky-fraction extraction failed: %s", exc)
             rf_per_bucket = None

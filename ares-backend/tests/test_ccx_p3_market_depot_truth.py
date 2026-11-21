@@ -1207,10 +1207,11 @@ def test_cashflow_projection_names_the_inflow_without_currency(session_factory):
     assert "987" not in exc.value.message
 
 
-def test_print_fx_gate_blocks_unsealed_run_and_exempts_the_sealed_run(session_factory):
-    """N-909-13: eingefrorene Kundendokumente pruefen beim Druck die heutige
-    strikte FX-Basis, solange der Lauf nicht versiegelt ist. Der versiegelte Lauf
-    traegt seine FX-Basis im Envelope und wird nicht erneut gegen heute geprueft."""
+def test_print_fx_gate_blocks_unsealed_and_sealed_live_rerender(session_factory):
+    """N-909-13 / CCX P5 (Vertrag §8.3, N-909-22): eingefrorene Kundendokumente
+    pruefen beim Druck die heutige strikte FX-Basis. Seit P5 gilt das auch fuer
+    den versiegelten Lauf: ein Live-Neurendern erhaelt keine Ausnahme mehr (nur
+    die Wiedergabe des gespeicherten, hashgebundenen P5-Artefakts)."""
     from models.mandates import Mandate
     from services.print_fx_gate import assert_print_fx_basis_current, run_is_sealed
 
@@ -1227,11 +1228,11 @@ def test_print_fx_gate_blocks_unsealed_run_and_exempts_the_sealed_run(session_fa
     with session_factory() as db:
         mandate = db.get(Mandate, mid)
         assert run_is_sealed(db, mandate, run_id)
+        assert_print_fx_basis_current(db, mandate)  # Kurs belegt: liefert
         _add_fx(db, "USD", 8_800, source="Default")
         db.commit()
-        assert_print_fx_basis_current(db, mandate)  # versiegelt: Basis im Envelope
-        assert_print_fx_basis_current(db, mandate, run_id=run_id)
-        # Ein nicht versiegelter Lauf (jeder andere) sperrt mit dem Ersatzkurs.
-        with pytest.raises(DomainError) as exc:
-            assert_print_fx_basis_current(db, mandate, run_id="ein-anderer-lauf")
-        assert exc.value.reason_code == "CCX_FX_BASIS_MISSING"
+        # Versiegelt, aber Live-Neurender mit Ersatzkurs: gesperrt (frueher Ausnahme).
+        for kwargs in ({}, {"run_id": run_id}, {"run_id": "ein-anderer-lauf"}):
+            with pytest.raises(DomainError) as exc:
+                assert_print_fx_basis_current(db, mandate, **kwargs)
+            assert exc.value.reason_code == "CCX_FX_BASIS_MISSING"

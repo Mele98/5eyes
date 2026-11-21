@@ -20,6 +20,8 @@ from database import (
     ADVISORY_TENANT_BOUNDARY_COLUMNS,
     ALLOCATION_PUBLICATION_SQLITE_TENANT_GUARDS,
     ALLOCATION_PUBLICATION_SQLITE_TRIGGERS,
+    CHANNEL_PUBLICATION_SQLITE_TENANT_GUARDS,
+    CHANNEL_PUBLICATION_SQLITE_TRIGGERS,
     ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS,
     ADVISORY_ENVELOPE_SQLITE_TRIGGERS,
     ADVISORY_FRESHNESS_SQLITE_TRIGGERS,
@@ -1617,3 +1619,79 @@ def _create_allocation_publication_sqlite_triggers(_metadata, connection, **_kw)
 
 
 event.listen(Base.metadata, "after_create", _create_allocation_publication_sqlite_triggers)
+
+
+class AdvisoryChannelPublication(Base):
+    """CCX-P5 (Vertrag 2026-11-13 §8): append-only Kanalzeile je ausgeliefertem
+    Artefakt eines versiegelten Beratungsentscheids."""
+
+    __tablename__ = "advisory_channel_publications"
+    __table_args__ = (
+        CheckConstraint(
+            "channel IN ('API','CLASSIC','REACT','PDF','ADVISOR_SIGNATURE','ONSITE_SIGNATURE','HANDOFF','ARCHIVE')",
+            name="ck_advisory_channel_publications_channel",
+        ),
+        CheckConstraint("schema_version = 'ares/channel-publication/1'",
+                        name="ck_advisory_channel_publications_schema_version"),
+        CheckConstraint("length(channel_payload_hash) = 64", name="ck_advisory_channel_publications_payload"),
+        CheckConstraint("render_hash IS NULL OR length(render_hash) = 64",
+                        name="ck_advisory_channel_publications_render_hash"),
+        CheckConstraint("length(bound_envelope_hash) = 64", name="ck_advisory_channel_publications_envelope_hash"),
+        CheckConstraint("length(parameter_set_hash) = 64", name="ck_advisory_channel_publications_parameter"),
+        CheckConstraint("length(goal_metric_payload_hash) = 64", name="ck_advisory_channel_publications_goal"),
+        CheckConstraint("status = 'PUBLISHED'", name="ck_advisory_channel_publications_status"),
+        CheckConstraint(
+            "channel NOT IN ('PDF','ARCHIVE','ADVISOR_SIGNATURE','ONSITE_SIGNATURE') OR render_hash IS NOT NULL",
+            name="ck_advisory_channel_publications_render",
+        ),
+        UniqueConstraint("tenant_id", "id", name="uq_advisory_channel_publications_tenant_id"),
+        UniqueConstraint("envelope_id", "channel", "artifact_id", name="uq_advisory_channel_publications_artifact"),
+        ForeignKeyConstraint(
+            ["tenant_id", "envelope_id"],
+            ["advisory_decision_envelopes.tenant_id", "advisory_decision_envelopes.id"],
+            name="fk_advisory_channel_publications_envelope",
+        ),
+        Index("ix_advisory_channel_publications_tenant_id", "tenant_id"),
+        Index("ix_advisory_channel_publications_mandate", "tenant_id", "mandate_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    mandate_id = Column(String, nullable=False)
+    envelope_id = Column(String, nullable=False)
+    channel = Column(String, nullable=False)
+    artifact_id = Column(String, nullable=False)
+    schema_version = Column(String, nullable=False)
+    channel_payload_hash = Column(String, nullable=False)
+    render_hash = Column(String)
+    rounding_policy_version = Column(String, nullable=False)
+    bound_envelope_hash = Column(String, nullable=False)
+    parameter_contract_version = Column(String, nullable=False)
+    parameter_set_hash = Column(String, nullable=False)
+    goal_metric_contract_version = Column(String, nullable=False)
+    goal_metric_payload_hash = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+
+
+def _create_channel_publication_sqlite_triggers(_metadata, connection, **_kw) -> None:
+    """Metadata-Hook (SQLite): Trigger erst, wenn Kanal- und Envelope-Tabelle
+    existieren; Mandanten-Guard nur mit ``mandates.tenant_id``."""
+    if connection.dialect.name != "sqlite":
+        return
+    tables = {row[0] for row in connection.exec_driver_sql(
+        "SELECT name FROM sqlite_master WHERE type = 'table'"
+    )}
+    if not {"advisory_channel_publications", "advisory_decision_envelopes"} <= tables:
+        return
+    for ddl in CHANNEL_PUBLICATION_SQLITE_TRIGGERS:
+        connection.exec_driver_sql(ddl)
+    if "mandates" in tables and "users" in tables and "tenant_id" in {
+        row[1] for row in connection.exec_driver_sql("PRAGMA table_info(mandates)")
+    }:
+        for ddl in CHANNEL_PUBLICATION_SQLITE_TENANT_GUARDS:
+            connection.exec_driver_sql(ddl)
+
+
+event.listen(Base.metadata, "after_create", _create_channel_publication_sqlite_triggers)

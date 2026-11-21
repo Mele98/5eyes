@@ -65,6 +65,8 @@ def _foundation_projection(positions, horizon_years):
 def _zero_cma() -> CapitalMarketAssumption:
     return CapitalMarketAssumption(
         id="cma-external-property-contract",
+        # CCX P5 / M-2: ohne CMA-Inflationspfad fail-closed; explizite Testreihe (frueher stiller 70-bps-Ersatz).
+        inflation_path_json='{"2026": 70}',
         assumption_set_name="External property contract",
         version=1,
         valid_from="2026-01-01",

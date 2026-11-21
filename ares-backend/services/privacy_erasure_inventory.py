@@ -331,6 +331,9 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
     # Identitaet; Teil der Empfehlungsevidenz, append-only bzw. nie geloescht.
     "allocation_publication_decisions": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
     "allocation_active_publications": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    # CCX-P5: Kanalzeilen (IDs, Kanal, Artefakt-ID, Hashes, Versionen) -- kein
+    # Freitext, keine Identitaet; Teil der Empfehlungsevidenz, append-only.
+    "advisory_channel_publications": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
     "recommendation_positions": _t(
         ("run_id", "recommendation_runs"), _c(RECORD, "recommendation_evidence"),
     ),

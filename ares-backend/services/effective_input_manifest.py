@@ -135,6 +135,14 @@ def _active(query, model):
     return query
 
 
+def active_included_goals(db: Session, mandate_id: str) -> list[Any]:
+    """CCX P5 / M-3: aktive, einbezogene Ziele eines Mandats (Quelle der
+    kanonischen Zielkennzahl; dieselbe Zeilenmenge wie die Ziel-Kante)."""
+    goals = _active(db.query(Goal).filter(Goal.mandate_id == str(mandate_id)), Goal).all()
+    return [g for g in goals if int(getattr(g, "is_active", 1) or 0) == 1
+            and int(getattr(g, "is_included", 1) or 0) == 1]
+
+
 def _hash_rows(kind: str, model: Any, rows: Sequence[Any], sort_fields: Sequence[str], *,
                include_exempt: bool = False) -> str:
     return rows_child_hash(
