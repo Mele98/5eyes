@@ -271,7 +271,7 @@ def _run_manual(edits: dict, reason: str, api_error: dict | None = None) -> dict
         "var EDITS=" + json.dumps(edits) + ";var TA=" + json.dumps(TA) + ";"
         "var REASON=" + json.dumps(reason) + ";var API_ERROR=" + json.dumps(api_error) + ";"
         + r"""
-var strategyState={allocation:{house_matrix_bands:HOUSE,target_allocation:TA}};
+var strategyState={dirty:true,allocation:{house_matrix_bands:HOUSE,target_allocation:TA}};
 var allocationBandStoredOverrides={};
 var allocationBandBaseline={};
 var INPUTS=[];
@@ -290,6 +290,7 @@ var document={querySelectorAll:function(){return INPUTS;},getElementById:functio
 function getActiveMandateId(){return 'M1';}
 function isDemoMandateId(){return false;}
 var DIRTY=[];function markStrategyDirty(m){DIRTY.push(m);}
+function syncStrategyStaleView(){}function syncPortfolioUmsetzenButtonVisibility(){}function updateStrategyStatus(){}
 var POSTS=[];
 var API={post:async function(url,body){POSTS.push({url:url,body:body});
   if(API_ERROR){var e=new Error('x');e.status=API_ERROR.status;e.detail=API_ERROR.detail;throw e;}
@@ -299,7 +300,7 @@ var _origValidator=computeBandEditorValidation;
 computeBandEditorValidation=function(){VALIDATOR_CALLS++;return _origValidator.apply(this,arguments);};
 saveManualTargetAllocationFromModal().then(function(ok){
   console.log(JSON.stringify({ok:ok,posts:POSTS,validatorCalls:VALIDATOR_CALLS,
-    status:NODES['aa-manual-save-status'].innerHTML,disabled:NODES['btn-aa-manual-save'].disabled,dirty:DIRTY}));
+    status:NODES['aa-manual-save-status'].innerHTML,disabled:NODES['btn-aa-manual-save'].disabled,dirty:DIRTY,stateDirty:strategyState.dirty===true}));
 });
 """
     )
@@ -322,6 +323,8 @@ def test_manual_save_uses_same_validator_and_posts_exact_bps_body():
         GOOD_REASON,
     )
     assert out["ok"] is True
+    # N-933R-02: gespeicherte manuelle Soll-Allokation = aktuelle Strategie
+    assert out["stateDirty"] is False
     assert out["validatorCalls"] >= 1
     assert len(out["posts"]) == 1
     post = out["posts"][0]
