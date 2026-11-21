@@ -65,6 +65,8 @@ def _foundation_projection(positions, horizon_years):
 def _zero_cma() -> CapitalMarketAssumption:
     return CapitalMarketAssumption(
         id="cma-external-property-contract",
+        # CCX P5 / M-2: ohne CMA-Inflationspfad fail-closed; explizite Testreihe (frueher stiller 70-bps-Ersatz).
+        inflation_path_json='{"2026": 70}',
         assumption_set_name="External property contract",
         version=1,
         valid_from="2026-01-01",
@@ -397,3 +399,11 @@ def test_mc_property_is_deterministic_and_uses_its_own_price_return(monkeypatch)
         assert result[f"{prefix}_p10_series_rappen"] == expected
         assert result[f"{prefix}_p50_series_rappen"] == expected
         assert result[f"{prefix}_p90_series_rappen"] == expected
+
+
+# K1 Property-Gate: dieses Modul belegt die DORMANTE Mechanik (Wiedereinschaltung
+# nach P1); das Gate selbst belegt tests/test_k1_property_advanced_gate.py.
+import pytest  # noqa: E402
+from tests.property_gate_support import property_advanced_mechanics_enabled  # noqa: E402,F401
+
+pytestmark = pytest.mark.usefixtures("property_advanced_mechanics_enabled")

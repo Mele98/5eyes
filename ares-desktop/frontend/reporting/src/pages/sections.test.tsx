@@ -8,6 +8,7 @@
  */
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { ReportCurrencyContext } from '@/lib/reportCurrency';
 import { describe, expect, it, vi } from 'vitest';
 import { legacyBrandIdsIn } from '@/test/brandDigest';
 
@@ -84,8 +85,13 @@ import {
   makeSuitabilitySummary,
 } from '@/test/fixtures';
 
+// G7 N4: Bericht-Sektionen laufen in der App unter dem Mandatswaehrungs-Provider (App.tsx).
 function withRouter(ui: React.ReactNode) {
-  return <MemoryRouter>{ui}</MemoryRouter>;
+  return (
+    <MemoryRouter>
+      <ReportCurrencyContext.Provider value="CHF">{ui}</ReportCurrencyContext.Provider>
+    </MemoryRouter>
+  );
 }
 
 describe('Section 1: Cover', () => {
@@ -426,10 +432,18 @@ describe('Section 11: Goals', () => {
     expect(screen.getByText(/7[23] %/)).toBeInTheDocument();
   });
 
-  it('rendert Goal-Status-Pills', () => {
+  it('rendert Goal-Status-Pills (P5c / N-930-01: Wort vom Server, M-3)', () => {
     render(withRouter(<Goals data={makeGoals()} />));
-    expect(screen.getByText('Erreichbar')).toBeInTheDocument();
-    expect(screen.getByText('Knapp')).toBeInTheDocument();
+    expect(screen.getByText('erreichbar')).toBeInTheDocument();
+    expect(screen.getByText('knapp')).toBeInTheDocument();
+  });
+
+  it('P5c / N-930-01: ohne M-3-Anzeigefelder "nicht bewertbar", nie eine eigene Ampel', () => {
+    const data = makeGoals();
+    data.goals = [{ ...data.goals[0], status_label: undefined, status_tone: undefined, status_color: undefined }];
+    render(withRouter(<Goals data={data} />));
+    expect(screen.getByText('nicht bewertbar')).toBeInTheDocument();
+    expect(screen.queryByText('erreichbar')).not.toBeInTheDocument();
   });
 
   it('zeigt MC-Hinweis-Text wenn data_pending=true', () => {
@@ -481,7 +495,7 @@ describe('Section 11: Goals', () => {
     data.goals = [{ ...data.goals[0], evaluation_scope: 'legacy_aggregate_unknown' }];
     render(withRouter(<Goals data={data} />));
     expect(screen.getByText('Altbewertung')).toBeInTheDocument();
-    expect(screen.queryByText('Erreichbar')).not.toBeInTheDocument();
+    expect(screen.queryByText('erreichbar')).not.toBeInTheDocument();
   });
 
   describe('GOAL-FAILURE-DISTRIBUTION-REPORT-001: verfehlte Verläufe', () => {

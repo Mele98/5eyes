@@ -25,6 +25,7 @@ const PAYLOAD: WealthInflowCreatePayload = {
   label: 'Bonus',
   source_type: 'Bonus',
   amount_rappen: 5_000_000,
+  currency: 'EUR',
   expected_year: 2030,
 };
 

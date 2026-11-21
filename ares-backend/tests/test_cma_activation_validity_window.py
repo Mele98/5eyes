@@ -34,6 +34,11 @@ from services.jurisdiction.exceptions import CMAValidityWindowError  # noqa: E40
 from services.methodology_audit import audit_engine_models  # noqa: E402
 
 TODAY = datetime.date.today()
+
+# KN6 (CI 44840465176): jeder Test laeuft am Importtag (tests/import_day_clock.py).
+from tests.import_day_clock import fixed_import_clock  # noqa: E402
+
+_fixed_import_clock = fixed_import_clock(TODAY)
 FUTURE = (TODAY + datetime.timedelta(days=30)).isoformat()
 PAST = (TODAY - datetime.timedelta(days=30)).isoformat()
 LONG_AGO = (TODAY - datetime.timedelta(days=400)).isoformat()

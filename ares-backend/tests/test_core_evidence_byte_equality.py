@@ -518,6 +518,22 @@ SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     ("services/reserve_funding_ledger_snapshot.py", "_canonical"): ((CJ, SCHEME_V1),),
     ("services/risk_capacity_evaluation_snapshot.py", "_canonical"): ((CJ, SCHEME_V1),),
     ("services/risk_override_decision.py", "compute_decision_hash"): ((EH, SCHEME_V1),),
+    # H10 Nachtrag 1: Hash-Kette der Datenschutz-Fallereignisse.
+    ("services/privacy_case_events.py", "_event_hash"): ((EH, SCHEME_V1),),
+    # H10 Nachtrag 2: Manifest-Hash und Schema-Hash blockierter Payloads.
+    ("services/egress_manifest.py", "manifest_hash"): ((EH, SCHEME_V1),),
+    ("services/egress_manifest.py", "payload_schema_hash"): ((EH, SCHEME_V1),),
+    ("services/security_incident_register.py", "_artifact_seal"): ((EH, SCHEME_V1),),
+    # H8 N-890-10: Siegel der append-only Nachweise (KYC, Abgabe) und
+    # Inhalts-Hash der rechtlichen Angaben -- Router schreiben, Gate rechnet nach.
+    ("routers/clients.py", "_row_seal"): ((EH, SCHEME_V1),),
+    ("services/recommendation_release_gate.py", "legal_profile_hash"): ((EH, SCHEME_V1),),
+    # H-179 L2/L3: Vorlagen-Hash der Vertragsvorlage und Hash des Datenschutzabschnitts.
+    ("services/recommendation_release_gate.py", "contract_template_state"): ((EH, SCHEME_V1),),
+    ("services/recommendation_release_gate.py", "privacy_section_state"): ((EH, SCHEME_V1),),
+    ("services/recommendation_release_gate.py", "row_seal"): ((EH, SCHEME_V1),),
+    # H-179 N-927S-01: eingefrorene Postfach-Identitaet (an die Freigabe-ID gebunden).
+    ("services/recommendation_release_gate.py", "owner_mailbox_digest"): ((EH, SCHEME_V1),),
     ("services/risk_profile_signoff.py", "_sha256"): ((EH, SCHEME_V1),),
     # --- delegiert: SCHEME_V1_ASCII ---
     ("services/backtest_stress.py", "stress_catalog_hash"): ((EH, SCHEME_V1_ASCII),),
@@ -543,6 +559,16 @@ SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     ("services/portfolio_engine_allocation_integrity.py", "allocation_context_hash_for"):
         ((EH, SCHEME_V1_ASCII_STR_DEFAULT),),
     # --- gemischt (Quelltext-Reihenfolge) ---
+    # E2a Nachhaltigkeitspraeferenzen (Dok. 106): Ausschlussliste, Decision-
+    # Hash (v1) und Audit-Payload (sortierte Keys, Standardtrenner).
+    ("routers/profiling.py", "create_sustainability_preference"): (
+        (J, None),                    # exclusions_json
+        (EH, SCHEME_V1),              # decision_hash
+        (J, SCHEME_LEGACY_SPACED),    # Audit-new_value
+    ),
+    # Definitions-Hash des Fragebogens: sortiert, kompakt, UTF-8 = v1 (eigene
+    # json.dumps-Zeile, weil das Blatt core.evidence nicht importieren darf).
+    ("core/sustainability_preference.py", "definition_hash"): ((J, SCHEME_V1),),
     ("services/manual_target_allocation.py", "build_manual_target_allocation"): (
         (CJ, SCHEME_V1),                         # sub_allocations_json
         (CJ, SCHEME_V1),                         # effective_constraints_json
@@ -584,6 +610,25 @@ SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     ("services/optimizer/solver.py", "build_optimizer_context"): ((J, None),),
     # unsortiert, kompakt, ASCII (Seed-Material)
     ("services/optimizer/solver.py", "optimizer_content_seed"): ((J, None),),
+    # Bestandssiegel (#869): je Altzeile ein JSON-Array der Spalten in fester
+    # Reihenfolge (keine Schluessel), kompakt, UTF-8, zeilenweise mit
+    # Zeilenumbruch in einen sha256 eingespeist; Zeilen nach id sortiert
+    ("services/audit.py", "_legacy_seal_digest"): ((J, None),),
+    # CCX-P2: Projektions-Hash eines Quellobjekts (old_hash/new_hash eines
+    # Invalidationsereignisses) -- byte-gleich SCHEME_V1 (sortiert, kompakt,
+    # UTF-8), Werte vorher typisiert (Float als repr-Text, Decimal/Datum als
+    # Text), domaenensepariert ueber
+    # ``Ares<NUL>ares/advisory-invalidation/1/<tabelle><NUL>``.
+    ("models/snapshots.py", "projection_hash"): ((J, SCHEME_V1),),
+    # CCX-P4: validation_hash/approval_hash der Allocation-Publikation --
+    # canonical_json SCHEME_V1 (sortiert, kompakt, UTF-8), nur Integer/Strings
+    # (Float verboten), domaenensepariert ueber
+    # ``Ares<NUL>ares/advisory-envelope/1/allocation-publication-{validation,approval}<NUL>``.
+    ("services/allocation_publication_gate.py", "_hash"): ((CJ, SCHEME_V1),),
+    # CCX-P4 Nachtrag 1 (N-910-05): approval_hash als HMAC-SHA256 (Schluessel aus
+    # dem Tenant-DEK) ueber dieselbe kanonische Form (SCHEME_V1, Domaene
+    # ``.../allocation-publication-approval``).
+    ("services/allocation_publication_approval.py", "approval_hash_for"): ((CJ, SCHEME_V1),),
 }
 
 _DELEGATABLE = {SCHEME_V1, SCHEME_V1_ASCII, SCHEME_V1_STR_DEFAULT, SCHEME_V1_ASCII_STR_DEFAULT}

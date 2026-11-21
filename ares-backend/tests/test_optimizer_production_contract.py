@@ -707,17 +707,21 @@ def test_generate_and_reload_label_decision_and_implementation_model_bases(
         assert reporting["total_scope_goal_basis"] == (
             "exact_total_projection_path_v2"
         )
+        # K1 Property-Gate: keine angenommene Wertsteigerung der Direktimmobilie.
         assert reporting["direct_real_estate_return_basis"] == (
-            "position_price_appreciation_plus_explicit_rent_v2"
+            "nominal_flat_plus_explicit_rent_v1"
         )
 
         for model_view in (optimization, reporting):
             assert model_view["real_estate_return_basis"] == (
                 "listed_real_estate_total_return_including_distributions_v1"
             )
+            # K1 Property-Gate: Amortisationsprojektion bis P1-Schliessung aus.
             assert model_view["indirect_amortization_treatment"] == (
-                "pledged_asset_transfer_v1"
+                "disabled_until_p1_closure_v1"
             )
+            assert model_view["property_advanced_features"] == "disabled_until_p1_closure_v1"
+            assert model_view["mortgage_cashflow_treatment"] == "derived_flat_interest_and_amortization_v1"
             assert model_view["direct_real_estate_scope"] == (
                 "external_total_wealth"
             )
@@ -1699,7 +1703,13 @@ def test_fallback_analytics_are_recomputed_for_active_house_weights(
     assert len(calls) == 1
     target_allocation = result["target_allocation"]
     assert target_allocation.optimization_method == "fallback_house_matrix"
-    assert result["goal_achievability"] == active_analytics
+    # P5c / N-930-01: die Antwort traegt die kanonischen Anzeige-Zeilen (Status
+    # aus M-3 bzw. "nicht bewertbar" samt Anzeige-Feldern); gespeichert bleibt
+    # die Optimierer-Sicht unveraendert (unten).
+    def _sans_status(rows):
+        return [{k: v for k, v in r.items() if k != "status" and not k.startswith("status_")} for r in rows]
+
+    assert _sans_status(result["goal_achievability"]) == _sans_status(active_analytics)
     assert all(
         row.get("goal_id") != "discarded-candidate-only"
         for row in result["goal_achievability"]

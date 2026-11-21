@@ -247,6 +247,7 @@ def _seed_realistic_mandate_for_perf(s):
         label="Hypothek", position_type="Hypothek",
         assignment="Verbindlichkeit",
         current_value_rappen=600_000_00, currency="CHF",
+        mortgage_interest_rate_bps=0,  # K1 N-913-01: Satz erfasst (0 %), Messfokus unveraendert
         is_active=1, created_at=_NOW, updated_at=_NOW,
     ))
 
