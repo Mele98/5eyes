@@ -318,3 +318,44 @@ def test_parameter_set_missing_is_a_typed_409_everywhere():
     assert wrapped_resp.status_code == 409
     assert wrapped_resp.json()["detail"]["reason_code"] == "CCX_GOAL_METRIC_UNCERTIFIED"
     assert client.get("/plain").json() == {"detail": "anderer Konflikt"}  # Gegenprobe: unveraendert
+
+
+def test_middleware_reads_only_explicit_cause_and_never_rewrites_500():
+    """N-925R-03 (Pruefer-Matrix): nur ``raise ... from PSM`` wird typisiert;
+    ein Fehler, der bloss waehrend der Behandlung entsteht (``__context__``),
+    und jeder 500 bleiben unveraendert."""
+    from fastapi import FastAPI, HTTPException
+    from fastapi.testclient import TestClient
+
+    from core.middleware import install_exception_handlers
+
+    app = FastAPI()
+    install_exception_handlers(app)
+
+    @app.get("/context-400")
+    def context_400():
+        try:
+            raise ParameterSetMissing("fehlt")
+        except ParameterSetMissing:
+            raise HTTPException(status_code=400, detail="Bitte Eingabe prüfen")
+
+    @app.get("/cause-500")
+    def cause_500():
+        try:
+            raise ParameterSetMissing("fehlt")
+        except ParameterSetMissing as exc:
+            raise HTTPException(status_code=500, detail="DB kaputt") from exc
+
+    @app.get("/cause-400")
+    def cause_400():
+        try:
+            raise ParameterSetMissing("fehlt")
+        except ParameterSetMissing as exc:
+            raise HTTPException(status_code=400, detail="x") from exc
+
+    client = TestClient(app, raise_server_exceptions=False)
+    assert client.get("/context-400").json() == {"detail": "Bitte Eingabe prüfen"}
+    resp = client.get("/cause-500")
+    assert (resp.status_code, resp.json()) == (500, {"detail": "DB kaputt"})
+    typed = client.get("/cause-400")
+    assert typed.status_code == 409 and typed.json()["detail"]["reason_code"] == "CCX_PARAMETER_SET_MISSING"

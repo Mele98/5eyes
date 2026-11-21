@@ -486,3 +486,16 @@ def test_client_portal_report_uses_the_channel_gate(session_factory):
         audit = db.execute(text(
             "SELECT new_value FROM audit_log WHERE field_name = 'client_portal_report_blocked'")).all()
         assert audit and audit[-1][0] == "CCX_FX_BASIS_CHANGED"
+
+
+@pytest.mark.p5_no_test_vector
+def test_end_to_end_finalize_and_publish_without_test_vector(session_factory):
+    """N-925R-05: dauerhaft OHNE Optimierer-Testvektor -- Generate, Siegel und
+    Publikation laufen, weil der Produktivpfad den kanonischen Vektor selbst
+    uebergibt (jeder vergessene Vektor endet hier mit CCX_PARAMETER_SET_MISSING)."""
+    from services.optimizer.constraints import test_risky_fraction
+
+    assert test_risky_fraction() is None
+    _advisor, _approver, mid, *_rest = _published(session_factory, "p5b-novec")
+    decision = _decision(session_factory, mid)
+    assert decision.ok and decision.parameter_set_hash

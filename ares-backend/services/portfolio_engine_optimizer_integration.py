@@ -1263,6 +1263,8 @@ def _build_shadow_comparison_with_evaluations(
         # waere irrefuehrend.
         if _optimizer_status_is_converged(optimizer_result.status):
             shadow_evaluation = evaluate_weights(context, optimizer_result.weights_bps)
+    except ParameterSetMissing:
+        raise  # N-925R-05: fehlender Parametersatz ist nie ein 'Nebenbefund'
     except Exception as exc:  # noqa: BLE001 - never crash allocation flow
         logger.warning(
             "Shadow-comparison: evaluate_weights failed (%s); "
@@ -1476,6 +1478,8 @@ def _build_optimizer_explainability(
                 risky_fraction_per_bucket=rf_per_bucket,
                 max_risky_fraction_bps=int(house_matrix_row.max_risky_fraction_bps),
             )
+    except ParameterSetMissing:
+        raise  # N-925R-05: fehlender Parametersatz ist nie ein 'Nebenbefund'
     except Exception as exc:  # noqa: BLE001 - never crash allocation flow
         logger.warning(
             "Explainability: context build failed (%s); returning empty lists.", exc,
