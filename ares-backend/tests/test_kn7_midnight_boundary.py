@@ -57,10 +57,14 @@ def process_zone(request):
         time.tzset()
 
 
-def _travel(instant):
+def _travel(instant, zone=None):
+    """Reist zum Zeitpunkt; mit ``zone`` als ZoneInfo-Ziel, damit time_machine
+    auch die Prozess-Zeitzone setzt (nur Unix; CI 44861481744 zeigte, dass ein
+    UTC-Ziel die Zone sonst auf UTC haelt)."""
     import time_machine
 
-    return time_machine.travel(instant, tick=False)
+    destination = instant.astimezone(ZoneInfo(zone)) if zone else instant
+    return time_machine.travel(destination, tick=False)
 
 
 def test_import_clock_treats_a_date_string_like_a_date():
@@ -76,7 +80,7 @@ def test_import_clock_treats_a_date_string_like_a_date():
 def test_as_of_is_the_process_calendar_day_at_the_boundary(process_zone, instant):
     from services.fx_basis import resolve_as_of
 
-    with _travel(instant):
+    with _travel(instant, process_zone):
         local = date.today()
         assert resolve_as_of(None) == local
         if process_zone is not None:
@@ -115,8 +119,10 @@ def test_future_valuation_rule_holds_across_midnight(session_factory, process_zo
     UTC-Datum nach dem Stichtag liegt (Prozess-Kalendertag)."""
     _advisor, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="kn7-midnight")
     for instant in BOUNDARY_INSTANTS:
-        with _travel(instant):
+        with _travel(instant, process_zone):
             local = date.today()
+            if process_zone is not None:
+                assert local == instant.astimezone(ZoneInfo(process_zone)).date()
             utc_day = instant.date()
             with session_factory() as db:
                 from models.wealth import WealthPosition
