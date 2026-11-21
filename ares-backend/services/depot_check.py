@@ -438,13 +438,32 @@ def run_isins(db: Session, run) -> set[str]:
     return {external_rule.normalize_isin(row[0]) for row in rows if external_rule.normalize_isin(row[0])}
 
 
-def external_holdings_valuation(db: Session, mandate: Mandate, run, *, convert=None, today=None) -> dict:
+def _external_json_present_clause(client_id):
+    """K3: "ist an einem Depot des Kunden Fremdbestand gespeichert?" als
+    EXISTS-Ausdruck -- als Zusatzspalte in einer bestehenden Abfrage (kein
+    zusaetzlicher SELECT im Report-Pfad). Grobfilter: die genaue Pruefung
+    (``is_advisory_depot``, Inhalt) macht ``external_holdings_valuation``."""
+    return exists().where(
+        WealthPosition.client_id == client_id, WealthPosition.deleted_at.is_(None),
+        WealthPosition.position_type == "Depot", WealthPosition.external_holdings_json.isnot(None),
+    )
+
+
+def external_holdings_valuation(db: Session, mandate: Mandate, run, *, convert=None, today=None,
+                                present: bool | None = None) -> dict:
     """K3 / N-915-06: Fremdbestand des Mandatskunden, bewertet nach
     ``core.external_holdings_rule.evaluate``. Ohne ``convert``: strikte FX-Basis
-    der Mandatswaehrung (wie die Vermoegenspositionen dieses Depotchecks)."""
+    der Mandatswaehrung (wie die Vermoegenspositionen dieses Depotchecks).
+    ``present=False``: der Aufrufer weiss bereits (EXISTS in seiner Abfrage),
+    dass kein Fremdbestand gespeichert ist -- keine Abfrage."""
+    target = getattr(mandate, "base_currency", None) or "CHF"
+    today_text = str(today or _date.today())
+    if present is False:
+        return external_rule.evaluate([], convert=external_rule.strict_converter(None, target), today=today_text)
     depots = [(row.id, row.external_holdings_json)
               for row in advisory_depots(db, getattr(mandate, "client_id", None)) if row.external_holdings_json]
-    target = getattr(mandate, "base_currency", None) or "CHF"
+    if not depots:
+        return external_rule.evaluate([], convert=external_rule.strict_converter(None, target), today=today_text)
     if convert is None and depots:
         currencies = {str(i.get("currency") or "").upper().strip()
                       for _id, raw in depots for i in external_rule.parse_items(raw)}
@@ -454,7 +473,7 @@ def external_holdings_valuation(db: Session, mandate: Mandate, run, *, convert=N
             basis = None
         convert = external_rule.strict_converter(basis, target)
     return external_rule.evaluate(depots, convert=convert or external_rule.strict_converter(None, target),
-                                  exclude_isins=run_isins(db, run), today=str(today or _date.today()))
+                                  exclude_isins=run_isins(db, run), today=today_text)
 
 
 def _apply_external_items(result: dict, items: list[dict], total_rappen: int,
@@ -489,6 +508,13 @@ def _apply_external_items(result: dict, items: list[dict], total_rappen: int,
 
 
 def _select_latest_run_with_holdings(db: Session, mandate: Mandate) -> tuple[RecommendationRun | None, bool]:
+    run, has_holdings, _external = _select_latest_run_holdings_external(db, mandate)
+    return run, has_holdings
+
+
+def _select_latest_run_holdings_external(
+    db: Session, mandate: Mandate,
+) -> tuple[RecommendationRun | None, bool, bool | None]:
     """Wie ``_select_latest_run``, plus "gibt es Holdings?" in DERSELBEN
     Abfrage (KN4-B / EXT-01: kein zusaetzlicher SELECT im Report-Pfad).
 
@@ -501,16 +527,21 @@ def _select_latest_run_with_holdings(db: Session, mandate: Mandate) -> tuple[Rec
         RecommendationHolding.run_id == RecommendationRun.id,
         RecommendationHolding.deleted_at.is_(None),
     )
+    # K3: Fremdbestand-EXISTS in DERSELBEN Abfrage (dritter Wert; None = keine
+    # Zeile, also unbekannt -> der Aufrufer fragt selbst).
+    has_external = _external_json_present_clause(getattr(mandate, "client_id", None))
     rows = (
-        db.query(RecommendationRun, has_holdings)
+        db.query(RecommendationRun, has_holdings, has_external)
         .filter(RecommendationRun.mandate_id == mandate.id)
         .order_by(RecommendationRun.created_at.desc(), RecommendationRun.id.desc())
         .all()
     )
+    external_present = bool(rows[0][2]) if rows else None
     chosen, holdings_run = select_valuation_runs(rows, status=lambda row: row[0].result_status)
     if chosen is None:
-        return None, False
-    return chosen[0], bool(chosen[1]) or bool(holdings_run is not None and holdings_run[1])
+        return None, False, external_present
+    return (chosen[0], bool(chosen[1]) or bool(holdings_run is not None and holdings_run[1]),
+            external_present)
 
 
 def _live_holding_amounts(db: Session, mandate: Mandate, build_live_payload, run=None,
@@ -767,11 +798,11 @@ def compute_depot_check(
     else:
         try:
             # KN4-B / EXT-01: dieselbe Bestandsquelle wie das Live-Rebalancing.
-            run, run_has_holdings = _select_latest_run_with_holdings(db, mandate)
+            run, run_has_holdings, external_present = _select_latest_run_holdings_external(db, mandate)
             held_amounts = _live_holding_amounts(
                 db, mandate, build_live_rebalancing_payload, run=run, has_holdings=run_has_holdings)
             # K3 / N-915-06: Fremdbestand aus derselben Quelle wie Snapshot und Handelsliste.
-            external = external_holdings_valuation(db, mandate, run)
+            external = external_holdings_valuation(db, mandate, run, present=external_present)
             external_items = external["items"]
             positions_with_products, wealth_only_positions, total_rappen = _load_positions(
                 db, mandate, held_amounts, latest_run=run, depot_recorded=bool(external_items))

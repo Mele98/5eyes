@@ -26,6 +26,11 @@ from tests.test_ccx_p4_allocation_publish import _finalizable_run
 
 TODAY = date.today().isoformat()
 
+# KN6: jeder Test laeuft am Importtag (tests/import_day_clock.py).
+from tests.import_day_clock import fixed_import_clock  # noqa: E402
+
+_fixed_import_clock = fixed_import_clock(TODAY)
+
 
 def _item(label="Titel A", asset_class="Aktien", currency="CHF", value=100_000_00, as_of=TODAY, isin=None):
     return {"label": label, "isin": isin, "asset_class": asset_class, "currency": currency,

@@ -184,9 +184,13 @@ function externalMinorDigits(ccy){return /^(JPY|KRW|CLP|ISK)$/.test(String(ccy||
 function externalAmountToMinor(text,ccy){
   var raw=String(text||'').replace(/['\s]/g,'').replace(',','.');
   if(!raw)return null;
-  if(!/^\d+(\.\d+)?$/.test(raw))return NaN;
-  var minor=Math.round(parseFloat(raw)*Math.pow(10,externalMinorDigits(ccy)));
-  return minor>0?minor:NaN;
+  // Exakt aus dem Text (keine Gleitkomma-Rundung bei Geldbetraegen): mehr
+  // Nachkommastellen als die Waehrung hat -> ungueltig, nie still gerundet.
+  var m=/^(\d+)(?:\.(\d+))?$/.exec(raw),digits=externalMinorDigits(ccy);
+  if(!m||(m[2]||'').length>digits)return NaN;
+  var frac=(m[2]||'');while(frac.length<digits)frac+='0';
+  var minor=parseInt(m[1]+frac,10);
+  return minor>0&&minor<=Number.MAX_SAFE_INTEGER?minor:NaN;
 }
 function externalMinorToText(minor,ccy){
   if(minor===null||minor===undefined)return '';
@@ -215,7 +219,7 @@ function readExternalHoldingRows(table){
     if(!label&&!get('ext-value')&&!get('ext-isin'))return;
     if(!label)errors.push('Zeile '+(i+1)+': Bezeichnung fehlt.');
     if(!/^[A-Z]{3}$/.test(ccy))errors.push('Zeile '+(i+1)+': Währung als dreistelliger Code (ISO 4217).');
-    if(value!==value)errors.push('Zeile '+(i+1)+': Marktwert als positive Zahl erfassen oder leer lassen.');
+    if(value!==value)errors.push('Zeile '+(i+1)+': Marktwert als positive Zahl (höchstens so viele Nachkommastellen wie die Währung) erfassen oder leer lassen.');
     items.push({label:label,isin:get('ext-isin')||null,asset_class:get('ext-class'),currency:ccy,
       market_value_rappen:value===value?value:null,valuation_date:get('ext-date')||null});
   });

@@ -47,13 +47,14 @@ def test_gegenprobe_without_external_rows_no_proposal_note():
 def test_editor_amounts_and_status_rendering():
     script = (
         "calls.amounts=[externalAmountToMinor('120000.50','CHF'),externalAmountToMinor(\"1'000\",'CHF'),"
-        "externalAmountToMinor('','CHF'),String(externalAmountToMinor('-5','CHF')),externalAmountToMinor('500','JPY')];"
+        "externalAmountToMinor('','CHF'),String(externalAmountToMinor('-5','CHF')),externalAmountToMinor('500','JPY'),String(externalAmountToMinor('1.005','CHF')),"
+        "String(externalAmountToMinor('500.5','JPY')),externalAmountToMinor('0.1','CHF')];"
         "var fake={innerHTML:''};renderExternalHoldingsEditor(fake,'m-1',{depots:[{wealth_position_id:'wp-1',"
         "depot_label:'Depot',items:[{label:'Titel X',asset_class:'Obligationen',currency:'CHF',market_value_rappen:null,"
         "status:'missing_value',status_text:'nicht bewertbar – Marktwert fehlt'}]}]});calls.editor=fake.innerHTML;"
     )
     calls = _run(script)["calls"]
-    assert calls["amounts"] == [12000050, 100000, None, "NaN", 500]
+    assert calls["amounts"] == [12000050, 100000, None, "NaN", 500, "NaN", "NaN", 10]
     assert "nicht bewertbar – Marktwert fehlt" in calls["editor"]
     assert 'data-wp="wp-1"' in calls["editor"] and "Titel X" in calls["editor"]
     assert "<option selected>Obligationen</option>" in calls["editor"]
