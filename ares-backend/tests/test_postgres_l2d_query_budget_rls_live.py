@@ -85,7 +85,8 @@ def pg_app():
             seed.add(Mandate(id="m-1", tenant_id=TENANT, client_id="c-1", mandate_number="M-1",
                              mandate_type="Anlageberatung", opened_at=NOW, created_at=NOW, updated_at=NOW))
             seed.flush()
-            seed.add(MandateReportNotes(id="notes-1", mandate_id="m-1", created_at=NOW, updated_at=NOW))
+            seed.add(MandateReportNotes(id="notes-1", mandate_id="m-1", last_edited_by="adv-1", last_edited_at=NOW,
+                                        created_at=NOW, updated_at=NOW))
             seed.commit()
         with owner.begin() as conn:
             ensure_postgres_rls_policies(conn)
