@@ -16,10 +16,10 @@ from core.customer_terms import READONLY_VIEW_MODE, draft_headline, is_final_doc
 from services.pdf.components.header import _esc
 from services.pdf.styles import (
     COLOR_BORDER_STRONG,
-    FONT_BOLD,
     COLOR_TEXT,
     COLOR_TEXT_LIGHT,
     FONT_DEFAULT,
+    FONT_SERIF_BOLD,
     FONT_SIZE_BODY,
     FONT_SIZE_SMALL,
     PAGE_SIZE,
@@ -77,7 +77,7 @@ def not_for_signature_notice(mode: str | None, view_reason: str | None = None) -
 def not_for_signature_box(mode: str | None, view_reason: str | None = None) -> Table:
     """Ersatz des Unterschriftsblocks fuer jede Nicht-Final-Fassung (N-910-01)."""
     text = (
-        f'<font name="{FONT_BOLD}" size="12" color="#B91C1C">{NOT_FOR_SIGNATURE_TEXT}</font><br/>'
+        f'<font name="{FONT_SERIF_BOLD}" size="13" color="#B91C1C">{NOT_FOR_SIGNATURE_TEXT}</font><br/>'
         f'<font name="{FONT_DEFAULT}" size="9" color="#334155">'
         f"{not_for_signature_notice(mode, view_reason)}</font>"  # feste Texte, kein Markup
     )

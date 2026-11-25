@@ -527,6 +527,8 @@ SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     # H8 N-890-10: Siegel der append-only Nachweise (KYC, Abgabe) und
     # Inhalts-Hash der rechtlichen Angaben -- Router schreiben, Gate rechnet nach.
     ("routers/clients.py", "_row_seal"): ((EH, SCHEME_V1),),
+    # H-193 (N-939-02): Hash der gesehenen Eignungsregeln im Audit.
+    ("services/product_eligibility_governance.py", "seen_rules_sha256"): ((EH, SCHEME_V1_ASCII),),
     ("services/recommendation_release_gate.py", "legal_profile_hash"): ((EH, SCHEME_V1),),
     # H-179 L2/L3: Vorlagen-Hash der Vertragsvorlage und Hash des Datenschutzabschnitts.
     ("services/recommendation_release_gate.py", "contract_template_state"): ((EH, SCHEME_V1),),

@@ -18,7 +18,6 @@ rules about *which* rule may count as evidence live in one place:
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -27,6 +26,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
+from core.evidence import SCHEME_V1_ASCII, evidence_hash
 from models.product_eligibility import (
     SFDR_CLASSIFICATION_VALUES,
     SUSTAINABILITY_CLIENT_SOURCE_LABELS,
@@ -1353,8 +1353,7 @@ class SeenRulesMismatch(Exception):
 
 def seen_rules_sha256(pairs: list[tuple[str, str]]) -> str:
     """Hash der sortierten gesehenen Menge (rule_id, rule_hash) fuers Audit."""
-    canonical = json.dumps(sorted(pairs), separators=(",", ":"), ensure_ascii=True)
-    return hashlib.sha256(canonical.encode("ascii")).hexdigest()
+    return evidence_hash(sorted(pairs), scheme=SCHEME_V1_ASCII)
 
 
 def open_draft_rules(db: Session, product_id: str, *, refresh: bool = False) -> list:
