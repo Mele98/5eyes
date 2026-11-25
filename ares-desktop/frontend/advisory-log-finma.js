@@ -304,3 +304,27 @@ async function saveAdvisoryLogEntry(){
     setTimeout(function(){cm('m-ne');runAfterSave();},700);
   }
 }
+
+// Beratungsprotokoll-Liste (#rv-log-list): eine Karte je Eintrag. Ausgelagert aus
+// ares.html (renderAdvisoryLogList, Monolith-Budget). KN9 / N-931-01: Eintraege mit
+// integrity_verified===false (Pruefsumme passt nicht zum Inhalt) zeigen eine
+// Warnung; der Advisory-Report als Kunden-PDF ist dann gesperrt (409
+// ADVISORY_LOG_INTEGRITY_FAILED). true/null: keine Warnung.
+var ADVISORY_LOG_INTEGRITY_WARNING='Prüfsumme passt nicht zum Inhalt: Dieser Eintrag wurde nach dem Speichern verändert oder ist beschädigt. Beratungsprotokoll, Beratungsentscheid und (solange er der letzte Eintrag ist) Advisory-Report können nicht als Kunden-PDF erzeugt werden; das Kundenportal zeigt den Bericht nicht. Bitte prüfen und neu erfassen.';
+function advisoryLogIntegrityWarningHtml(entry){
+  if(!entry||entry.integrity_verified!==false)return '';
+  return '<div class="adv-log-integrity-warning" role="alert" style="margin-bottom:6px;padding:6px 8px;border-left:3px solid var(--neg);font-size:10px;color:var(--neg);font-weight:500">'+escapeHtml(ADVISORY_LOG_INTEGRITY_WARNING)+'</div>';
+}
+function advisoryLogCardHtml(entry){
+  var decision=entry.decision||entry.entry_type||'Dokumentiert';
+  var decisionClass=/keine/i.test(decision)?'tg':(/transaktion|kauf|verkauf|umschichtung/i.test(decision)?'ta':'tn');
+  var status=String(entry.status||'Empfohlen');
+  var statusClass=status==='Umgesetzt'?'tg':(status==='Beschlossen'?'tb':'ta');
+  var nextStatus=status==='Empfohlen'?'Beschlossen':(status==='Beschlossen'?'Umgesetzt':null);
+  var triggerMeta=entry.trigger_id?('Trigger: '+String(entry.trigger_id)):'Ohne Trigger-Verknüpfung';
+  var runMeta=entry.recommendation_run_id?('Berechnung '+String(entry.recommendation_run_id).slice(0,8)):'Keine Strategieberechnung verknüpft';
+  var actions=nextStatus
+    ? '<button class="btn" type="button" style="padding:4px 8px;font-size:10px">'+escapeHtml(nextStatus)+' setzen</button>'
+    : '<span style="font-size:10px;color:var(--pos);font-weight:500">Status abgeschlossen</span>';
+  return '<div class="logi" style="padding:10px 0">'+advisoryLogIntegrityWarningHtml(entry)+'<div class="logh"><div class="logt">'+escapeHtml(entry.title||'Advisory-Eintrag')+'</div><div class="logm"><span class="logd">'+escapeHtml(formatDateSwiss(entry.entry_date||entry.created_at||''))+'</span><span class="tag '+decisionClass+'">'+escapeHtml(decision)+'</span><span class="tag '+statusClass+'">'+escapeHtml(status)+'</span></div></div><div class="logdesc">'+escapeHtml(entry.description||'Ohne Zusatzbegründung dokumentiert.')+'</div><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap"><div style="font-size:9px;color:var(--n4)">'+escapeHtml(triggerMeta)+' · '+escapeHtml(runMeta)+'</div>'+actions+'</div></div>';
+}

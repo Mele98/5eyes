@@ -53,7 +53,7 @@ from services.portfolio_engine import (  # noqa: E402
 # (USD/EUR) Produkte im Default-Katalog hatten.
 #
 # HEDGED-ALKOHOL-GAP-001 (2026-10-10): "Thema Alkohol" fehlte in dieser
-# Liste, obwohl sein einziges Katalogprodukt ("Global Beverage Leaders ETF",
+# Liste, obwohl sein einziges Katalogprodukt ("Musterprodukt Thema Alkohol",
 # Amundi, EUR) genau dieselbe Eigenschaft hat wie die anderen fuenf Themen.
 # Der Test unten konnte die Luecke deshalb nie melden -- seine eigene
 # Erwartungsliste hatte denselben blinden Fleck wie der Katalog. Folge:

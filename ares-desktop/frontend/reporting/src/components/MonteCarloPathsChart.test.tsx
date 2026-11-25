@@ -33,6 +33,7 @@ function makeMc(overrides: Partial<MonteCarloPaths> = {}): MonteCarloPaths {
     seed: 42,
     horizon_years: 10,
     initial_wealth_rappen: start,
+    amount_currency: 'CHF', // G7 N4: Server-Waehrung der Pfade
     ...overrides,
   };
 }
@@ -52,6 +53,10 @@ function makeGoal(overrides: Partial<GoalEntry> = {}): GoalEntry {
     evaluation_scope: overrides.evaluation_scope ?? 'priority_funded',
     funding_rank: overrides.funding_rank ?? null,
     failure_event_id: overrides.failure_event_id ?? null,
+    // P5c / N-930-01: M-3-Anzeigefelder (falls gesetzt) unveraendert durchreichen.
+    status_label: overrides.status_label,
+    status_tone: overrides.status_tone,
+    status_color: overrides.status_color,
   };
 }
 
@@ -141,29 +146,38 @@ describe('MonteCarloPathsChart — Goal-Marker', () => {
     render(<MonteCarloPathsChart paths={makeMc()} goals={[goal]} />);
     const marker = screen.getByTestId('goal-marker-pension');
     expect(marker).toBeInTheDocument();
-    expect(marker.getAttribute('data-status')).toBe('erreichbar');
+    // P5c / N-930-01: ohne M-3-Status kein Status aus den Faecherquantilen.
+    expect(marker.getAttribute('data-status')).toBe('nicht_bewertbar');
   });
 
-  it('Marker-Farbe matched Status', () => {
+  it('P5c / N-930-01: Marker-Status und -Farbe nur aus dem M-3-Status', () => {
     const goals: GoalEntry[] = [
       makeGoal({
         goal_id: 'easy',
         target_date: '2030-01-01',
-        target_amount_rappen: 100_000_00,
+        target_amount_rappen: 100_000_00, // Faecher: klar ueber dem Ziel
+        status: 'nicht_erreichbar',
+        status_label: 'nicht erreichbar',
+        status_tone: 'bad',
+        status_color: '#7F1D1D',
       }),
       makeGoal({
         goal_id: 'hard',
         target_date: '2035-01-01',
-        target_amount_rappen: 50_000_000_00, // unrealistic
+        target_amount_rappen: 50_000_000_00, // Faecher: weit unter dem Ziel
+        status: 'knapp',
+        status_label: 'knapp',
+        status_tone: 'warn',
+        status_color: '#92400E',
       }),
     ];
     render(<MonteCarloPathsChart paths={makeMc()} goals={goals} />);
-    expect(screen.getByTestId('goal-marker-easy').getAttribute('data-status')).toBe(
-      'erreichbar',
-    );
-    expect(screen.getByTestId('goal-marker-hard').getAttribute('data-status')).toBe(
-      'nicht_erreichbar',
-    );
+    const easy = screen.getByTestId('goal-marker-easy');
+    expect(easy.getAttribute('data-status')).toBe('nicht_erreichbar');
+    expect(easy.querySelector('line')?.getAttribute('stroke')).toBe('#7F1D1D');
+    expect(screen.getByTestId('goal-marker-hard').getAttribute('data-status')).toBe('knapp');
+    expect(screen.getByTestId('mc-paths-legend')).toHaveTextContent(/Ziel nicht erreichbar/);
+    expect(screen.getByTestId('mc-paths-legend')).toHaveTextContent(/Ziel knapp/);
   });
 
   it('rendert KEINEN Marker fuer Goal jenseits des Horizonts', () => {
@@ -198,9 +212,8 @@ describe('MonteCarloPathsChart — Legende', () => {
     const legend = screen.getByTestId('mc-paths-legend');
     expect(legend).toHaveTextContent('Bandbreite P5–P75 (70 % der Verläufe, asymmetrisch)');
     expect(legend).toHaveTextContent(/Median \(P50\)/);
-    expect(legend).toHaveTextContent(/erreichbar/);
-    expect(legend).toHaveTextContent(/Knapp/);
-    expect(legend).toHaveTextContent(/Schwierig/);
+    // P5c / N-930-01: keine Status-Legende ohne Ziele (kein Faecher-Statuswort).
+    expect(legend.textContent).not.toMatch(/Schwierig|erreichbar|Knapp/);
     // Die fruehere, falsche Angabe "90%" fuer p5–p75 darf nie mehr erscheinen
     expect(legend.textContent).not.toMatch(/90\s?%/);
     expect(screen.queryByTestId('mc-paths-legend-inner')).toBeNull();
@@ -364,15 +377,15 @@ describe('computeYScale / niceStep / makeYTickFormatter', () => {
 
   it('Achsenbeschriftung: feste Nachkommastellen je Achse, CH-Format', () => {
     const mio = (chf: number) => chf * 100;
-    const f1 = makeYTickFormatter(mio(1_000_000), mio(250_000));
+    const f1 = makeYTickFormatter(mio(1_000_000), mio(250_000), 'CHF');
     expect(f1(0)).toBe('CHF 0');
     expect(f1(mio(500_000))).toBe('CHF 0.50 Mio.');
     expect(f1(mio(1_000_000))).toBe('CHF 1.00 Mio.');
-    const f2 = makeYTickFormatter(mio(6_000_000), mio(2_000_000));
+    const f2 = makeYTickFormatter(mio(6_000_000), mio(2_000_000), 'CHF');
     expect(f2(mio(4_000_000))).toBe('CHF 4 Mio.');
-    const f3 = makeYTickFormatter(mio(7_500_000), mio(2_500_000));
+    const f3 = makeYTickFormatter(mio(7_500_000), mio(2_500_000), 'CHF');
     expect(f3(mio(5_000_000))).toBe('CHF 5.0 Mio.');
-    const f4 = makeYTickFormatter(mio(750_000), mio(250_000));
+    const f4 = makeYTickFormatter(mio(750_000), mio(250_000), 'CHF');
     expect(f4(mio(250_000))).toBe("CHF 250'000");
   });
 

@@ -154,7 +154,9 @@ def test_capture_exception_active_calls_sentry(monkeypatch):
     mock_sentry.capture_exception.assert_called_once()
 
 
-def test_capture_exception_with_context_uses_scope(monkeypatch):
+def test_capture_exception_keeps_context_local(monkeypatch):
+    # H10 C-DSG-03 (DSG-Technikaudit 2026-11-11): context (hier eine
+    # Mandats-ID) bleibt im lokalen Log und geht nicht an den Fehlerdienst.
     monkeypatch.setattr('config.settings.telemetry_enabled', True)
     monkeypatch.setattr('config.settings.telemetry_dsn', 'https://x@sentry.io/1')
 
@@ -169,7 +171,9 @@ def test_capture_exception_with_context_uses_scope(monkeypatch):
     except ValueError as exc:
         telemetry.capture_exception(exc, context={"mandate_id": "MX-1"})
 
-    mock_scope.set_extra.assert_called_with("mandate_id", "MX-1")
+    mock_scope.set_extra.assert_not_called()
+    mock_sentry.push_scope.assert_not_called()
+    mock_sentry.capture_exception.assert_called_once()
 
 
 def test_capture_message_no_op_when_inactive(caplog):

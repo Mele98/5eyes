@@ -34,6 +34,9 @@ from models.review import AuditLog
 from models.snapshots import StrategySnapshot
 from models.users import User
 from services.auth import get_current_user, require_admin, require_advisor
+# CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
+# tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
+from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
 
 
 def _now() -> str:
@@ -180,6 +183,7 @@ def test_g1_advisor_cannot_get_foreign_drift(session_factory, cleanup_overrides)
     assert resp.status_code == 404, resp.text
 
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_g1_admin_can_access_any_snapshot(session_factory, cleanup_overrides):
     """Admin (global access) muss weiterhin auf jedes Mandat schreiben koennen."""
     admin = _make_user("admin", "0")
@@ -193,6 +197,7 @@ def test_g1_admin_can_access_any_snapshot(session_factory, cleanup_overrides):
     assert resp.status_code == 201, resp.text
 
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_g1_advisor_can_snapshot_own_mandate(session_factory, cleanup_overrides):
     """Sanity: Advisor darf weiterhin eigene Mandate snapshotten."""
     advisor = _make_user("advisor", "own")

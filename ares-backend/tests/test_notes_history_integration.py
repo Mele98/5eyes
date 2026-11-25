@@ -94,6 +94,11 @@ def test_serialize_notes_loads_history_from_json_field():
         '"changes":{"aa_anmerkungen":{"old":"alt","new":"current"}}}]'
     )
 
+    # L2c (H-192): _serialize_notes bekommt die geoeffnete Sicht
+    # (report_notes_view); deren ``history`` ist die entschluesselte Liste.
+    import json as _json
+    notes.history = _json.loads(notes.previous_versions_json)
+
     result = _serialize_notes(notes)
     assert "previous_versions" in result
     history = result["previous_versions"]
@@ -123,6 +128,7 @@ def test_serialize_notes_empty_history_for_null_field():
     notes.created_at = "2026-06-04T10:00:00Z"
     notes.updated_at = "2026-06-04T10:00:00Z"
     notes.previous_versions_json = None
+    notes.history = []  # L2c: geoeffnete Sicht ohne Historie
 
     result = _serialize_notes(notes)
     assert result["previous_versions"] == []
@@ -304,6 +310,8 @@ def test_serialize_notes_paginates_history_and_reports_total(monkeypatch):
     ):
         setattr(notes, f, None)
     notes.previous_versions_json = base.previous_versions_json
+    import json as _json
+    notes.history = _json.loads(base.previous_versions_json)  # L2c: geoeffnete Sicht
 
     result = _serialize_notes(notes, history_limit=2, history_offset=0)
     assert len(result["previous_versions"]) == 2

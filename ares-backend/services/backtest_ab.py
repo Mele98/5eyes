@@ -209,7 +209,7 @@ def run_ab_backtest(
         warnings.append(
             f"Unterschiedliche House-Matrix-Profile (A: {view_a['profile_name']}, "
             f"B: {view_b['profile_name']}) — Score-Bucket {score_bucket} wird "
-            f"in beiden Policies abgedeckt, aber das Profil-Konzept ist nicht "
+            f"in beiden Strategiemodellen abgedeckt, aber das Profil-Konzept ist nicht "
             f"identisch."
         )
 
@@ -226,7 +226,9 @@ def run_ab_backtest(
         "warnings": warnings,
         "note": (
             "Reiner House-Matrix-Pfad — Tilts, Goals und Reserve-Logik werden "
-            "bewusst nicht angewandt, damit der Diff den Policy-Effekt isoliert. "
-            "Beide Policies werden gegen die aktuelle CMA gemessen."
+            # H-187: Kundentext (erscheint im Advisory-Report, sobald eine Firma ihr
+            # Strategiemodell aendert, z. B. die Gebuehrenvereinbarung erfasst).
+            "bewusst nicht angewandt, damit der Unterschied der Strategiemodelle "
+            "sichtbar bleibt. Beide Strategiemodelle werden gegen die aktuelle CMA gemessen."
         ),
     }
