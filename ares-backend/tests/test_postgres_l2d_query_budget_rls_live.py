@@ -153,10 +153,11 @@ def test_advisory_log_selects_are_constant_under_rls(pg_app):
         sealed = db.execute(text("SELECT title FROM advisory_log")).scalar_one()
         assert pii_vault.is_sealed(sealed)
         one, baseline = _list(db)
-        assert len(one) == 1 and one[0]["text_state"] == "ok"
+        assert len(one) == 1 and one[0]["title"] == "Eintrag 0" and one[0]["integrity_verified"] is True
         _add_logs(db, 19)
         twenty, count = _list(db)
-        assert len(twenty) == 20 and {row["text_state"] for row in twenty} == {"ok"}
+        assert len(twenty) == 20 and all(row["integrity_verified"] is True for row in twenty)
+        assert {row["title"] for row in twenty} == {f"Eintrag {index}" for index in range(19)}
         assert count <= baseline + 5, (baseline, count)
     with pg_app() as db:
         set_tenant_context(db, FOREIGN)
