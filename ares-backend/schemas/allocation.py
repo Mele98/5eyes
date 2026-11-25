@@ -1,9 +1,13 @@
 import math
 
+from pydantic_core import PydanticCustomError
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from datetime import date
 from typing import Literal, Optional
 from core.chf_amount import normalize_chf_amount_text
-from schemas.common import BaseResponse
+from core.external_holdings_rule import isin_is_valid, normalize_isin
+from core.presentation_rounding import STORAGE_EXPONENT, display_decimals
+from schemas.common import PERSISTABLE_INT_MAX, BaseResponse
 from services.cma_validation import (
     parse_correlation_matrix_json,
     parse_inflation_path_json,
@@ -1966,3 +1970,86 @@ class AllocationPublicationResponse(BaseModel):
     published_envelope_hash: str
     eligible_approver_count: int
     single_person_firm: int
+
+
+# K3 / N-915-06: Titel ausserhalb der Empfehlung (Fremdbestand) an einem Depot.
+ExternalHoldingAssetClass = Literal["Aktien", "Obligationen", "Immobilien", "Alternative Anlagen", "Liquidität"]
+
+
+class ExternalHoldingItem(BaseModel):
+    """Ein gehaltener Titel, der nicht in der Empfehlung steht. Marktwert und
+    Stichtag duerfen fehlen -- der Titel ist dann "nicht bewertbar" (kein
+    Ersatzwert)."""
+
+    label: str = Field(..., min_length=1, max_length=120)
+    isin: Optional[str] = Field(default=None, max_length=20)
+    asset_class: ExternalHoldingAssetClass
+    currency: str = Field(..., min_length=3, max_length=3)
+    market_value_rappen: Optional[int] = Field(default=None, ge=1, le=PERSISTABLE_INT_MAX)
+    valuation_date: Optional[date] = None
+
+    @field_validator("label")
+    @classmethod
+    def _label(cls, value: str) -> str:
+        text = " ".join(str(value).split())
+        if not text:
+            raise PydanticCustomError("external_label", "Bezeichnung fehlt.")
+        return text
+
+    @field_validator("currency")
+    @classmethod
+    def _currency(cls, value: str) -> str:
+        text = str(value).strip().upper()
+        if not text.isalpha() or len(text) != 3:
+            raise PydanticCustomError("external_currency", "Währung als dreistelliger Code (ISO 4217).")
+        return text
+
+    @field_validator("isin")
+    @classmethod
+    def _isin(cls, value: Optional[str]) -> Optional[str]:
+        isin = normalize_isin(value)
+        if isin and not isin_is_valid(isin):
+            raise PydanticCustomError("external_isin", "ISIN ungültig (Format oder Prüfziffer).")
+        return isin
+
+    @model_validator(mode="after")
+    def _storage_factor(self):
+        # N-937-01: Speicherbetrag immer mit Faktor 100 (N-894-01, auch JPY);
+        # mehr Nachkommastellen als die Waehrung hat (JPY: 0) -> ungueltig.
+        step = 10 ** max(0, STORAGE_EXPONENT - display_decimals(self.currency))
+        if self.market_value_rappen is not None and self.market_value_rappen % step:
+            raise PydanticCustomError(
+                "external_market_value_precision",
+                "Marktwert mit mehr Nachkommastellen als die Währung (Speicherung mit Faktor 100).",
+            )
+        return self
+
+
+class ExternalHoldingsUpdate(BaseModel):
+    items: list[ExternalHoldingItem] = Field(default_factory=list, max_length=200)
+
+
+class ExternalHoldingValuation(BaseModel):
+    label: str
+    isin: Optional[str] = None
+    asset_class: Optional[str] = None
+    currency: Optional[str] = None
+    market_value_rappen: Optional[int] = None
+    valuation_date: Optional[str] = None
+    amount_base_rappen: Optional[int] = None
+    status: str
+    status_text: str
+
+
+class ExternalHoldingsDepot(BaseModel):
+    wealth_position_id: str
+    depot_label: str
+    items: list[ExternalHoldingValuation]
+
+
+class ExternalHoldingsResponse(BaseModel):
+    mandate_id: str
+    base_currency: str
+    depots: list[ExternalHoldingsDepot]
+    total_base_rappen: int
+    unvalued_count: int

@@ -197,7 +197,10 @@ FAN_OUT_EXEMPT_LEAVES = frozenset(
      # CCX P5 (H-178): kanonischer Risikoparametersatz (M-2) und kanonische
      # Zielkennzahl (M-3) als reine Blaetter -- eine Quelle fuer Engine,
      # Optimierer, Siegel und Kanaele ohne neue Modulkanten.
-     "core.risk_parameter_set", "core.goal_metric_contract"}
+     "core.risk_parameter_set", "core.goal_metric_contract",
+     # K3 (H-189): eine Regel fuer Bestand ausserhalb der Empfehlung
+     # (Depotcheck, Depot-Snapshot, Handelsliste, Erfassung).
+     "core.external_holdings_rule"}
 )
 _STDLIB = frozenset(sys.stdlib_module_names) | {"__future__"}
 _DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})

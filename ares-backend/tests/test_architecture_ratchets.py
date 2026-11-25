@@ -311,7 +311,9 @@ def test_exempt_leaves_allowlist_is_explicit_and_versioned(gate):
          "core.preference_labels", "core.holdings_rule",
          # CCX P5 (Handoff H-178): kanonischer Risikoparametersatz (M-2) und
          # Zielkennzahl (M-3) als Review-Entscheid.
-         "core.risk_parameter_set", "core.goal_metric_contract"}
+         "core.risk_parameter_set", "core.goal_metric_contract",
+         # K3 (Handoff H-189): eine Regel fuer Bestand ausserhalb der Empfehlung.
+         "core.external_holdings_rule"}
     )
 
 

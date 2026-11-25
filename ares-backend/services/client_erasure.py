@@ -171,6 +171,39 @@ def _in_params(prefix: str, values: list[str]) -> tuple[str, dict[str, str]]:
     return ", ".join(f":{key}" for key in params), params
 
 
+def _redact_external_holding_labels(db: Session, client_id: str) -> int:
+    """K3 / N-937-05: ``wealth_positions.external_holdings_json`` behaelt seine
+    Struktur (ISIN, Anlageklasse, Waehrung, Marktwert, Stichtag = RECORD); die
+    freie Bezeichnung je Titel wird durch den Marker ersetzt. Unlesbarer Inhalt
+    wird ganz markiert (kein Freitext bleibt stehen). Returns Anzahl Zeilen."""
+    if "external_holdings_json" not in _columns(db, "wealth_positions"):
+        return 0
+    rows = db.execute(
+        text("SELECT id, external_holdings_json FROM wealth_positions "
+             "WHERE client_id = :cid AND external_holdings_json IS NOT NULL"),
+        {"cid": client_id},
+    ).all()
+    count = 0
+    for row_id, raw in rows:
+        try:
+            items = json.loads(raw)
+        except (TypeError, ValueError):
+            items = None
+        if isinstance(items, list):
+            redacted_items = [
+                {**item, "label": REDACTION_MARKER} if isinstance(item, dict) else REDACTION_MARKER
+                for item in items
+            ]
+            new_raw = json.dumps(redacted_items, ensure_ascii=False, sort_keys=True)
+        else:
+            new_raw = REDACTION_MARKER
+        if new_raw != raw:
+            db.execute(text("UPDATE wealth_positions SET external_holdings_json = :v WHERE id = :id"),
+                       {"v": new_raw, "id": row_id})
+            count += 1
+    return count
+
+
 def _redact(
     db: Session,
     table: str,
@@ -374,6 +407,11 @@ def erase_client_personal_data(
             "depot_account_number", "mortgage_bank", "notes",
         ],
     )
+    # K3 / N-937-05: Bezeichnungen der Titel ausserhalb der Empfehlung sind
+    # Freitext in einer RECORD-Spalte -- nur ``label`` wird geschwaerzt.
+    n_external = _redact_external_holding_labels(db, client_id)
+    if n_external:
+        redacted["wealth_positions.external_holdings_json"] = n_external
     _apply("cashflows", "client_id", [client_id], marker_columns=["notes"])
     _apply("wealth_inflows", "client_id", [client_id], marker_columns=["notes"])
     if mandate_ids:

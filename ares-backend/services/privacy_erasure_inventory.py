@@ -42,7 +42,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-INVENTORY_VERSION = "2026-11-21.2"
+INVENTORY_VERSION = "2026-11-22.1"
 
 DELETE = "DELETE"
 ANONYMIZE = "ANONYMIZE"
@@ -241,7 +241,12 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
            "property_address", "property_zip_city", "depot_bank", "depot_account_number",
            "mortgage_bank",
            method=TIER_A_REDACTION),
-        _c(FREE_TEXT, "financial_situation", "notes", method=TIER_A_REDACTION),
+        # K3 / N-937-05: Titel ausserhalb der Empfehlung (JSON-Liste). Die
+        # Bezeichnung je Titel ist Freitext und wird bei der Loeschung
+        # geschwaerzt (services/client_erasure.py, nur Schluessel ``label``);
+        # ISIN, Anlageklasse, Waehrung, Marktwert und Stichtag bleiben als
+        # RECORD wie die uebrigen Betraege. Auskunft/Export: ganze Spalte.
+        _c(FREE_TEXT, "financial_situation", "notes", "external_holdings_json", method=TIER_A_REDACTION),
         _c(RECORD, "financial_situation"),
     ),
     "wealth_inflows": _t(

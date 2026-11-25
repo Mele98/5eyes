@@ -428,7 +428,7 @@ def test_inventory_and_register_cover_the_sealed_protocol_tables():
         sealed = [c for c in cats if c.name == inv.SEALED_FREE_TEXT]
         assert sealed and sealed[0].method == inv.CRYPTO_SHRED, table
         assert not [c for c in cats if c.name == inv.FREE_TEXT], table
-    assert inv.INVENTORY_VERSION == "2026-11-21.2"
+    assert inv.INVENTORY_VERSION == "2026-11-22.1"
     raw = json.loads((Path(__file__).resolve().parents[1] / "config" / "processing_activities.json")
                      .read_text(encoding="utf-8"))
     pa05 = next(a for a in raw["activities"] if a["id"] == "PA-05")
@@ -489,7 +489,7 @@ def test_alembic_l2c_up_down_up_and_downgrade_fail_closed(tmp_path):
 
     url = f"sqlite:///{tmp_path / 'l2c.db'}"
     script = ScriptDirectory.from_config(alembic_cfg(url))
-    assert script.get_heads() == ["f3c8a1d6b2e4"]  # L2d (N-938-01) haengt an L2c
+    assert script.get_heads() == ["d3b7e1f9a5c2"]  # K3 haengt an L2d
     assert script.get_revision("e2b7c4d9a1f3").down_revision == "c7e1a9d3f5b2"
     command.upgrade(alembic_cfg(url), "e2b7c4d9a1f3")
     engine = create_engine(url)

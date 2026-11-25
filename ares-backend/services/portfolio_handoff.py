@@ -21,7 +21,14 @@ from models.review import Product, RecommendationRun
 from models.wealth import WealthPosition
 from services.portfolio_engine import build_recommendation_payload_from_run
 from services.portfolio_engine_live_rebalancing import _build_live_position_drifts
-from services.portfolio_handoff_cash import AdvisoryCashValuationError, advisory_cash_entries, with_cash_actions
+from core.external_holdings_rule import ORIGIN_EXTERNAL
+from services.portfolio_handoff_cash import (
+    AdvisoryCashValuationError,
+    advisory_cash_entries,
+    external_handoff_entries,
+    with_cash_actions,
+    with_external_actions,
+)
 
 # Fields kept per trade in the immutable snapshot -- a curated subset of the
 # live-rebalancing entry (see services/portfolio_engine_live_rebalancing.py),
@@ -174,6 +181,7 @@ def resolve_handoff_holdings_basis(
     advisory_depot_recorded: bool = False,
     investable_wealth_rappen: int | None = None,
     advisory_cash: list[dict] | None = None,
+    external_holdings: list[dict] | None = None,
 ) -> tuple[list[dict], int, str]:
     """Liefert (position_drifts, Basis-Total, holdings_basis) fuer den Snapshot.
 
@@ -199,10 +207,21 @@ def resolve_handoff_holdings_basis(
     Liquiditaetspositionen des Beratungsvermoegens (``advisory_cash``, siehe
     services/portfolio_handoff_cash.py) als eigene Zeilen mit IST = Wert und
     SOLL = 0 in der Basis. Bei bestaetigtem Neugeld sind sie bereits im
-    investierbaren Beratungsvermoegen enthalten und werden nicht addiert."""
+    investierbaren Beratungsvermoegen enthalten und werden nicht addiert.
+
+    K3 / N-915-06: bewerteter Fremdbestand (``external_holdings``, Titel
+    ausserhalb der Empfehlung) ist erfasster Depotbestand -- auch ohne einen
+    einzigen Titel der Empfehlung. Jede Zeile hat IST = Wert und SOLL = 0; die
+    Aktion ist nur ein Vorschlag (``REVIEW``), nie ein Verkaufsauftrag."""
+    external = list(external_holdings or [])
     counts = _coverage_counts(live)
     held_count = counts["holding_positions_count"]
-    if held_count is not None and held_count <= 0 and not confirm_no_existing_holdings:
+    if external and confirm_no_existing_holdings:
+        raise HoldingsValuationIncompleteError(
+            "Widerspruch: es sind Titel ausserhalb der Empfehlung erfasst, bestätigt wurde "
+            "aber, dass kein Bestand existiert. Bitte die Angaben prüfen."
+        )
+    if held_count is not None and held_count <= 0 and not confirm_no_existing_holdings and not external:
         raise HoldingsValuationIncompleteError(
             "Kein erfasster Depotbestand: die Handelsliste beruht ausschliesslich "
             "auf aus dem Ziel abgeleiteten Positionen und ist keine Handelsinstruktion. "
@@ -223,7 +242,7 @@ def resolve_handoff_holdings_basis(
         )
 
     drifts = live.get("position_drifts") or []
-    if held_count > 0:
+    if held_count > 0 or external:
         if confirm_no_existing_holdings:
             raise HoldingsValuationIncompleteError(
                 "Widerspruch: es sind Depotbestände erfasst, bestätigt wurde aber, "
@@ -245,7 +264,7 @@ def resolve_handoff_holdings_basis(
         basis = HOLDINGS_BASIS_CONFIRMED_NO_HOLDINGS
 
     cash = list(advisory_cash or []) if basis == HOLDINGS_BASIS_RECORDED_DEPOT else []
-    if counts["implied_positions_count"] == 0 and basis == HOLDINGS_BASIS_RECORDED_DEPOT and not cash:
+    if counts["implied_positions_count"] == 0 and basis == HOLDINGS_BASIS_RECORDED_DEPOT and not cash             and not external:
         # Alles gehalten: unveraenderte Live-Zeilen, nur die Herkunft markiert.
         return (
             [{**entry, "holding_origin": HOLDING_ORIGIN_HELD} for entry in drifts],
@@ -279,6 +298,7 @@ def resolve_handoff_holdings_basis(
     if basis == HOLDINGS_BASIS_RECORDED_DEPOT:
         total = sum(int(entry["current_market_value_rappen"]) for entry in drifts if entry["holding_present"])
         total += sum(int(entry["current_market_value_rappen"]) for entry in cash)
+        total += sum(int(entry["current_market_value_rappen"]) for entry in external)
     else:
         total = int(investable_wealth_rappen)
     entries = []
@@ -299,7 +319,8 @@ def resolve_handoff_holdings_basis(
             })
         entries.append(row)
     entries.extend(dict(entry) for entry in cash)
-    return with_cash_actions(_build_live_position_drifts(entries, total)), total, basis
+    entries.extend(dict(entry) for entry in external)
+    return with_external_actions(with_cash_actions(_build_live_position_drifts(entries, total))), total, basis
 
 
 def _advisory_depot_recorded(db: Session, mandate: Mandate) -> bool:
@@ -352,8 +373,17 @@ def snapshot_handoff(
             )
         raise NoTradeListAvailableError("Keine Live-Rebalancing-Daten für diesen Lauf verfügbar.")
     # HANDOFF-CASH-BASIS-001: nur bei erfasstem Depot (sonst Neugeld-Pfad).
+    # K3 / N-915-06: Fremdbestand, bewertet mit derselben strikten FX-Basis wie die Liquiditaet.
+    try:
+        # N-937-07: ISINs des Laufs ueber den bestehenden Produkt-Lookup (die
+        # Live-Zeilen tragen jede Position des Laufs) -- keine zweite Lauf-Abfrage.
+        run_isins = set(_isin_by_product_id(db, [e.get("product_id") for e in live["position_drifts"]]).values())
+        external = external_handoff_entries(db, mandate, run_isins)
+    except AdvisoryCashValuationError as exc:
+        raise HoldingsValuationIncompleteError(str(exc)) from exc
     advisory_cash = []
-    if not confirm_no_existing_holdings and (_coverage_counts(live)["holding_positions_count"] or 0) > 0:
+    if not confirm_no_existing_holdings and (
+            (_coverage_counts(live)["holding_positions_count"] or 0) > 0 or external):
         try:
             advisory_cash = advisory_cash_entries(db, mandate)
         except AdvisoryCashValuationError as exc:
@@ -364,12 +394,15 @@ def snapshot_handoff(
         advisory_depot_recorded=confirm_no_existing_holdings and _advisory_depot_recorded(db, mandate),
         investable_wealth_rappen=payload.get("investable_advisory_wealth_rappen"),
         advisory_cash=advisory_cash,
+        external_holdings=external,
     )
 
     threshold_rappen = round(total_value_rappen * _MIN_TRADE_SHARE)
+    # K3: Fremdtitel nie still ausblenden, auch unter der Anzeigeschwelle.
     selected = [
         entry for entry in drifts
         if abs(int(entry.get("rebalance_amount_rappen") or 0)) >= threshold_rappen
+        or entry.get("holding_origin") == ORIGIN_EXTERNAL
     ]
     isin_by_product = _isin_by_product_id(db, [entry.get("product_id") for entry in selected])
     trades = [_snapshot_trade(entry, isin_by_product) for entry in selected]
@@ -412,7 +445,12 @@ def _snapshot_trade(entry: dict, isin_by_product: dict) -> dict:
         if value is not None and value != "":
             trade[field] = value
     missing = [field for field in _REQUIRED_INSTRUCTION_FIELDS if field not in trade]
-    trade["instruction_kind"] = INSTRUCTION_KIND_RECOMMENDATION if missing else INSTRUCTION_KIND_EXECUTABLE
+    # K3 / N-937-07: ein Titel ausserhalb der Empfehlung ist nie ausfuehrbar --
+    # ausdruecklich, nicht nur weil Instruktionsfelder fehlen.
+    external = entry.get("holding_origin") == ORIGIN_EXTERNAL
+    trade["instruction_kind"] = (
+        INSTRUCTION_KIND_RECOMMENDATION if missing or external else INSTRUCTION_KIND_EXECUTABLE
+    )
     trade["missing_instruction_fields"] = missing
     return trade
 

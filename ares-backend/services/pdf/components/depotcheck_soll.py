@@ -333,6 +333,34 @@ def make_concentration_table(positions: list[dict], base_currency: str = "CHF") 
     return table
 
 
+def make_external_holdings_table(items: list[dict], base_currency: str) -> Table:
+    """K3 / N-915-06: Titel ausserhalb der Empfehlung mit Stichtag, Wert und
+    Status; ein nicht bewertbarer Titel ohne Betrag (kein Ersatzwert)."""
+    rows = [["Titel", "Anlageklasse", "Stichtag", "Wert", "Status"]]
+    for item in items:
+        amount = item.get("amount_rappen")
+        as_of = str(item.get("valuation_date") or "")[:10]
+        rows.append([
+            Paragraph(
+                f'<font name="{FONT_BOLD}">{_esc(item.get("label") or "-")}</font>'
+                + (f'<br/><font color="#64748b" size="7.5">ISIN {_esc(item.get("isin"))}</font>'
+                   if item.get("isin") else ""),
+                _cell_style(),
+            ),
+            Paragraph(_esc(item.get("asset_class") or "-"), _cell_style()),
+            f"{as_of[8:10]}.{as_of[5:7]}.{as_of[:4]}" if len(as_of) == 10 else "-",
+            _format_amount(int(amount), base_currency) if amount is not None else "nicht bewertbar",
+            Paragraph(_esc(item.get("status_text") or "-"), _cell_style()),
+        ])
+    table = _styled_table(rows, [0.30, 0.18, 0.13, 0.17, 0.22], right_from=3)
+    table.setStyle(TableStyle([
+        ("FONTSIZE", (0, 1), (-1, -1), max(7, FONT_SIZE_TABLE - 0.5)),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    return table
+
+
 def make_cost_table(costs: Mapping[str, object], base_currency: str = "CHF") -> Table:
     rows = [["Kostenart", "Turnus", "Satz", "Betrag", "Datenbasis"]]
     if costs and costs.get("evidence_status") == "blocked":

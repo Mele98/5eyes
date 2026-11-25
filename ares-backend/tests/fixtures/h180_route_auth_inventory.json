@@ -466,6 +466,9 @@
   "GET /mandates/{mandate_id}/documents/{doc_id}/pdf": [
    "get_current_user"
   ],
+  "GET /mandates/{mandate_id}/external-holdings": [
+   "get_current_user"
+  ],
   "GET /mandates/{mandate_id}/financial-coverage-attestation": [
    "get_current_user"
   ],
@@ -1455,6 +1458,10 @@
    "get_current_user",
    "require_advisor"
   ],
+  "PUT /mandates/{mandate_id}/external-holdings/{wp_id}": [
+   "get_current_user",
+   "require_advisor"
+  ],
   "PUT /mandates/{mandate_id}/goals/order": [
    "get_current_user",
    "require_advisor"
@@ -1588,6 +1595,7 @@
   "GET /mandates/{mandate_id}/depot-snapshots/{snapshot_id}/stress-replays": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
   "GET /mandates/{mandate_id}/documents": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
   "GET /mandates/{mandate_id}/documents/{doc_id}/pdf": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/external-holdings": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
   "GET /mandates/{mandate_id}/financial-coverage-attestation": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
   "GET /mandates/{mandate_id}/goals": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
   "GET /mandates/{mandate_id}/goals/{goal_id}/revision-decisions": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
