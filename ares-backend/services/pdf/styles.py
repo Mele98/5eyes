@@ -67,14 +67,8 @@ GOAL_COLOR_ORANGE = colors.HexColor("#92400e")   # 45-69
 GOAL_COLOR_RED = colors.HexColor("#991b1b")      # <45
 
 
-def goal_color(score: float | int):
-    """Returns Farbe basierend auf Score 0-100."""
-    s = float(score or 0)
-    if s >= 70:
-        return GOAL_COLOR_GREEN
-    if s >= 45:
-        return GOAL_COLOR_ORANGE
-    return GOAL_COLOR_RED
+# P5c / N-930-01: goal_color (Ampel 70/45 auf dem Score) entfallen -- Zielfarben
+# kommen aus core/goal_metric_contract.GOAL_STATUS_DISPLAY (M-3).
 
 
 # ---- Typography ----

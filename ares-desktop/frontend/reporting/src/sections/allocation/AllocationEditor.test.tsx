@@ -82,6 +82,14 @@ describe('AllocationEditor', () => {
     expect(await screen.findByText(/Noch keine SOLL-Allokation/)).toBeInTheDocument();
   });
 
+  it('P5c / N-930-02: veraltete SOLL (409) zeigt die Meldung und rechnet nie still neu', async () => {
+    fetchMock.mockRejectedValue(new ApiError(409, 'Soll-Allokation veraltet'));
+    render(<AllocationEditor mandateId="m1" />);
+    expect(await screen.findByText('Soll-Allokation veraltet')).toBeInTheDocument();
+    // Neue Strategie nur per Klick «Optimizer-Vorschlag» (onGenerate), nie beim Laden.
+    expect(generateMock).not.toHaveBeenCalled();
+  });
+
   it('zeigt einen Fehler bei anderem ApiError', async () => {
     fetchMock.mockRejectedValue(new ApiError(500, 'kaputt'));
     render(<AllocationEditor mandateId="m1" />);

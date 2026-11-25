@@ -92,17 +92,19 @@ def test_de_current_payload_uses_exact_jurisdiction_and_tenant_context(
     original_resolver = allocation_router.ensure_runtime_reference_data
     calls: list[dict] = []
 
-    def _capturing_resolver(db, user_id, *, jurisdiction="CH", tenant_id=None):
+    def _capturing_resolver(db, user_id, *, jurisdiction="CH", tenant_id=None, seed=True):
         calls.append({
             "user_id": user_id,
             "jurisdiction": jurisdiction,
             "tenant_id": tenant_id,
+            "seed": seed,
         })
         return original_resolver(
             db,
             user_id,
             jurisdiction=jurisdiction,
             tenant_id=tenant_id,
+            seed=seed,
         )
 
     monkeypatch.setattr(
@@ -123,6 +125,7 @@ def test_de_current_payload_uses_exact_jurisdiction_and_tenant_context(
         "user_id": advisor_id,
         "jurisdiction": "DE",
         "tenant_id": tenant_id,
+        "seed": False,  # H11: GET-Lesepfad seedet nicht
     }]
     assert payload["target_allocation"].id == generated["target_allocation"].id
     labels = {

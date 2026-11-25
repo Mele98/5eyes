@@ -6,7 +6,7 @@
 
 ## Kontext
 
-5eyes bleibt fuer Tier 1 lokal SQLite-kompatibel. Fuer Tier 2/Shared-Cloud
+Ares bleibt fuer Tier 1 lokal SQLite-kompatibel. Fuer Tier 2/Shared-Cloud
 braucht die gleiche Codebase jedoch eine zweite Schutzschicht unterhalb der
 FastAPI-/SQLAlchemy-Filter: PostgreSQL Row-Level Security (RLS). Ziel ist, dass
 ein vergessener App-Filter nicht automatisch zu einem Cross-Tenant-Leak wird.

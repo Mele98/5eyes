@@ -5,9 +5,11 @@ Admin von Firma A konnte ein PRIVATES Produkt von Firma B lesen/aendern/
 mappen oder in die eigene Fondsuniversum-Kuratierung uebernehmen.
 
 Diese Tests decken die neue, opt-in Durchsetzung ab (nur bei
-strict_tenant_isolation -- Tier-1 bleibt unveraendert). Globale Produkte
-(tenant_id IS NULL) und das eigene Tenant-Produkt bleiben in JEDEM Modus
-editierbar.
+strict_tenant_isolation -- Tier-1 bleibt unveraendert). Das eigene
+Tenant-Produkt bleibt in JEDEM Modus editierbar. Globale Produkte
+(tenant_id IS NULL) sind seit AUDIT-FIX Fondsuniversum R3/F1 (2026-11) bei
+strict_tenant_isolation fuer einen Tenant-Admin gesperrt (403); in Tier-1
+bleiben sie editierbar.
 """
 from __future__ import annotations
 
@@ -149,9 +151,22 @@ def test_update_own_private_product_always_allowed(client, session_factory, monk
         _logout()
 
 
-def test_update_global_product_always_allowed(client, session_factory, monkeypatch):
+def test_update_global_product_blocked_for_tenant_admin_when_strict(client, session_factory, monkeypatch):
+    """AUDIT-FIX Fondsuniversum R3/F1 (2026-11): vorher pinnte dieser Test
+    genau den Befund (200 fuer einen Tenant-Admin auf einem globalen Fonds,
+    der fuer alle Verwaltungen gilt). Jetzt 403 fail-closed."""
     from config import settings
     monkeypatch.setattr(settings, "strict_tenant_isolation", True)
+    _seed(session_factory)
+    _login_admin_a()
+    try:
+        resp = client.put("/products/prod-global", json={"ter_bps": 25})
+        assert resp.status_code == 403, resp.text
+    finally:
+        _logout()
+
+
+def test_update_global_product_allowed_by_default_tier1(client, session_factory):
     _seed(session_factory)
     _login_admin_a()
     try:

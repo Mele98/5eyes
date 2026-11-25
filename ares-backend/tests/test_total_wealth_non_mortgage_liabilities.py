@@ -195,7 +195,7 @@ def test_generate_target_allocation_total_view_decomposes_net_wealth(
                       alloc_equities_bps=10000)
         _add_position(session, id="house", position_type="Immobilien",
                       current_value_rappen=800_000_00, asset_expected_return_bps=0)
-        _add_position(session, id="mortgage", position_type="Hypothek",
+        _add_position(session, id="mortgage", position_type="Hypothek", mortgage_interest_rate_bps=0,  # K1 N-913-01: Satz erfasst (0 %), Testfokus unveraendert
                       assignment="Verbindlichkeit", current_value_rappen=300_000_00)
         _add_position(session, id="personal-loan", position_type="Custom",
                       assignment="Verbindlichkeit", current_value_rappen=200_000_00)

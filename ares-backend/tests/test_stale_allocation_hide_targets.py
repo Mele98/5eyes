@@ -21,6 +21,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -88,7 +90,7 @@ def test_section8_stale_nulls_all_target_fields():
     # Echte IST-Werte bleiben (keine Zielzahl).
     eq = next(it for it in aa["items"] if it["key"] == "equities")
     assert eq["ist_bps"] == 4000
-    assert "Vermoegen, Cashflows oder Ziele" in aa["staleness_hinweis"]
+    assert "Vermögen, Cashflows oder Ziele" in aa["staleness_hinweis"]
 
 
 def test_section8_stale_shows_only_notice_not_drift_text_or_advisor_note():
@@ -134,7 +136,7 @@ def test_report_stale_inputs_hides_section8_and_13_targets(session):  # noqa: F8
         bb = rep["building_blocks"]
         assert bb["target_allocation_stale"] is True
         assert bb["soll_ausgeblendet"] is True
-        assert "Vermoegen, Cashflows oder Ziele" in bb["staleness_hinweis"]
+        assert "Vermögen, Cashflows oder Ziele" in bb["staleness_hinweis"]
         for b in bb["blocks"]:
             assert b["target_bps"] is None, b
             assert b["band_min_bps"] is None, b
@@ -218,7 +220,7 @@ def test_pdf_section8_stale_renders_notice_without_chart():
     aa = _build_asset_allocation(_dc(stale=True, inputs_stale=True))
     flowables = _build_asset_allocation_flowables(aa, make_advisory_styles())
     texts = _all_texts(flowables)
-    assert any("Vermoegen, Cashflows oder Ziele" in t for t in texts), texts
+    assert any("Vermögen, Cashflows oder Ziele" in t for t in texts), texts
     # Kein Chart (Tabelle mit Anlageklassen-Labels / Prozenten).
     assert not any("Aktien" in t for t in texts), texts
     assert not any("%" in t for t in texts), texts
@@ -338,7 +340,7 @@ def _monolith_render_bucket_drift(data: dict) -> str:
     if shutil.which("node") is None:
         pytest.skip("node nicht verfuegbar")
     html_path = BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html"
-    html = html_path.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     sig = "function dcRenderBucketDrift("
     start = html.index(sig)
     i = html.index("{", start)
@@ -357,13 +359,14 @@ def _monolith_render_bucket_drift(data: dict) -> str:
             m += 1
         fn_src = html[s0:m] + "\n" + fn_src
     script = (
-        "var out={innerHTML:''};var document={getElementById:function(){return out;}};"
+        rounding_module_source()
+        + "var out={innerHTML:''};var document={getElementById:function(){return out;}};"
         "var DC_BUCKET_COLORS={};function escapeHtml(s){return String(s);}\n"
         + fn_src
         + f"\nvar d={json.dumps(data)};dcRenderBucketDrift(d.buckets,d);"
         "process.stdout.write(out.innerHTML);"
     )
-    res = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=10)
+    res = subprocess.run(["node", "-"], input=script, capture_output=True, text=True, encoding="utf-8", timeout=10)
     assert res.returncode == 0, res.stderr
     return res.stdout
 

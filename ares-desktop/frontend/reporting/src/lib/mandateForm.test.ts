@@ -68,12 +68,12 @@ describe('buildMandateUpdatePayload', () => {
 
   it('übernimmt gesetzte Werte', () => {
     const payload = buildMandateUpdatePayload(base({
-      depot_bank: 'UBS',
+      depot_bank: 'Testbank Fiktiv',
       client_sex: 'F',
       tax_jurisdiction: 'CH-ZH',
       use_mortality_simulation: true,
     }));
-    expect(payload.depot_bank).toBe('UBS');
+    expect(payload.depot_bank).toBe('Testbank Fiktiv');
     expect(payload.client_sex).toBe('F');
     expect(payload.tax_jurisdiction).toBe('CH-ZH');
     expect(payload.use_mortality_simulation).toBe(true);
