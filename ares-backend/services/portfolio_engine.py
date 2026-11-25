@@ -1467,7 +1467,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _product_matches_constraints,
     _product_score,
     _product_selection_key,
-    product_ter_status,
+    product_ter_status, run_ter_lookup,
     theme_screening_disclosure,
     esg_policy_gap_hint,
     default_catalog_theme_tags,
@@ -1480,7 +1480,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _ter_coverage_bps,
     _validate_recommendation_concentration_limits,
 )
-from services.product_eligibility import run_exclusion_evidence_status  # noqa: E402,F401 (E2 N-901-02, Re-Export)
+from services.product_eligibility import ensure_demo_product_evidence, run_exclusion_evidence_status  # noqa: E402,F401 (E2 N-901-02, C-COMP-02; Re-Export)
 
 
 
@@ -6465,6 +6465,7 @@ def build_recommendation_payload_from_run(
             "Bitte Empfehlung neu berechnen, bevor Umsetzung oder Rebalancing beurteilt werden."
         )
     positions_payload = []
+    ter_terms = run_ter_lookup(db, run)  # C-COMP-02
     for position in positions:
         product = products_by_id.get(position.product_id)
         if not product:
@@ -6499,8 +6500,8 @@ def build_recommendation_payload_from_run(
                 "sub_asset_class": product.sub_asset_class,
                 "source_sub_asset_classes": [],
                 "currency": product.currency,
-                "ter_bps": product.ter_bps,
-                "ter_status": product_ter_status(product),  # K1 / PE-S
+                "ter_bps": ter_terms(product.id)[1],  # C-COMP-02: nur gebundene Evidenz
+                "ter_status": ter_terms(product.id)[0],  # K1 / PE-S
                 "target_weight_bps": int(position.target_weight_bps or 0),
                 "target_amount_rappen": int(position.target_amount_rappen or 0),
                 "rationale": position.rationale,
@@ -6810,7 +6811,7 @@ def generate_recommendation_run(
     # der fruehere Suitability-Relaxation-Fallback-Pfad ist entfernt -- ein
     # Produkt ausserhalb seines Risikobands/Service-Modus wird nicht mehr
     # als letzter Ausweg wieder zum Kandidaten (Spec Section 9.2).
-    from services.product_eligibility import customer_exclusion_evidence, derive_service_mode, is_eligible_candidate, mandate_tenant_id
+    from services.product_eligibility import ProductEvidenceContext, customer_exclusion_evidence, derive_service_mode, is_eligible_candidate, mandate_tenant_id, snapshot_run_product_evidence
     service_mode, run_tenant_id = derive_service_mode(mandate), mandate_tenant_id(mandate)
     exclusion_evidence = customer_exclusion_evidence(db, mandate)  # E2b N1: nur belegte Produkte
 
@@ -6823,6 +6824,7 @@ def generate_recommendation_run(
         and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction, tenant_id=run_tenant_id)
         and (exclusion_evidence is None or exclusion_evidence(product))
     ]
+    product_evidence = ProductEvidenceContext(db, mandate, eligible_products)  # C-COMP-02
     if exclusion_evidence is not None:
         exclusion_evidence.raise_if_uncovered(eligible_products, sub_allocations, lambda ps, sub_name, asset: slot_candidates(ps, sub_name, asset, _norm_text))
 
@@ -6854,11 +6856,8 @@ def generate_recommendation_run(
                 "theme_gap_hint": theme_gap_hint,
             })
             continue
-        ranked = sorted(  # PO-13: stabiler Tie-Break (ISIN, dann ID) statt DB-Reihenfolge
-            candidates,
-            key=lambda product: _product_selection_key(product, sub["sub_asset_class"], prefs, jurisdiction_ctx=jurisdiction_ctx),
-        )
-        best = ranked[0]
+        # PO-13: stabiler Tie-Break (ISIN, dann ID) statt DB-Reihenfolge; C-COMP-02: nur belegte Kosten zaehlen
+        best = min(candidates, key=lambda product: _product_selection_key(product, sub["sub_asset_class"], prefs, jurisdiction_ctx=jurisdiction_ctx, evidence=product_evidence))
         target_amount = int(round(investable_advisory_wealth_rappen * int(sub["target_weight_bps"]) / 10000))
         rationale = sub["rationale"]
         if used_fallback:
@@ -6989,8 +6988,8 @@ def generate_recommendation_run(
                 "sub_asset_class": best.sub_asset_class,
                 "source_sub_asset_classes": source_subs,
                 "currency": best.currency,
-                "ter_bps": best.ter_bps,
-                "ter_status": product_ter_status(best),  # K1 / PE-S
+                "ter_bps": product_evidence.ter_bps(best),  # C-COMP-02: nur belegt
+                "ter_status": product_evidence.ter_status(best),  # K1 / PE-S
                 "target_weight_bps": position.target_weight_bps,
                 "target_amount_rappen": position.target_amount_rappen,
                 "rationale": position.rationale,
@@ -7082,6 +7081,7 @@ def generate_recommendation_run(
         warnings.append(
             f"TER fehlt fuer {missing_ter_count} Position(en); Durchschnittskosten basieren nur auf bekannter TER-Abdeckung."
         )
+    snapshot_run_product_evidence(db, mandate, run)  # C-COMP-02: fail-closed vor Rueckgabe/Commit
     return {
         "run": run,
         "positions": positions_payload,

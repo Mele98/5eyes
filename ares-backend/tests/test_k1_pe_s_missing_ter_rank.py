@@ -133,8 +133,23 @@ def test_generate_prefers_known_ter_over_missing_ter(session_factory):
 
 
 def test_generate_marks_missing_ter_when_it_is_the_only_candidate(session_factory):
-    chosen, run = _world_position(session_factory, [("no-ter", "IE00PES00001", None)], "pes2")
-    assert chosen["product_id"] == "no-ter"
-    assert chosen["ter_status"] == "missing"
-    assert run["missing_ter_positions_count"] >= 1
-    assert any("TER fehlt" in w for w in run["warnings"])
+    """C-COMP-02: ein Produkt ohne belegte Kosten kann keinen Kundenlauf mehr
+    tragen -- vorher wurde es mit Warnung "TER fehlt" empfohlen."""
+    from core.reason_codes import DomainError
+
+    with pytest.raises(DomainError) as exc:
+        _world_position(session_factory, [("no-ter", "IE00PES00001", None)], "pes2")
+    assert exc.value.reason_code == "PRODUCT_EVIDENCE_COST_MISSING"
+    assert exc.value.extra["product_id"] == "no-ter"
+
+
+def test_payload_of_an_unbound_run_marks_the_ter_as_missing(session_factory):
+    """Ungebundener Lauf (Altbestand): TER bleibt unbekannt, nie 0."""
+    from services.portfolio_engine import _average_ter_bps, _missing_ter_positions_count
+    from services.portfolio_engine_payload import run_ter_lookup
+
+    with session_factory() as s:
+        status, bps = run_ter_lookup(s, "unbound-run")("no-ter")
+    assert (status, bps) == ("missing", None)
+    item = {"ter_status": status, "ter_bps": bps, "target_weight_bps": 10_000}
+    assert _missing_ter_positions_count([item]) == 1 and _average_ter_bps([item]) == 0

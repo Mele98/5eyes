@@ -17,6 +17,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from product_evidence_test_support import bind_synthetic_run
 from core.reason_codes import DomainError  # noqa: E402  K-2b: Gates werfen DomainError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import configure_mappers, sessionmaker
@@ -294,6 +296,7 @@ def test_active_policy_blocks_advisory_pdf_endpoint_before_rendering(session_fac
     monkeypatch.setattr(pdf_reports, "_enforce_cma_currency_release", _must_not_render)
     with session_factory() as s:
         advisor, mandate = _seed(s)
+        bind_synthetic_run(s, s.get(RecommendationRun, "run"))  # C-COMP-02
         with pytest.raises(DomainError) as exc:
             pdf_reports.get_advisory_report_pdf(mandate.id, db=s, current_user=advisor)
     assert exc.value.status_code == 409
@@ -313,6 +316,7 @@ def test_proposed_policy_lets_advisory_pdf_endpoint_pass_the_gate(session_factor
     monkeypatch.setattr(pdf_reports, "_enforce_cma_currency_release", _after_gate)
     with session_factory() as s:
         advisor, mandate = _seed(s)
+        bind_synthetic_run(s, s.get(RecommendationRun, "run"))  # C-COMP-02
         with pytest.raises(_PassedGate):
             pdf_reports.get_advisory_report_pdf(mandate.id, db=s, current_user=advisor)
 

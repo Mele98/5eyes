@@ -29,12 +29,14 @@ Dezimal-Zeichenkette gebunden (core/advisory_envelope_codec.py).
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Sequence
 
-from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import inspect as sa_inspect, text
 from sqlalchemy.orm import Session
 
+from core.product_evidence import RUN_ITEMS_SQL
 from core.advisory_envelope_codec import (
     MANIFEST_COMPONENTS,
     MANIFEST_SCHEMA_VERSION,
@@ -298,6 +300,15 @@ def collect_dependency_parts(
         .filter(InvestmentPreferenceDecision.mandate_id == mandate_id)
         .all()
     )
+    # C-COMP-02: gebundene Nachweise des Laufs (ueber dessen Snapshot-Bindung).
+    evidence_row = db.execute(text(
+        "SELECT item_ids_json FROM product_evidence_snapshots WHERE id = :id"
+    ), {"id": str(getattr(run, "product_evidence_snapshot_id", None) or "")}).first()
+    evidence_ids = set(json.loads(evidence_row[0])) if evidence_row is not None else set()
+    evidence_items = [
+        row for row in db.execute(text(RUN_ITEMS_SQL), {"run_id": str(run.id)}).mappings().all()
+        if row["id"] in evidence_ids
+    ]
     risk_id = getattr(ta, "based_on_assessment_id", None) or getattr(run, "assessment_id", None)
     cma_id = getattr(run, "capital_market_assumptions_id", None) or getattr(
         ta, "capital_market_assumptions_id", None,
@@ -317,6 +328,7 @@ def collect_dependency_parts(
         "wealth_inflows": len(inflows), "positions": len(positions), "run_holdings": len(run_holdings),
         "preference": len(preferences), "constraints": len(constraints_rows), "cma": len(cma_rows),
         "optimizer_policy": len(policy_rows), "benchmark": len(house_matrix),
+        "product_evidence": len(evidence_items),
     }
     def part(kind, object_id, version, hash_kind, model, rows, sort_fields, exempt_variants=(False,)):
         rows = list(rows)
@@ -355,6 +367,15 @@ def collect_dependency_parts(
              _int_or_none(getattr(policy_rows[0], "version", None)) if policy_rows else None,
              "benchmark", HouseMatrix, house_matrix, ("score_from", "score_to", "id")),
     ]
+    # C-COMP-02/P5-Schnittstelle: je gebundenem Nachweis eine eigene Kante;
+    # Widerruf/Ersatz invalidiert genau die Entscheide, die ihn verwenden. Die
+    # Notiz ist kein Beratungsinhalt (hier und im Hook ausgenommen).
+    for item in sorted(evidence_items, key=lambda row: str(row["id"])):
+        columns = sorted(set(item) - _EXCLUDED_COLUMNS - {"note"})
+        parts.append(DependencyPart(
+            "product_evidence", str(item["id"]), None,
+            rows_child_hash("product-evidence-item", columns, [dict(item)], lambda _row: ()), 1,
+        ))
     # N-908-04: auch die Tabellen, die der Hook bisher nur ueber die Reichweite
     # traf, bekommen eine Kante -- damit greift die Pull-Pruefung auch dort.
     def mandate_rows(model):

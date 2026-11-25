@@ -84,7 +84,9 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # Merge H-179 + P5b: 117 Tabellen, aus dem Tree neu berechnet.
 # L2c (H-192): eine neue Tabelle (mandate_report_note_versions), 118 Tabellen,
 # keine bestehende Tabelle umbenannt/entfernt. Aus dem Tree neu berechnet.
-GOLDEN_SORTED_TABLES_SHA256 = "ef1bc00d02f20409bcc15254cba6b47235aab94dffe476759f6a8dfb410315f5"
+# C-COMP-02: zwei neue Tabellen (product_evidence_items, product_evidence_snapshots),
+# 120 Tabellen, keine bestehende Tabelle umbenannt/entfernt. Aus dem Tree neu berechnet.
+GOLDEN_SORTED_TABLES_SHA256 = "6258603045555fc851307dad851ea39cc76e582af29c4e191812706dcd77ccb2"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -247,7 +249,9 @@ GOLDEN_SORTED_TABLES_SHA256 = "ef1bc00d02f20409bcc15254cba6b47235aab94dffe476759
 # (optional) und die descriptions der beiden Eignungsregel-Routen bzw. Schemas;
 # kein Pfad, kein bestehendes Feld geaendert (Feld-Diff api/openapi.json:
 # 99 hinzugefuegte, 3 geaenderte description-Zeilen, export_openapi.py).
-GOLDEN_OPENAPI_SHA256 = "da21c1cfa87257b1a8fb382c68f557408eee7daa77e7201cfd6f190c1f3b48ee"
+# C-COMP-02: neue Pfade /products/evidence/overview, /products/{product_id}/evidence(+/approve),
+# /products/evidence/{evidence_id}/retire|revoke samt Schemas ProductEvidence*; nur additiv.
+GOLDEN_OPENAPI_SHA256 = ""
 
 _PROBE = """
 import hashlib, json

@@ -36,6 +36,7 @@ from pathlib import Path
 
 import pytest
 
+from product_evidence_test_support import generate_with_evidence
 from tests.test_livetest_e2b_strategy_blocks import _finalize_and_publish
 from tests.test_livetest_k2_kernkette_ui import (
     CLOSE, _Api, _chf_depot, _client, _free_port, _load, _login, _open, _sync_api,
@@ -125,7 +126,7 @@ def _published_mandate(api, db_path):
     assert status == 201, body
     status, body = api("POST", f"/mandates/{mid}/target-allocation/generate", {"preferences": {}})
     assert status == 200, body
-    status, body = api("POST", f"/mandates/{mid}/recommendations/generate", {})
+    status, body = generate_with_evidence(api, db_path, mid)  # C-COMP-02
     assert status == 200, body
     _finalize_and_publish(api, db_path, mid)
     return cid, mid

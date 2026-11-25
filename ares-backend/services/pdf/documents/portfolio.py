@@ -148,7 +148,7 @@ def _make_group_positions_table(positions: list, currency: str, total_amount: in
         sub = str(p.get("sub_asset_class", "") or "")
         target_bps = _position_weight_bps(p, total_amount)
         amount = _position_amount_rappen(p)
-        ter = int(p.get("ter_bps", 0) or 0)
+        ter = p.get("ter_bps")  # C-COMP-02: None = nicht belegt
         provider = str(p.get("provider", p.get("issuer", "")) or "")
         product_currency = str(p.get("currency", currency) or currency)
 
@@ -168,7 +168,7 @@ def _make_group_positions_table(positions: list, currency: str, total_amount: in
             _format_percent(target_bps) if target_bps > 0 else "-",
             _format_amount(amount, currency) if amount > 0 else "-",
             _esc(product_currency),
-            f"{format_bps_as_pct(ter, decimals=2)}" if ter > 0 else "-",
+            format_bps_as_pct(ter, decimals=2) if ter is not None else "-",
         ])
 
     page_width, _ = PAGE_SIZE

@@ -35,6 +35,7 @@ from pathlib import Path
 
 import pytest
 
+from product_evidence_test_support import generate_with_evidence
 from tests.test_livetest_e2a_sustainability_flow import _Api, _free_port, _playwright_sync_api
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -89,7 +90,7 @@ def server():
             time.sleep(0.5)
 
 
-def _seed_mandate(api, advisor_id: str, label: str, tilts: dict, *, esg_declined: bool = False) -> tuple[str, str]:
+def _seed_mandate(api, db_path, advisor_id: str, label: str, tilts: dict, *, esg_declined: bool = False) -> tuple[str, str]:
     from tests.risk_fixture_helpers import standard_risk_payload
 
     stamp = f"{label}-{int(time.time() * 1000)}"
@@ -121,7 +122,7 @@ def _seed_mandate(api, advisor_id: str, label: str, tilts: dict, *, esg_declined
     status, body = api("POST", f"/mandates/{mid}/target-allocation/generate", {"preferences": {"tilts": tilts}})
     assert status == 200, body
     # Produktlauf (legt u. a. den Standard-Produktkatalog an).
-    status, body = api("POST", f"/mandates/{mid}/recommendations/generate", {})
+    status, body = generate_with_evidence(api, db_path, mid)  # C-COMP-02
     assert status == 200, body
     return cid, mid
 
@@ -207,9 +208,9 @@ def test_strategy_blocks_follow_customer_exclusion_per_real_mandate(server):
     assert status == 200, login
     api.token = login["access_token"]
     advisor_id = api("GET", "/auth/me")[1]["id"]
-    cid_a, mid_a = _seed_mandate(api, advisor_id, "Verletzt", {"tobacco": "overweight"})
-    cid_b, mid_b = _seed_mandate(api, advisor_id, "Sauber", {}, esg_declined=True)
-    cid_c, _mid_c = _seed_mandate(api, advisor_id, "Entwurf", {}, esg_declined=True)
+    cid_a, mid_a = _seed_mandate(api, server["db"], advisor_id, "Verletzt", {"tobacco": "overweight"})
+    cid_b, mid_b = _seed_mandate(api, server["db"], advisor_id, "Sauber", {}, esg_declined=True)
+    cid_c, _mid_c = _seed_mandate(api, server["db"], advisor_id, "Entwurf", {}, esg_declined=True)
     _finalize_and_publish(api, server["db"], mid_b)
     coverage = api("GET", f"/mandates/{mid_a}/strategy-option-coverage")[1]
     assert not {o["key"]: o for o in coverage["options"]}["exclusion:tobacco"]["available"]

@@ -328,6 +328,11 @@ _COMPLIANCE_REVIEWER_ALLOWED: tuple[tuple[str, str], ...] = (
     # freigeben -- Erfassen (POST /compliance/owner-content) bleibt gesperrt.
     ("GET", r"/compliance/owner-content"),
     ("POST", r"/compliance/owner-content/[^/]+/approve"),
+    # C-COMP-02: Produktnachweise (keine Kundendaten) lesen und als zweite Person
+    # freigeben -- Erfassen, Stilllegen und Widerrufen bleiben gesperrt.
+    ("GET", r"/products/evidence/overview"),
+    ("GET", r"/products/[^/]+/evidence"),
+    ("POST", r"/products/[^/]+/evidence/approve"),
     # ROL-05 (CTO-Entscheid H-180): Freigabe-Inbox der Vier-Augen-Publikation --
     # nur die vorgelegten Akten (datenminimiert) und deren Freigabe.
     ("GET", r"/publication-inbox"),

@@ -76,7 +76,7 @@ def make_effektives_portfolio_section(
         sub = str(p.get("sub_asset_class", "") or "")
         current_bps = int(p.get("current_weight_bps", 0) or 0)
         current_amount = int(p.get("current_amount_rappen", 0) or 0)
-        ter = int(p.get("ter_bps", 0) or 0)
+        ter = p.get("ter_bps")  # C-COMP-02: None = nicht belegt
         ccy = str(p.get("currency", "CHF") or "CHF")
 
         # Wenn current_weight_bps fehlt aber wir Total haben, ableiten
@@ -103,7 +103,7 @@ def make_effektives_portfolio_section(
             # Waehrung umrechnen, sonst passt die Zeile weder zum Spaltenkopf
             # "IST-Wert (CHF)" noch zur Total-Zeile. Die Produkt-CCY bleibt separat.
             _format_amount(current_amount, base_currency) if current_amount > 0 else "—",
-            f"{format_bps_as_pct(ter, decimals=2)}" if ter > 0 else "—",
+            format_bps_as_pct(ter, decimals=2) if ter is not None else "—",
         ])
 
     # Total-Zeile

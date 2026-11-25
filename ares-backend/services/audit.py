@@ -1804,10 +1804,12 @@ def gate_block_audit(
             db,
             user_id=user_id,
             user_name=user_name,
-            table_name=table_name,
+            # C-COMP-02: dasselbe Gate sperrt auch aus anderer Ursache (Produkt-
+            # evidenz); der Befund nennt dann Tabelle und Feld seines Belegs.
+            table_name=(result or {}).get("audit_table") or table_name,
             record_id=str((result or {}).get("decision_id") or mandate_id or ""),
             action="CREATE",
-            field_name=field_name,
+            field_name=(result or {}).get("audit_field") or field_name,
             new_value=payload,
             mandate_id=mandate_id,
             client_id=client_id,

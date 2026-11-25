@@ -426,6 +426,9 @@ def test_portfolio_handoff_real_blocked_when_gate_closed(session_factory, monkey
 def test_portfolio_handoff_synthetic_allowed_when_gate_closed(session_factory, monkeypatch):
     monkeypatch.setattr(settings, "allow_real_client_data", False)
     mandate_id, run_id = _seed_handoff_prereqs(session_factory, mandate_id="mandate-handoff2", run_id="run-handoff2")
+    from product_evidence_test_support import bind_run_with_synthetic_product
+
+    bind_run_with_synthetic_product(session_factory, run_id)  # C-COMP-02
     _patch_handoff_engine(monkeypatch)
     advisor = User(id="advisor-handoff", username="advisor-handoff", password_hash="x",
                     full_name="Handoff Advisor", role="advisor", is_active=1,

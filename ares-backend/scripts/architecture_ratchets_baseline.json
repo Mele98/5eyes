@@ -533,14 +533,15 @@
     "core.depletion_display": "e42c4b6f62d8cfa1d52261573fa586ece142dd57a5f33569664e0de1ed185c10",
     "core.evidence": "107ad66eeb7424fd9b9ea3c4786e895e2350aa1061fc43e35ae9b65033b93ae6",
     "core.external_holdings_rule": "12b724efe4f39172d36298c2dfb04fc796f18cb6f393021ff833c827a3a624d4",
-    "core.fx_freshness": "81eefa7fe99273ad27a4651215fac2ea2113595a32ff201716fa23ee0adfb7ea",
+    "core.fx_freshness": "92fddee4748dce8c7cf999fb9a7855cc27bf274ccf9d8afa06a3738dd8cf424d",
     "core.goal_metric_contract": "3a08bb933f3540b46deabe55c2f190d36e8c8d0e0c61b744d324e8a821ebf802",
     "core.goal_vocabulary": "2ce6455a657546ddbc54b665215e899d9e0d4e6df4a79aeaa2562857b0867b82",
     "core.holdings_rule": "5e13068b790057d7b40ff62a89bd52346c039c32c01919073df745690db356d1",
     "core.preference_labels": "5e2f8e3ab8afd5e5a95804a423b989372544afed8c4c172ff81830bcc6337122",
     "core.presentation_rounding": "be5c45fc1b51629e3bfc7093c74a3bc79855a63f70f1d23830b45486276dbed7",
+    "core.product_evidence": "a3d7a9efc637496708d0dc708243a237462f365307f24f1e7a02581824ba5f75",
     "core.property_gate": "a4f2c812f0a84c89b3868f363c14252a4ef0c8e0158f69e9028f5970412ec0d7",
-    "core.reason_codes": "e3da29cc1556a6769aaace374f39eb234c0cacbb8d521aa5ceb26d5bff26c5f6",
+    "core.reason_codes": "a6849a411cfef7ae36d47fb344d95cf2bed81a2e87466ed4a56bd64defda4ea6",
     "core.risk_parameter_set": "27f21fb35c0ae6ce08b6edbc1f97c32316aba4452082009b1ec81a74b27142ae",
     "core.sustainability_preference": "6fe9be224f9d71e20beac49d2a6e35f8310415f2de34e419e7403efc7050a055"
   }

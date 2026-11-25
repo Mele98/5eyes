@@ -54,11 +54,15 @@ def _final_run_without_retro_evidence(session_factory, suffix, *, vv=False):
     run_id = _make_run(session_factory, mid, alloc_id, aid, advisor_id, policy, cma, result_status="Final")
     _add_full_position(session_factory, run_id)
     with session_factory() as db:
-        # Altlauf (vor H7 finalisiert): kein eingefrorener Nachweis, Retro unbekannt.
+        # Altlauf (vor H7 finalisiert): kein eingefrorener Nachweis, Retro vorhanden.
+        # (C-COMP-02: eine unbekannte Retrozession sperrt bereits das Evidenz-Gate.)
         db.get(RecommendationRun, run_id).cost_disclosure_snapshot_json = None
         position = db.query(RecommendationPosition).filter(RecommendationPosition.run_id == run_id).one()
-        db.get(Product, position.product_id).retrocession_bps = None
+        db.get(Product, position.product_id).retrocession_bps = 50
         db.commit()
+    from product_evidence_test_support import rebind_master_terms
+
+    rebind_master_terms(session_factory, run_id)
     return advisor_id, mid, run_id
 
 

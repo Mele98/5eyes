@@ -321,6 +321,9 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
         _c(RECORD, "suitability_evidence"),
     ),
     "recommendation_runs": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    "product_evidence_snapshots": _t(
+        _MANDATE, _c(RECORD, "recommendation_evidence"),
+    ),
     # CCX-P1: versiegelter Beratungsentscheid -- Payload, Bindungen und Manifest
     # tragen nur IDs, Codes, Rohwerte und Hashes (kein Freitext, keine
     # Identitaet); Teil der Empfehlungsevidenz, append-only.

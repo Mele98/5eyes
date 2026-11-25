@@ -41,6 +41,7 @@ from sqlalchemy import text
 from sqlalchemy import text as _sql_text
 from sqlalchemy.orm import Session
 
+from core import product_evidence
 from core import sustainability_preference as sustainability
 from core.evidence import SCHEME_V1, evidence_hash
 from core.reason_codes import DomainError, ReasonCode
@@ -196,6 +197,55 @@ def _run_allocation(db: Session, mandate: Any, run: Any) -> Any:
     )
 
 
+def _today_utc() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _evidence_query(db: Session):
+    return lambda sql, params: db.execute(_sql_text(sql), params).mappings().all()
+
+
+def _assert_product_evidence_release(db: Session, run_id: str, *, channel: str, audit=None) -> None:
+    """C-COMP-02: der gebundene Evidenzsatz des Laufs muss HEUTE unveraendert
+    wirksam sein (core.product_evidence, dieselbe Regel wie das Gate)."""
+    defect, payload, _items = product_evidence.run_evidence_state(
+        _evidence_query(db), run_id, today=_today_utc(),
+    )
+    if defect is None:
+        return
+    if audit is not None:
+        audit(json.dumps({
+            "event": "product_evidence_blocked", "code": defect.code, "channel": channel, "run_id": run_id,
+            "product_id": defect.product_id, "evidence_kind": defect.kind,
+            "bound_items": len((payload or {}).get("items") or ()),
+        }, sort_keys=True), {
+            "decision_id": run_id, "audit_table": "product_evidence_snapshots",
+            "audit_field": "product_evidence_blocked",
+        })
+    raise DomainError(
+        ReasonCode(defect.code),
+        f"{_CHANNEL_LABELS.get(channel, 'Freigabe nicht möglich')}: {defect.message()} "
+        "Bitte den Produktnachweis klären und die Empfehlung neu berechnen.",
+        http_status=409,
+        extra={"channel": channel, "product_id": defect.product_id, "evidence_kind": defect.kind},
+    )
+
+
+def _evidence_run_ids(db: Session, mandate: Any, allocation: Any, run: Any) -> list[str]:
+    """Laeufe, deren Produkte der Kanal zeigen kann: der uebergebene Lauf; sonst
+    der gezeigte und der finale Lauf der Allokation. Ohne Produktposition gibt
+    es kein empfohlenes Produkt zu belegen (reine Strategie)."""
+    if run is not None:
+        return [str(run.id)]
+    rows = db.execute(text(
+        "SELECT r.id FROM recommendation_runs r WHERE r.mandate_id = :mandate_id "
+        "AND r.target_allocation_id = :target_allocation_id AND (r.result_status = 'Final' OR r.id = :current) "
+        "AND EXISTS (SELECT 1 FROM recommendation_positions rp WHERE rp.run_id = r.id) ORDER BY r.id"
+    ), {"mandate_id": mandate.id, "target_allocation_id": allocation.id,
+        "current": current_run_id(db, mandate, allocation)}).all()
+    return [str(row[0]) for row in rows]
+
+
 def assert_recommendation_release_eligible(
     db: Session,
     mandate: Any,
@@ -260,6 +310,10 @@ def assert_recommendation_release_eligible(
     )
     findings = risk_budget_release_findings(allocation)
     if not findings:
+        # C-COMP-02: derselbe versiegelte Produktnachweis schuetzt Publikation,
+        # Kunden-PDF, Signatur, Vor-Ort-Signatur und Handoff.
+        for evidence_run_id in _evidence_run_ids(db, mandate, allocation, run):
+            _assert_product_evidence_release(db, evidence_run_id, channel=channel, audit=audit)
         return
     reason_code, message = findings[0]
     raise DomainError(
@@ -1953,14 +2007,8 @@ def _release_run_row(db: Session, mandate: Any, run: Optional[Any]):
 
 
 def _run_has_retro_relevant_products(db: Session, run_id: str) -> bool:
-    rates = db.execute(
-        _sql_text(
-            "SELECT p.retrocession_bps FROM recommendation_positions rp "
-            "JOIN products p ON p.id = rp.product_id WHERE rp.run_id = :run_id"
-        ),
-        {"run_id": run_id},
-    ).all()
-    return any(rate is None or int(rate) > 0 for (rate,) in rates)
+    """Positive oder nicht belegte Retrozession (C-COMP-02: gebundene Evidenz)."""
+    return product_evidence.unresolved_retrocession(_evidence_query(db), run_id, today=_today_utc())
 
 
 def retrocession_release_finding(

@@ -90,7 +90,7 @@ def test_customer_tables_never_admit_null_tenant_rows():
 
     assert GLOBAL_REFERENCE_TABLES == {
         "capital_market_assumptions", "product_eligibility_rule_sets",
-        "product_eligibility_rules", "product_sustainability_attributes", "products",
+        "product_eligibility_rules", "product_evidence_items", "product_sustainability_attributes", "products",
     }
     for table in set(tenant_scoped_table_names()) - GLOBAL_REFERENCE_TABLES:
         rendered = " ;; ".join(rls_policy_sql(table))
@@ -119,8 +119,14 @@ def test_migration_ddl_matches_runtime_ddl():
     t1 = importlib.util.module_from_spec(t1_spec)
     t1_spec.loader.exec_module(t1)
 
-    assert set(module.REFERENCE_TABLES) | {t1.ATTRIBUTES} == set(GLOBAL_REFERENCE_TABLES)
+    # C-COMP-02: product_evidence_items ebenso (9f4c2a7e1b63).
+    c02_path = BACKEND_ROOT / "alembic" / "versions" / "9f4c2a7e1b63_product_evidence_v1.py"
+    c02_spec = importlib.util.spec_from_file_location("_rls_c02_migration", c02_path)
+    c02 = importlib.util.module_from_spec(c02_spec)
+    c02_spec.loader.exec_module(c02)
+
+    assert set(module.REFERENCE_TABLES) | {t1.ATTRIBUTES, c02.ITEMS_TABLE} == set(GLOBAL_REFERENCE_TABLES)
     assert tuple(module.REFERENCE_POLICIES) == REFERENCE_POLICY_NAMES
     assert tuple(t1._REFERENCE_POLICIES) == REFERENCE_POLICY_NAMES
-    assert module._WRITE == _policy_predicate() == t1._WRITE
-    assert module._READ == _reference_read_predicate() == t1._READ
+    assert module._WRITE == _policy_predicate() == t1._WRITE == c02._WRITE
+    assert module._READ == _reference_read_predicate() == t1._READ == c02._READ

@@ -729,7 +729,10 @@ def _portfolio_weighted_ter_bps(
         weighted_ter = 0
         for prod in products:
             weight = max(0, int((prod or {}).get("target_weight_bps", 0) or 0))
-            ter = max(0, int((prod or {}).get("ter_bps", 0) or 0))
+            raw_ter = (prod or {}).get("ter_bps")
+            if raw_ter is None and (prod or {}).get("ter_status") != "not_applicable":
+                continue  # C-COMP-02: unbekannte TER ist nie 0 (nicht verduennen)
+            ter = max(0, int(raw_ter)) if raw_ter is not None else 0
             if weight > 0:
                 weighted_ter += weight * ter
                 total_weight += weight

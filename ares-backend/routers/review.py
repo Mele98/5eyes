@@ -64,10 +64,12 @@ from schemas.review import (
     ClientInformationDeliveryCreate, ClientInformationDeliveryResponse,
     ClientOnboardingStatusResponse,
     KycReviewPolicyActivate, KycReviewPolicyCreate, KycReviewPolicyOverview, KycReviewPolicyResponse,
+    ProductEvidenceApprovalRequest, ProductEvidenceItemCreate, ProductEvidenceItemResponse,
+    ProductEvidenceLifecycleRequest, ProductEvidenceOverviewEntry,
 )
 from price_updater import summarize_price_quality
 from services import advisory_log_service as _advisory_log
-from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, COMPLIANCE_REVIEWER_ROLE, READONLY_ROLE, assert_compliance_reviewer_ready, short_user_agent, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
+from services.auth import COMPLIANCE_APPROVER_ROLES, get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, COMPLIANCE_REVIEWER_ROLE, READONLY_ROLE, assert_compliance_reviewer_ready, short_user_agent, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
 from services.recommendation_release_gate import assert_contract_layer_release_eligible  # H-179 L2/L3
 from services.audit import gate_block_audit, log, release_block_audit, restore_tenant_after_rollback
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
@@ -93,6 +95,8 @@ from services.preference_snapshot import (
 from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible
 from services.portfolio_engine import (
     _current_target_allocation_or_none,
+    run_ter_lookup,
+    ensure_default_products,
     _norm_text,
     _normalize_preferences,
     _resolve_jurisdiction_context,
@@ -165,6 +169,12 @@ from services.product_eligibility import (
     # RC-CH-1 Teil 2b: Alias -- gleichnamige Funktion (db, mandate) aus
     # recommendation_release_gate (H8) wird oben importiert.
     mandate_tenant_id as eligibility_mandate_tenant_id,
+    approve_product_evidence_items,
+    bind_run_product_evidence,
+    close_product_evidence_item,
+    create_product_evidence_draft,
+    product_evidence_overview,
+    snapshot_run_product_evidence,
 )
 from services.review_calendar_feed import (
     build_ics_feed,
@@ -607,12 +617,13 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
         errors.append(f"Positionsgewichte summieren auf {total_weight} bps statt ca. 10000 bps.")
     product_ids = [position.product_id for position in positions if position.product_id]
     products = {product.id: product for product in db.query(Product).filter(Product.id.in_(product_ids)).all()} if product_ids else {}
+    ter_terms = run_ter_lookup(db, run)  # C-COMP-02: nur gebundene Evidenz
     for position in positions:
         product = products.get(position.product_id)
         if not product or product.deleted_at is not None or int(product.is_active or 0) != 1:
             errors.append(f"Produkt {position.product_id} ist nicht aktiv oder nicht verfuegbar.")
             continue
-        if product.ter_bps is None:
+        if ter_terms(product.id)[0] == "missing":
             warnings.append(f"TER fehlt fuer {product.product_name}.")
         profile = resolve_market_profile(product)
         if not (profile.get("lookup_symbol") or profile.get("isin")):
@@ -1897,6 +1908,35 @@ def _floor_audit(db: Session, current_user, mandate, request):
         )(payload, result)
 
     return _audit
+
+
+def _product_evidence_block(db: Session, current_user, mandate, request, *, channel: str, run_id=None):
+    """C-COMP-02: Sperre auditieren (Mandat, Lauf, Produkt, Nachweisart, Kanal)
+    und die ganze offene Transaktion verwerfen, bevor der Fehler geworfen wird."""
+    def _audit(exc: DomainError) -> None:
+        if not str(exc.reason_code).startswith("PRODUCT_EVIDENCE_"):
+            return
+        gate_block_audit(
+            db, user=current_user, mandate=mandate,
+            ip_address=_extract_client_ip(request) if request is not None else None,
+            table_name="product_evidence_snapshots", field_name="product_evidence_blocked",
+            set_tenant_context=set_tenant_context,
+        )(json.dumps({
+            "reason_code": exc.reason_code, "channel": channel, "run_id": run_id,
+            "product_id": exc.extra.get("product_id"), "evidence_kind": exc.extra.get("evidence_kind"),
+        }, sort_keys=True), {"decision_id": run_id})
+
+    return _audit
+
+
+def _keep_default_catalog_after_evidence_block(db: Session, mandate, exc: DomainError) -> None:
+    """Entwicklungs-/Demobetrieb: der Standard-Fondskatalog entsteht im Lauf und
+    ginge mit der Sperre verloren -- dann liesse sich nie ein Nachweis erfassen.
+    Reine Referenzdaten, kein Lauf; nie in der Produktivinstallation (H-187)."""
+    if settings.production_mode or not str(exc.reason_code).startswith("PRODUCT_EVIDENCE_"):
+        return
+    ensure_default_products(db, jurisdiction=build_run_context(mandate).jurisdiction)
+    db.commit()
 
 
 def _floor_target_allocation(db: Session, mandate, target_allocation_id=None):
@@ -4736,6 +4776,10 @@ def generate_recommendation_run_endpoint(
             run_type=body.run_type,
             depot_bank=body.depot_bank,
         )
+    except DomainError as exc:
+        _product_evidence_block(db, current_user, mandate, request, channel="recommendation_generate")(exc)
+        _keep_default_catalog_after_evidence_block(db, mandate, exc)
+        raise exc
     except ReasonCodedConflictError as exc:
         # PREF-CONTEXT-001 / THEME-MISSINGNESS-001: stabiler Reason-Code statt
         # Freitext; kein Run persistiert.
@@ -4912,6 +4956,13 @@ def finalize_recommendation(
                 "errors": errors,
             })
         raise HTTPException(status_code=422, detail="; ".join(errors))
+    # C-COMP-02: gebundenen Evidenzsatz unter Sperre erneut pruefen (Ablauf,
+    # Widerruf, Ersatz seit Generate -> 409); Kosten/Siegel lesen nur ihn.
+    try:
+        bind_run_product_evidence(db, mandate, run, channel="finalize")
+    except DomainError as exc:
+        _product_evidence_block(db, current_user, mandate, request, channel="finalize", run_id=run_id)(exc)
+        raise exc
     # H7 C-4 (Compliance-Audit 2026-11-07): Retro-Gate. Der Kostenausweis
     # kennt seit L1 unbekannte/ungeregelte Retrozessionen (is_complete=False),
     # die Finalisierung fror ihn trotzdem ein. Jetzt fail-closed, ohne
@@ -5119,15 +5170,22 @@ def add_position(
     legacy_warning = _enforce_run_preferences(
         db, mandate, run, context="manual_position", products=[(None, product)],
     )
-    # N-901-02: bei aktivem Kundenausschluss nur belegte Produkte (409).
-    assert_product_evidenced(db, mandate, product)
     now = _now()
     pos = RecommendationPosition(
         id=new_uuid(), run_id=run_id,
         created_at=now, updated_at=now,
         **body.model_dump()
     )
-    db.add(pos)
+    # N-901-02: bei aktivem Kundenausschluss nur belegte Produkte (409).
+    # C-COMP-02: allgemeine Evidenz vor der Position; danach bindet der Lauf
+    # den vollstaendigen Satz atomar neu (sonst bleibt keine Zeile zurueck).
+    try:
+        assert_product_evidenced(db, mandate, product)
+        db.add(pos)
+        snapshot_run_product_evidence(db, mandate, run, channel="position_add")
+    except DomainError as exc:
+        _product_evidence_block(db, current_user, mandate, None, channel="position_add", run_id=run_id)(exc)
+        raise exc
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_positions", record_id=pos.id, action="CREATE",
         mandate_id=mandate_id, new_value=legacy_warning)
@@ -5344,6 +5402,7 @@ from models.product_eligibility import (  # noqa: E402
     SUSTAINABILITY_SOURCE_TYPES,
     SUSTAINABILITY_STATUSES,
     ProductSustainabilityAttribute,
+    ProductEvidenceItem,
 )
 from schemas.review import (  # noqa: E402
     ProductSustainabilityApprovalRequest,
@@ -5362,6 +5421,7 @@ from schemas.review import (  # noqa: E402
     SustainabilityStandardUpdate,
 )
 from services.product_eligibility_governance import (  # noqa: E402
+    MIN_ATTESTATION_REASON_LENGTH,
     RuleApprovalConflict,
     SustainabilityAttributeConflict,
     approve_sustainability_attribute,
@@ -5382,6 +5442,7 @@ from services.product_eligibility_governance import (  # noqa: E402
     sustainability_attribute_errors,
     sustainability_attribute_visible_to_tenant,
     sustainability_standard_categories,
+    tenant_approver_ids,
 )
 
 GLOBAL_SUSTAINABILITY_WRITE_FORBIDDEN_DETAIL = (
@@ -6245,6 +6306,8 @@ def get_strategy_option_coverage(
     return strategy_option_coverage_for_mandate(db, mandate)
 
 
+
+
 # ---------------------------------------------------------------------------
 # H-179 L2/L3 Vertragsschicht: Owner-Inhalte mit Vier-Augen-Freigabe (Muster
 # KYC-Wiedervorlage oben), Gruende der Empfehlung (Art. 15 FIDLEG) und
@@ -6582,3 +6645,136 @@ def create_w033_declaration(
         mandate_id=mandate.id, ip_address=_extract_client_ip(request))
     db.commit()
     return _oc_row_dict(record)
+
+
+# C-COMP-02 -- Pflege- und Freigabeweg der Produktevidenz (Regeln im Service).
+def _product_evidence_or_404(evidence_id, db, current_user):
+    row = db.get(ProductEvidenceItem, evidence_id)
+    if row is None or (
+        row.tenant_id is not None and str(row.tenant_id) != str(_resolve_tenant_id_for_user(current_user))
+    ):
+        raise HTTPException(status_code=404, detail="Produktnachweis nicht gefunden")
+    if row.tenant_id is None and not _may_write_global_catalog(current_user):
+        raise HTTPException(status_code=403, detail=GLOBAL_CATALOG_WRITE_FORBIDDEN_DETAIL)
+    return row
+
+
+def _product_evidence_audit_row(db, row, request, current_user, *, action, field_name, new_value):
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_evidence_items", record_id=row.id, action=action,
+        field_name=field_name, new_value=new_value, ip_address=_extract_client_ip(request),
+        tenant_id=_resolve_tenant_id_for_user(current_user))
+
+
+def _commit_product_evidence(db):
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_if_check_violation(exc)
+        raise DomainError(
+            ReasonCode.PRODUCT_EVIDENCE_CONFLICT,
+            "Für diese Nachweislinie besteht bereits ein freigegebener Nachweis. Bitte neu laden.",
+            http_status=409,
+        ) from exc
+
+
+@products_router.get("/evidence/overview", response_model=list[ProductEvidenceOverviewEntry])
+def get_product_evidence_overview(jurisdiction: str = Query(default="CH", pattern="^[A-Z]{2,8}$"),
+                                  db: Session = Depends(get_db),
+                                  current_user: User = Depends(get_current_user)):
+    """Je aktivem Produkt: vollständig belegt oder welche Nachweise fehlen."""
+    products = _active_products_query(db, current_user).order_by(
+        Product.sub_asset_class, Product.product_name, Product.id).all()
+    return product_evidence_overview(db, _resolve_tenant_id_for_user(current_user), jurisdiction, products)
+
+
+@products_router.get("/{product_id}/evidence", response_model=list[ProductEvidenceItemResponse])
+def list_product_evidence(product_id: str, db: Session = Depends(get_db),
+                          current_user: User = Depends(get_current_user)):
+    product = _get_product_or_404(product_id, db, current_user)
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    return db.query(ProductEvidenceItem).filter(
+        ProductEvidenceItem.product_id == product.id,
+        or_(ProductEvidenceItem.tenant_id.is_(None), ProductEvidenceItem.tenant_id == tenant_id),
+    ).order_by(ProductEvidenceItem.evidence_kind, ProductEvidenceItem.as_of.desc(), ProductEvidenceItem.id).all()
+
+
+@products_router.post("/{product_id}/evidence", response_model=ProductEvidenceItemResponse, status_code=201)
+def create_product_evidence(product_id: str, body: ProductEvidenceItemCreate, request: Request,
+                            db: Session = Depends(get_db),
+                            current_user: User = Depends(require_admin)):
+    product = _get_product_or_404(product_id, db, current_user)
+    row_tenant = _resolve_tenant_id_for_user(current_user)
+    if product.tenant_id is not None and str(product.tenant_id) != str(row_tenant):
+        raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
+    if body.scope == "global":
+        if product.tenant_id is not None or not _may_write_global_catalog(current_user):
+            raise HTTPException(status_code=403, detail=GLOBAL_CATALOG_WRITE_FORBIDDEN_DETAIL)
+        row_tenant = None
+    values = body.model_dump(mode="json", exclude={"scope", "payload", "retrieved_at"})
+    values["payload"] = body.payload
+    values["retrieved_at"] = body.retrieved_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    row = create_product_evidence_draft(
+        db, product, values=values, tenant_id=row_tenant, actor_id=current_user.id)
+    _product_evidence_audit_row(
+        db, row, request, current_user, action="CREATE", field_name="product_evidence_draft",
+        new_value=f"product={product.id};kind={row.evidence_kind};hash={row.canonical_payload_hash}")
+    _commit_product_evidence(db)
+    db.refresh(row)
+    return row
+
+
+@products_router.post("/{product_id}/evidence/approve", response_model=list[ProductEvidenceItemResponse])
+def approve_product_evidence(product_id: str, body: ProductEvidenceApprovalRequest, request: Request,
+                             db: Session = Depends(get_db),
+                             current_user: User = Depends(require_compliance_approver)):
+    """Freigabe genau der gesehenen ``(Nachweis, Inhalts-Hash)``-Menge."""
+    product = _get_product_or_404(product_id, db, current_user)
+    assert_compliance_reviewer_ready(current_user)
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    for item in body.items:
+        _product_evidence_or_404(item.item_id, db, current_user)
+    rows = approve_product_evidence_items(
+        db, product, seen=[(item.item_id, item.canonical_payload_hash) for item in body.items],
+        tenant_id=tenant_id, actor_id=current_user.id, attestation=body.attestation,
+        is_same_person=lambda creator: same_person(db, creator, current_user.id),
+        approver_ids=tenant_approver_ids(db, tenant_id, roles=COMPLIANCE_APPROVER_ROLES),
+        min_attestation_length=MIN_ATTESTATION_REASON_LENGTH)
+    for row in rows:
+        audit_value = f"hash={row.canonical_payload_hash};approval_mode={row.approval_mode}"
+        if row.approval_mode == "single_approver_attested":
+            audit_value += f";attestation={(body.attestation or '').strip()}"
+        _product_evidence_audit_row(
+            db, row, request, current_user, action="UPDATE", field_name="product_evidence_approved",
+            new_value=audit_value)
+    _commit_product_evidence(db)
+    for row in rows:
+        db.refresh(row)
+    return rows
+
+
+def _close_product_evidence(evidence_id, body, request, db, current_user, *, status):
+    row = close_product_evidence_item(
+        db, _product_evidence_or_404(evidence_id, db, current_user), status=status,
+        reason=body.reason_code, actor_id=current_user.id)
+    _product_evidence_audit_row(
+        db, row, request, current_user, action="UPDATE", field_name=f"product_evidence_{status}",
+        new_value=body.reason_code)
+    _commit_product_evidence(db)
+    db.refresh(row)
+    return row
+
+
+@products_router.post("/evidence/{evidence_id}/retire", response_model=ProductEvidenceItemResponse)
+def retire_product_evidence(evidence_id: str, body: ProductEvidenceLifecycleRequest, request: Request,
+                            db: Session = Depends(get_db),
+                            current_user: User = Depends(require_admin)):
+    return _close_product_evidence(evidence_id, body, request, db, current_user, status="retired")
+
+
+@products_router.post("/evidence/{evidence_id}/revoke", response_model=ProductEvidenceItemResponse)
+def revoke_product_evidence(evidence_id: str, body: ProductEvidenceLifecycleRequest, request: Request,
+                            db: Session = Depends(get_db),
+                            current_user: User = Depends(require_admin)):
+    return _close_product_evidence(evidence_id, body, request, db, current_user, status="revoked")

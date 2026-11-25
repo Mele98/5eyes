@@ -182,6 +182,9 @@ def test_kgv_deactivated_cma_passes_hold(session_factory):
     advisor_id, mid, aid, alloc_id = _setup(session_factory, "adr12a-off", kgv="off")
     policy, cma = _allocation_policy_and_cma(session_factory, alloc_id)
     run_id = _make_run(session_factory, mid, alloc_id, aid, advisor_id, policy, cma)
+    from product_evidence_test_support import bind_run_with_synthetic_product
+
+    bind_run_with_synthetic_product(session_factory, run_id)  # C-COMP-02
     with session_factory() as db:
         mandate = db.query(Mandate).filter(Mandate.id == mid).one()
         run = db.query(RecommendationRun).filter(RecommendationRun.id == run_id).one()

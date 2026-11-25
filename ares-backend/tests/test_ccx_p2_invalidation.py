@@ -81,7 +81,11 @@ def test_seal_writes_one_edge_per_dependency_and_is_fresh(session_factory):
         edges = db.execute(text(
             "SELECT dependency_kind, dependency_object_id, dependency_version, dependency_hash, tenant_id "
             "FROM advisory_dependency_edges WHERE envelope_id = :e"), {"e": envelope_id}).all()
-        assert sorted(e.dependency_kind for e in edges) == sorted(DEPENDENCY_KINDS)
+        # C-COMP-02: je gebundenem Produktnachweis eine eigene Kante.
+        single = [e.dependency_kind for e in edges if e.dependency_kind != "product_evidence"]
+        assert sorted(single) == sorted(set(DEPENDENCY_KINDS) - {"product_evidence"})
+        assert {e.dependency_object_id for e in edges if e.dependency_kind == "product_evidence"} == {
+            r[0] for r in db.execute(text("SELECT id FROM product_evidence_items WHERE status = 'approved'"))}
         assert all(len(e.dependency_hash) == 64 for e in edges)
         manifest = db.execute(text(
             "SELECT * FROM advisory_effective_input_manifests m JOIN advisory_envelope_bindings b "

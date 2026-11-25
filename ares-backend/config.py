@@ -20,6 +20,7 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import core.db_location as _db_location
+from core.product_evidence import configure_synthetic_evidence
 
 OwnerDatabaseRefused = _db_location.OwnerDatabaseRefused
 
@@ -1104,6 +1105,9 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+# C-COMP-02: synthetische Produktnachweise (Test/Demo) zaehlen nie in der
+# Produktivinstallation (app_env=production oder gepackte EXE).
+configure_synthetic_evidence(lambda: not settings.production_mode)
 
 
 # --- RunContext (K-3, Phase 2 Modularisierung) ---------------------------------

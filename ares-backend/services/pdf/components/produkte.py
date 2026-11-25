@@ -87,17 +87,17 @@ def _make_metric_boxes(products: list, base_currency: str):
     weight_sum = 0
     for p in products:
         w = int(p.get("target_weight_bps", 0) or 0)
-        t = int(p.get("ter_bps", 0) or 0)
-        if w > 0 and t > 0:
-            ter_sum_weighted += w * t
+        t = p.get("ter_bps")
+        if w > 0 and t is not None:  # C-COMP-02: unbelegte TER ist nie 0
+            ter_sum_weighted += w * int(t)
             weight_sum += w
-    avg_ter_bps = (ter_sum_weighted / weight_sum) if weight_sum > 0 else 0
+    avg_ter = format_bps_as_pct(ter_sum_weighted / weight_sum, decimals=2) if weight_sum > 0 else "—"
     currencies = sorted({str(p.get("currency", "CHF") or "CHF") for p in products if p.get("currency")})
 
     boxes_data = [
         ("Produkte", str(count)),
         ("Zielvolumen", _format_amount(total_amount, base_currency)),
-        ("Gewichtete TER", f"{format_bps_as_pct(avg_ter_bps, decimals=2)}"),
+        ("Gewichtete TER", avg_ter),
         ("Währungen", ", ".join(currencies) if currencies else "—"),
     ]
 
@@ -226,7 +226,7 @@ def _make_isin_table(products: list, base_currency: str):
             weight_bps = int(p.get("target_weight_bps", 0) or 0)
             amount = int(p.get("target_amount_rappen", 0) or 0)
             ccy = str(p.get("currency", "CHF") or "CHF")
-            ter = int(p.get("ter_bps", 0) or 0)
+            ter = p.get("ter_bps")  # C-COMP-02: None = nicht belegt
             provider = str(p.get("provider", "") or "")
 
             bucket_weight_bps += weight_bps
@@ -247,7 +247,7 @@ def _make_isin_table(products: list, base_currency: str):
                 # Total (die base_currency nutzen). Die Produkt-CCY steht separat.
                 _format_amount(amount, base_currency) if amount > 0 else "—",
                 ccy,
-                f"{format_bps_as_pct(ter, decimals=2)}" if ter > 0 else "—",
+                format_bps_as_pct(ter, decimals=2) if ter is not None else "—",
             ])
 
         # Subtotal-Zeile

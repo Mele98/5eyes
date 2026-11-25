@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-11-14.3"
+INVENTORY_VERSION = "2026-11-21.1"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -119,6 +119,8 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     # PG-002-Folgeauftrag: Mandant ueber Lauf -> Mandat (Guard + Backfill).
     "product_eligibility_overrides",
     "product_eligibility_snapshots",
+    # C-COMP-02: unveraenderlicher Lauf-Snapshot, direkt an Tenant und Mandat.
+    "product_evidence_snapshots",
     "product_universe_entries",
     "protocol_bausteine",
     # PG-002 (Closure-Review PR #662): append-only Risiko-Evidence, Mandant
@@ -145,6 +147,7 @@ GLOBAL_REFERENCE_TENANT_TABLES: frozenset[str] = frozenset({
     "capital_market_assumptions",
     "product_eligibility_rule_sets",
     "product_eligibility_rules",
+    "product_evidence_items",
     # AUDIT-2026-11 T1: NULL = Plattform-Nachweis eines globalen Katalogfonds.
     "product_sustainability_attributes",
     "products",

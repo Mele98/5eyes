@@ -16,6 +16,8 @@ from typing import Any, Iterable, Mapping
 from sqlalchemy import text as _sql_text
 from sqlalchemy.orm import Session
 
+from core import product_evidence
+
 
 DEFAULT_TRANSACTION_COST_BPS = 15
 # N-858-11: Hinweis, wenn die Liquiditaetsreserve das ganze Beratungsvermoegen
@@ -41,6 +43,14 @@ class CostDisclosureDomainError(ValueError):
         super().__init__(message)
         self.reason_code = reason_code
         self.location = location
+
+
+def _evidence_query(db: Session):
+    return lambda sql, params: db.execute(_sql_text(sql), params).mappings().all()
+
+
+def _evidence_today() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).date().isoformat()
 
 
 # Stabile Begruendungscodes -- bewusst Konstanten, damit ein Aufrufer sie
@@ -485,34 +495,19 @@ def build_cost_disclosure_for_run(
             current = latest_holding[position.id]
             if current is None or str(holding.updated_at or "") > str(current.updated_at or ""):
                 latest_holding[position.id] = holding
-    # 2026-07-27 (Fonds-Kuratierung): eine Verwaltung kann fuer ein Produkt
-    # eine eigene, ausgehandelte Gebuehr hinterlegt haben (ProductUniverseEntry.
-    # override_ter_bps) -- live nachgeschlagen (kein Snapshot), damit eine
-    # spaetere Korrektur der Konditionen sofort im naechsten Kostenausweis
-    # wirkt. Betrifft NUR diesen Tenant, das globale Produkt bleibt unveraendert.
-    # mandate.tenant_id=NULL -> DEFAULT_TENANT_ID ('main'), gleiches Muster wie
-    # services/auth.py::_resolve_tenant_id_for_user + portfolio_engine-Filter.
-    ter_bps_overrides: dict[str, int] = {}
-    if rows:
-        from models.tenant import DEFAULT_TENANT_ID
-        from jurisdictions.resolve import resolve_pack
-        tenant_id = getattr(mandate, "tenant_id", None) or DEFAULT_TENANT_ID
-        jurisdiction = resolve_pack(mandate).code
-        product_ids = {product.id for _, product in rows}
-        override_entries = (
-            db.query(ProductUniverseEntry)
-            .filter(
-                ProductUniverseEntry.tenant_id == tenant_id,
-                ProductUniverseEntry.jurisdiction == jurisdiction,
-                ProductUniverseEntry.product_id.in_(product_ids),
-                ProductUniverseEntry.deleted_at.is_(None),
-                ProductUniverseEntry.override_ter_bps.is_not(None),
-            )
-            .all()
-        )
-        ter_bps_overrides = {
-            entry.product_id: int(entry.override_ter_bps) for entry in override_entries
-        }
+    # C-COMP-02: Kosten/Retrozession stammen ausschliesslich aus dem gebundenen
+    # Evidenzsatz des Laufs, nie aus mutierbaren Produkt- oder Universumsfeldern.
+    # Kein gueltiger Satz -> unbekannt (None), nie 0. "Nicht anwendbar" ist ein
+    # belegter Zustand mit Quelle und geht als 0 in die Summe ein.
+    terms = product_evidence.bound_rate_terms(
+        _evidence_query(db), latest_run.id if getattr(latest_run, "product_evidence_status", None) else None,
+        today=_evidence_today(),
+    )
+
+    def _evidence_rate(product_id: str, kind: str) -> int | None:
+        status, rate = product_evidence.bound_term(terms, product_id, kind)
+        return 0 if status == product_evidence.NOT_APPLICABLE else rate
+
     holding_values: dict[str, int | None] = {
         position_id: (int(h.market_value_rappen) if h.market_value_rappen is not None else None)
         for position_id, h in latest_holding.items()
@@ -546,15 +541,7 @@ def build_cost_disclosure_for_run(
             "holding_value_rappen": holding_values.get(position.id),
             "amount_rappen": _position_amount_rappen(position),
             "weight_bps": int(getattr(position, "target_weight_bps", 0) or 0),
-            "ter_bps": (
-                ter_bps_overrides[product.id]
-                if product.id in ter_bps_overrides
-                else (
-                    int(product.ter_bps)
-                    if getattr(product, "ter_bps", None) is not None
-                    else None
-                )
-            ),
+            "ter_bps": _evidence_rate(product.id, "costs"),
         }
         for position, product in rows
     ]
@@ -571,8 +558,8 @@ def build_cost_disclosure_for_run(
                 or getattr(position, "current_amount_rappen", 0)
                 or 0
             ),
-            "retrocession_bps": getattr(product, "retrocession_bps", None),
-            "retrocession_source": getattr(product, "retrocession_source", None),
+            "retrocession_bps": _evidence_rate(product.id, "retrocession"),
+            "retrocession_source": ((terms.get(str(product.id)) or {}).get("retrocession") or {}).get("source"),
         }
         for position, product in rows
     ]
@@ -1924,16 +1911,9 @@ def _retro_names(lines: list[dict[str, Any]], limit: int = 6) -> str:
 
 
 def _run_has_retro_relevant_products(db: Session, run: Any) -> bool:
-    """True, wenn ein Produkt des Laufs eine unbekannte (NULL) oder positive
-    Retrozession traegt."""
-    rates = db.execute(
-        _sql_text(
-            "SELECT p.retrocession_bps FROM recommendation_positions rp "
-            "JOIN products p ON p.id = rp.product_id WHERE rp.run_id = :run_id"
-        ),
-        {"run_id": str(run.id)},
-    ).all()
-    return any(rate is None or int(rate) > 0 for (rate,) in rates)
+    """True, wenn ein Produkt des Laufs eine nicht belegte oder positive
+    Retrozession traegt (C-COMP-02: gebundene Evidenz)."""
+    return product_evidence.unresolved_retrocession(_evidence_query(db), str(run.id), today=_evidence_today())
 
 
 def retrocession_finalization_block(db: Session, mandate: Any, run: Any) -> dict[str, Any] | None:

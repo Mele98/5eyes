@@ -45,6 +45,14 @@ CATALOG = {m.value for m in ReasonCode}
 # mit Funktion und Anzahl: eine neue dynamische Stelle mit gleichem Text
 # (andere Funktion oder zusaetzliche Zeile) faellt auf (K-2-Review N1).
 KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
+    # C-COMP-02: Durchreichungen der katalogisierten Befundcodes aus dem Blatt
+    # core/product_evidence.py (Abbildung: product_eligibility._evidence_reason,
+    # Deckung: test_c_comp_02_product_evidence.py) bzw. der Code der Sperre im Audit.
+    ('core/product_evidence.py', 'ProductEvidenceDefect.as_dict', 'self.code'): 1,
+    ('routers/review.py', '_audit', 'exc.reason_code'): 1,
+    ('services/product_eligibility.py', 'close_product_evidence_item', 'reason'): 1,
+    ('services/advisory_decision_envelope.py', 'seal_advisory_envelope', 'ReasonCode(evidence_defect.code)'): 1,
+    ('services/recommendation_release_gate.py', '_assert_product_evidence_release', 'ReasonCode(defect.code)'): 1,
     # CCX-P4: Durchreichungen katalogisierter Codes (Publikationsstatus der
     # gepruefte Grund bzw. der Code der Ablehnung im Audit).
     ('routers/allocation.py', 'get_advisory_report', 'state.reason_code'): 1,

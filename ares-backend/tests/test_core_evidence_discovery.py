@@ -46,6 +46,10 @@ UNINVENTORIED_EXCEPTIONS: dict[tuple[str, str], str] = {
         "P5 M-2 Parametersatz-Hash (domaenensepariert, Stdlib-Blatt)",
     ("core/goal_metric_contract.py", "goal_metric_hash"):
         "P5 M-3 Zielkennzahl-Hash (domaenensepariert, Stdlib-Blatt)",
+    # C-COMP-02: eigene Vertragsdomaene "ares-product-evidence/v1" (Vertrag
+    # 19.11., Stdlib-Blatt), belegt in tests/test_c_comp_02_product_evidence.py.
+    ("core/product_evidence.py", "stored_json_hash"):
+        "C-COMP-02 Nachweis-/Satz-Hash (domaenensepariert, Stdlib-Blatt)",
     # P5b / N-925-08: Ziel-Revision = Fingerabdruck der fachlichen Zielfelder
     # (Stdlib-Blatt, Teil des M-3-Payloads und damit dessen Hash).
     ("core/goal_metric_contract.py", "goal_revision"):

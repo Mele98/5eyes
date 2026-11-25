@@ -149,6 +149,10 @@ def _seed_mandate_and_run(session_factory, advisor_user, mandate_id="mandate-1",
             from client_onboarding_fixture import satisfy_client_onboarding
 
             satisfy_client_onboarding(session, session.get(Mandate, mandate_id), actor_id=advisor_user.id)
+        # C-COMP-02: die (gemockte) Handelsliste setzt einen belegten Lauf voraus.
+        from product_evidence_test_support import add_evidenced_position
+
+        add_evidenced_position(session, run_id)
         session.commit()
 
 

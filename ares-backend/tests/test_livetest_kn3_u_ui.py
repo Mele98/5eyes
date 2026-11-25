@@ -31,6 +31,7 @@ from pathlib import Path
 
 import pytest
 
+from product_evidence_test_support import generate_with_evidence
 from tests.test_livetest_e2b_strategy_blocks import _finalize_and_publish
 from tests.test_livetest_k2_kernkette_ui import CLOSE, _Api, _load, _login, _open, _sync_api
 from tests.test_livetest_kern_integration_r2 import _backend
@@ -97,7 +98,7 @@ def _esg_declined(api, mid):
 def _publish(api, db, mid):
     st, body = api("POST", f"/mandates/{mid}/target-allocation/generate", {"preferences": {}})
     assert st == 200, body
-    st, body = api("POST", f"/mandates/{mid}/recommendations/generate", {})
+    st, body = generate_with_evidence(api, db, mid)  # C-COMP-02
     assert st == 200, body
     _finalize_and_publish(api, db, mid)
 

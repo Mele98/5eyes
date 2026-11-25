@@ -20,6 +20,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from product_evidence_test_support import provision_database
 from tests.test_livetest_k2_kernkette_ui import (  # noqa: F401  (server = Fixture)
     CLOSE, PWD, USER, _Api, _chf_depot, _client, _load, _login, _open, _shot, _sync_api, server,
 )
@@ -404,6 +405,7 @@ def test_kn_u_no_previous_client_values_on_any_page(server):
             _login(page)
             _load(page, cid_a, "al")
             _compute(page)
+            provision_database(server.database)  # C-COMP-02: synthetische Nachweise
             page.evaluate("go('po')")
             page.wait_for_timeout(1500)
             page.evaluate(CLOSE)

@@ -22,7 +22,11 @@ from models.wealth import Cashflow, Goal, PlanningAssumption, WealthPosition
 from services.goal_success_status import goal_items_weighted_success_bps
 from services.portfolio_engine import (
     build_recommendation_payload_from_run,
+    _tenant_visible_products_query,
     build_target_payload_from_allocation,
+    ensure_default_products,
+    ensure_demo_product_evidence,
+    ensure_hedged_product_variants,
     ensure_runtime_reference_data,
     generate_recommendation_run,
     generate_target_allocation,
@@ -45,6 +49,20 @@ def _today() -> str:
 
 def _rappen(chf: int | float) -> int:
     return int(round(float(chf) * 100))
+
+
+def _demo_evidence_approver(db: Session, mandate: Mandate) -> User:
+    """Gekennzeichnete, inaktive Demo-Zweitperson (kein Login) fuer die
+    Vier-Augen-Freigabe der synthetischen Demo-Nachweise (C-COMP-02)."""
+    now, uid = _now(), new_uuid()
+    approver = User(
+        id=uid, tenant_id=mandate.tenant_id, username=f"demo-evidence-{uid}", password_hash="!",
+        full_name="Demo-Zweitfreigabe (synthetisch)", role="compliance_reviewer", is_active=0,
+        created_at=now, updated_at=now,
+    )
+    db.add(approver)
+    db.flush()
+    return approver
 
 
 def _delete_foundation_example_if_present(db: Session) -> None:
@@ -113,6 +131,14 @@ def _build_foundation_summary(db: Session, user: User, client: Client, mandate: 
         RecommendationRun.mandate_id == mandate.id,
     ).order_by(RecommendationRun.created_at.desc()).first()
     if not recommendation:
+        # C-COMP-02: der Demo-Systemfall (nie Produktivinstallation) belegt seine
+        # Produkte synthetisch; das Gate selbst bleibt unveraendert.
+        ensure_default_products(db, jurisdiction="CH")
+        ensure_hedged_product_variants(db)
+        ensure_demo_product_evidence(
+            db, mandate, _tenant_visible_products_query(db, mandate).all(), actor_id=user.id,
+            make_approver=lambda: _demo_evidence_approver(db, mandate),
+        )
         recommendation_result = generate_recommendation_run(
             db=db,
             mandate=mandate,

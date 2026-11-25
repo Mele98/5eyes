@@ -369,6 +369,11 @@ def test_finalize_blocks_run_with_manipulated_excluded_theme_position(SF):
         ).order_by(RecommendationPosition.target_weight_bps.desc()).first()
         manipulated_id = pos.id
         pos.product_id = energy
+        # C-COMP-02: auch das untergeschobene Produkt ist belegt -- hier soll
+        # die Praeferenzregel sperren, nicht die fehlende Evidenz.
+        from product_evidence_test_support import provision_products
+
+        provision_products(s, s.get(Mandate, mandate_id), [s.get(Product, energy)])
         s.commit()
 
     with pytest.raises(HTTPException) as excinfo:

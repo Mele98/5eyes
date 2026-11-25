@@ -151,6 +151,9 @@ def test_gate_passes_for_allocation_within_budget(session_factory):
     advisor_id, mid, aid, alloc_id = _setup(session_factory, "rbg-ok", mode="ok")
     policy, cma = _allocation_policy_and_cma(session_factory, alloc_id)
     run_id = _make_run(session_factory, mid, alloc_id, aid, advisor_id, policy, cma)
+    from product_evidence_test_support import bind_run_with_synthetic_product
+
+    bind_run_with_synthetic_product(session_factory, run_id)  # C-COMP-02
     with session_factory() as db:
         mandate = db.query(Mandate).filter(Mandate.id == mid).one()
         from models.review import RecommendationRun

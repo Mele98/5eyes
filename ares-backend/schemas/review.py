@@ -3110,6 +3110,131 @@ class StrategyOptionCoverageResponse(BaseModel):
     options: list[StrategyOptionCoverage] = []
 
 
+# C-COMP-02: granularer, freizugebender Produktnachweis.
+ProductEvidenceKind = Literal[
+    "instrument_identity", "kid", "costs", "retrocession", "suitability",
+    "liquidity", "currency", "sustainability", "price_source",
+]
+ProductEvidenceScope = Literal["tenant", "global"]
+
+
+class ProductEvidenceItemCreate(BaseModel):
+    scope: ProductEvidenceScope = "tenant"
+    stable_instrument_id: str = Field(min_length=1, max_length=200)
+    share_class_id: Optional[str] = Field(default=None, max_length=200)
+    jurisdiction: str = Field(pattern="^[A-Z]{2,8}$")
+    evidence_kind: ProductEvidenceKind
+    source_type: str = Field(min_length=1, max_length=100)
+    source_reference: str = Field(min_length=1, max_length=500)
+    source_document_title: str = Field(min_length=1, max_length=300)
+    source_document_version: Optional[str] = Field(default=None, max_length=100)
+    source_document_date: Optional[date] = None
+    retrieved_at: datetime
+    source_document_sha256: str = Field(pattern="^[0-9a-f]{64}$")
+    payload: dict[str, Any]
+    as_of: date
+    valid_from: date
+    valid_until: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=2000)
+    supersedes_id: Optional[str] = None
+
+    @field_validator(
+        "stable_instrument_id", "share_class_id", "jurisdiction", "source_type",
+        "source_reference", "source_document_title", "source_document_version", "note",
+        mode="before",
+    )
+    @classmethod
+    def _strip_evidence_text(cls, value):
+        return _strip_optional_text(value)
+
+    @field_validator("source_document_sha256", mode="before")
+    @classmethod
+    def _lower_evidence_sha(cls, value):
+        return value.strip().lower() if isinstance(value, str) else value
+
+    @field_validator("retrieved_at")
+    @classmethod
+    def _evidence_retrieved_aware(cls, value):
+        if value.tzinfo is None:
+            raise ValueError("Abrufzeitpunkt braucht eine Zeitzone (UTC).")
+        return value
+
+    @model_validator(mode="after")
+    def _evidence_dates(self):
+        if self.valid_until is not None and self.valid_until < self.valid_from:
+            raise ValueError("Gültig-bis darf nicht vor Gültig-ab liegen.")
+        return self
+
+
+class ProductEvidenceSeenItem(BaseModel):
+    """Genau der gesehene Entwurf: ID und Inhalts-Hash."""
+    item_id: str = Field(min_length=1, max_length=64)
+    canonical_payload_hash: str = Field(pattern="^[0-9a-f]{64}$")
+
+
+class ProductEvidenceApprovalRequest(BaseModel):
+    """Freigabe genau der gesehenen Menge (alle oder keine)."""
+    items: list[ProductEvidenceSeenItem] = Field(min_length=1, max_length=100)
+    attestation: Optional[str] = Field(default=None, max_length=1000)
+
+
+class ProductEvidenceLifecycleRequest(BaseModel):
+    reason_code: str = Field(pattern="^[A-Z][A-Z0-9_]{2,63}$")
+
+
+class ProductEvidenceIssue(BaseModel):
+    status: str
+    reason_code: str
+    product_id: Optional[str] = None
+    evidence_kind: str
+    message: str
+
+
+class ProductEvidenceOverviewEntry(BaseModel):
+    product_id: str
+    product_name: str
+    sub_asset_class: Optional[str] = None
+    stable_instrument_id: str
+    share_class_id: Optional[str] = None
+    status: str
+    issues: list[ProductEvidenceIssue] = []
+
+
+class ProductEvidenceItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    tenant_id: Optional[str] = None
+    product_id: str
+    stable_instrument_id: str
+    share_class_id: Optional[str] = None
+    jurisdiction: str
+    evidence_kind: str
+    source_type: str
+    source_reference: str
+    source_document_title: str
+    source_document_version: Optional[str] = None
+    source_document_date: Optional[str] = None
+    retrieved_at: str
+    source_document_sha256: str
+    canonical_payload_json: str
+    canonical_payload_hash: str
+    as_of: str
+    valid_from: str
+    valid_until: Optional[str] = None
+    status: str
+    note: Optional[str] = None
+    created_by: str
+    created_at: str
+    approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
+    approval_mode: Optional[str] = None
+    supersedes_id: Optional[str] = None
+    retired_or_revoked_by: Optional[str] = None
+    retired_or_revoked_at: Optional[str] = None
+    reason_code: Optional[str] = None
+    updated_at: str
+
+
 # H-179 L2/L3 Vertragsschicht: Owner-Inhalte, Gruende der Empfehlung, W033.
 class OwnerContentCreate(BaseModel):
     """Neue Version eines Owner-Inhalts. Text (``body_text``) oder typisierter

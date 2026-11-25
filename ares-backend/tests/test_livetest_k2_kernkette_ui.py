@@ -40,6 +40,7 @@ from pathlib import Path
 
 import pytest
 
+from product_evidence_test_support import provision_database
 BACKEND = Path(__file__).resolve().parents[1]
 USER, PWD = "k2.admin", "K2-Probe-Passwort-2026!x"
 CLOSE = "document.querySelectorAll('.overlay.open').forEach(function(o){if(o.id!=='m-ui-dialog')o.classList.remove('open');})"
@@ -87,6 +88,12 @@ class _Api:
         return self
 
 
+class _ServerBase(str):
+    """Basis-URL des Livetest-Servers samt Pfad seiner Wegwerf-Datenbank."""
+
+    database = ""
+
+
 @pytest.fixture(scope="module")
 def server():
     _sync_api()
@@ -121,7 +128,9 @@ def server():
                 time.sleep(1)
         else:
             pytest.fail("Backend nicht gestartet")
-        yield base
+        live = _ServerBase(base)
+        live.database = env["DB_PATH"]
+        yield live
     finally:
         proc.terminate()
         try:
@@ -544,6 +553,7 @@ def test_k2_wealth_currency_fx_blocker_and_sums(server):
                 link:!!(l&&l.offsetParent)};})()""")
             _shot(page, "k2_e06_aa_wegweiser_echt.png", "#page-al .ph")
             # N-915-10 / E2E-07: echtes Portfolio aus dem Seed-Katalog -> Musterprodukt-Warnung; N-915-11 aktiv.
+            provision_database(server.database)  # C-COMP-02: synthetische Nachweise
             page.evaluate("go('po')")
             page.wait_for_timeout(1500)
             page.evaluate(CLOSE)

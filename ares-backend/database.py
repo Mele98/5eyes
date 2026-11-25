@@ -26,6 +26,7 @@ from config import (
 from core import property_gate  # K1 Property-Gate (Stdlib-Blatt)
 # L2c: reines Modul ohne Projekt-Importe (Hash-Vertrag + Altbestand-Versiegelung).
 from services import advisory_log_integrity as _advisory_log_integrity
+from core.product_evidence import SQLITE_TENANT_TRIGGERS
 from core.mandate_evidence_tenant_boundary import (
     MANDATE_BOUND_TENANT_TABLES,
     create_sqlite_guards_after_metadata_create,
@@ -2224,6 +2225,12 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ('cma_policy_row_id', 'TEXT'),
             # E2b Nachtrag 1: Belege der Produktauswahl (Alembic e7b3d9f1a2c4).
             ('sustainability_evidence_json', 'TEXT'),
+            # C-COMP-02: Snapshot-Bindung der vollstaendigen, freigegebenen
+            # Produktevidenz. Additiv fuer bestehende SQLite-Installationen;
+            # PostgreSQL-FK liegt in Alembic 9f4c2a7e1b63.
+            ('product_evidence_snapshot_id', 'TEXT'),
+            ('product_evidence_hash', 'TEXT'),
+            ('product_evidence_status', 'TEXT'),
         ],
         'optimizer_runs': [
             # U-9 Stage-9 Telemetry: pro Solver-Start n_paths/n_starts/Seed/
@@ -3300,6 +3307,22 @@ def _seed_asset_class_returns(conn) -> None:
         """), {"id": str(uuid.uuid4()), "year": year, "ac": ac, "ret": ret, "now": now})
 
 
+def ensure_product_evidence_tenant_triggers(target_engine: Engine) -> None:
+    """C-COMP-02: Tenantgrenze der Produktnachweise auf Rohschema-Bestaenden
+    (SQLite); frische Datenbanken erhalten die Trigger mit der Tabelle."""
+    if target_engine.dialect.name != 'sqlite':
+        return
+    inspector = inspect(target_engine)
+    tables = set(inspector.get_table_names())
+    if not {'products', 'product_evidence_items'} <= tables:
+        return
+    if 'tenant_id' not in {column['name'] for column in inspector.get_columns('products')}:
+        return
+    with target_engine.begin() as connection:
+        for statement in SQLITE_TENANT_TRIGGERS:
+            connection.execute(text(statement))
+
+
 def ensure_snapshot_tables(target_engine: Engine | None = None) -> None:
     with _resolve_engine(target_engine).begin() as conn:
         conn.execute(text("""
@@ -4069,6 +4092,7 @@ def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -
     from core.product_eligibility_override_schema import ensure_sqlite_override_append_only
 
     ensure_sqlite_override_append_only(eng)
+    ensure_product_evidence_tenant_triggers(eng)  # C-COMP-02
     # PG-002: Mandanten-Guard + Backfill der Mandats-Evidenz NACH dem
     # Override-Umbau (ein Tabellen-Neuaufbau verwirft alle Trigger).
     ensure_sqlite_mandate_evidence_tenant_boundary(eng)

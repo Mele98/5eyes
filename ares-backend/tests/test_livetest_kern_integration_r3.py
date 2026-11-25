@@ -34,6 +34,7 @@ import time
 import urllib.request
 from pathlib import Path
 
+from product_evidence_test_support import generate_with_evidence
 from tests.test_livetest_k2_kernkette_ui import CLOSE, _sync_api
 from tests.test_livetest_kn3_b_customer_pdf_guard import (
     CLEAN_LEGAL_PROFILE, COMPANY, CUSTOMER_PDFS, _Api, _dependency_rows, _free_port, _pdf_text, _stop,
@@ -166,7 +167,7 @@ def _setup(api, db_path):
     assert st == 201, body
     st, body = api("POST", f"/mandates/{mid}/target-allocation/generate", {"preferences": {}})
     assert st == 200, body
-    st, portfolio = api("POST", f"/mandates/{mid}/recommendations/generate", {})  # "Portfolio generieren"
+    st, portfolio = generate_with_evidence(api, db_path, mid)  # C-COMP-02; "Portfolio generieren"
     assert st == 200, portfolio
     original = onboarding.TEST_LEGAL_PROFILE
     onboarding.TEST_LEGAL_PROFILE = CLEAN_LEGAL_PROFILE

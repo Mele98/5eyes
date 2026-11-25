@@ -67,12 +67,14 @@ EXPECTED_REFERENCE_TABLES = frozenset({
     "capital_market_assumptions",
     "product_eligibility_rule_sets",
     "product_eligibility_rules",
+    "product_evidence_items",  # C-COMP-02: Plattform-Nachweis (tenant_id NULL)
     "product_sustainability_attributes",  # AUDIT-2026-11 T1
     "products",
 })
 # Referenztabellen der Migration e2b7c4f9a1d6; product_sustainability_attributes
 # kommt erst mit d7f3b1a9c5e2 (AUDIT-2026-11 T1, eigene Policies).
-E2B7_REFERENCE_TABLES = EXPECTED_REFERENCE_TABLES - {"product_sustainability_attributes"}
+# (C-COMP-02: product_evidence_items ebenso in eigener Migration.)
+E2B7_REFERENCE_TABLES = EXPECTED_REFERENCE_TABLES - {"product_sustainability_attributes", "product_evidence_items"}
 TENANT_A = "tenant-a"
 TENANT_B = "tenant-b"
 
@@ -166,6 +168,10 @@ _VALID_ROW_VALUES: dict[str, dict[str, object]] = {
         "schema_version": "ares/channel-publication/1", "status": "PUBLISHED", "channel": "API",
         "channel_payload_hash": "0" * 64, "bound_envelope_hash": "0" * 64,
         "parameter_set_hash": "0" * 64, "goal_metric_payload_hash": "0" * 64, "render_hash": None,
+    },
+    # C-COMP-02: Hash-CHECKs (64 Hexzeichen); Entwurf ohne Freigabefelder.
+    "product_evidence_items": {
+        "source_document_sha256": "0" * 64, "canonical_payload_hash": "0" * 64, "status": "draft",
     },
     # H10 Nachtrag 1: Einwert-CHECK (result = 'BLOCKED') erkennt der Regex nicht.
     "privacy_egress_events": {"result": "BLOCKED"},

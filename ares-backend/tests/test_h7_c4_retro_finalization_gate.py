@@ -18,6 +18,7 @@ import json
 import pytest
 from fastapi import HTTPException
 
+from product_evidence_test_support import rebind_master_terms
 from models.review import AuditLog, Product, RecommendationPosition, RecommendationRun
 from models.users import User
 from routers.review import finalize_recommendation
@@ -50,6 +51,8 @@ def _draft_run_with_product(session_factory, suffix: str, *, retro_bps, source="
         product.retrocession_bps = retro_bps
         product.retrocession_source = source if retro_bps is not None else None
         s.commit()
+    # C-COMP-02: der Satz gilt erst mit freigegebenem Nachweis.
+    rebind_master_terms(session_factory, run_id)
     return advisor_id, mid, run_id
 
 
@@ -90,8 +93,18 @@ def _assert_blocked(session_factory, advisor_id, mid, run_id, expected_code):
 
 def test_finalize_blocks_unknown_retrocession(session_factory):
     advisor_id, mid, run_id = _draft_run_with_product(session_factory, "c4-unknown", retro_bps=None)
-    detail = _assert_blocked(session_factory, advisor_id, mid, run_id, RETRO_INCOMPLETE)
-    assert "Retrozession unbekannt für Test ETF" in detail["message"]
+    # C-COMP-02: ohne freigegebenen Retrozessionsnachweis sperrt bereits das
+    # Evidenz-Gate (409); das Retro-Gate bleibt unveraendert dahinter.
+    with pytest.raises(DomainError) as excinfo:
+        _finalize(session_factory, advisor_id, mid, run_id)
+    assert excinfo.value.reason_code == "PRODUCT_EVIDENCE_RETROCESSION_MISSING"
+    with session_factory() as s:
+        assert s.get(RecommendationRun, run_id).result_status == "Draft"
+        from models.mandates import Mandate
+
+        block = retrocession_finalization_block(s, s.get(Mandate, mid), s.get(RecommendationRun, run_id))
+    assert block["reason_code"] == RETRO_INCOMPLETE
+    assert "Retrozession unbekannt für Test ETF" in block["message"]
 
 
 def test_finalize_blocks_unresolved_retrocession_without_waiver_or_refund(session_factory):
@@ -238,6 +251,7 @@ def test_final_run_without_snapshot_and_unknown_retro_blocks(session_factory):
         position = s.query(RecommendationPosition).filter(RecommendationPosition.run_id == run_id).one()
         s.get(Product, position.product_id).retrocession_bps = None
         s.commit()
+    rebind_master_terms(session_factory, run_id)  # C-COMP-02: Nachweis stillgelegt
     with pytest.raises(DomainError) as excinfo:
         _check(session_factory, mid, run_id, CHANNEL_HANDOFF)
     assert excinfo.value.as_detail()["reason_code"] == RETRO_UNAVAILABLE

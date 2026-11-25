@@ -112,7 +112,7 @@ def test_unstubbed_exclusion_options_apply_only_the_latest_answer(server):  # no
     assert status == 200, login
     api.token = login["access_token"]
     advisor_id = api("GET", "/auth/me")[1]["id"]
-    cid, mid = _seed_mandate(api, advisor_id, f"H11-{int(time.time())}", {})
+    cid, mid = _seed_mandate(api, server["db"], advisor_id, f"H11-{int(time.time())}", {})
 
     # Disjunkter Nachweis-Seed: je Nicht-Liquiditaets-Produkt ein Zwilling (API).
     originals = [p for p in _products(server["db"]) if p[3] not in LIQ]

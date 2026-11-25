@@ -35,7 +35,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 NOW = "2026-11-11T10:00:00.000Z"
 # C-890-01 Nachtrag 2: a7d3c9e1f5b2 (Ablehnungen) folgt auf f4c2e8a6d1b3.
-HEAD = "d3b7e1f9a5c2"  # Migrationskopf; K3 (H-189) hinter L2d; L2d (H-194) hinter L2c; L2c (H-192) hinter H-179; RC-CH-1: H10 hinter C-890-01 (Nachtrag 3 d66fbf0588e3), E2 hinter H10, CCX-P1 hinter E2, CCX-P2 hinter CCX-P1, CCX-P3 hinter CCX-P2, CCX-P4 hinter CCX-P3, H12 (Schluesselversion) hinter CCX-P4, K1 (Property-Gate) hinter H12, CCX-P5 hinter K1, CCX-P5b hinter CCX-P5, H-179 (Vertragsschicht) hinter CCX-P5b (N-927S-02: e5a9c3d7b1f4 in c7e1a9d3f5b2 gefaltet)
+HEAD = "9f4c2a7e1b63"  # Migrationskopf; C-COMP-02 hinter K3; K3 (H-189) hinter L2d; L2d (H-194) hinter L2c; L2c (H-192) hinter H-179; RC-CH-1: H10 hinter C-890-01 (Nachtrag 3 d66fbf0588e3), E2 hinter H10, CCX-P1 hinter E2, CCX-P2 hinter CCX-P1, CCX-P3 hinter CCX-P2, CCX-P4 hinter CCX-P3, H12 (Schluesselversion) hinter CCX-P4, K1 (Property-Gate) hinter H12, CCX-P5 hinter K1, CCX-P5b hinter CCX-P5, H-179 (Vertragsschicht) hinter CCX-P5b (N-927S-02: e5a9c3d7b1f4 in c7e1a9d3f5b2 gefaltet)
 
 
 def _qi(identifier: str) -> str:

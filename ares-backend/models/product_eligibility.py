@@ -22,6 +22,9 @@ from sqlalchemy.orm import relationship
 
 from database import Base
 from core import product_eligibility_override_schema as _override_schema
+from core.product_evidence import (
+    PRODUCT_EVIDENCE_KINDS, SQLITE_TENANT_TRIGGERS, TENANT_MISMATCH_MESSAGE, TENANT_MISMATCH_SQL,
+)
 
 
 class ProductEligibilityRuleSet(Base):
@@ -213,6 +216,256 @@ class ProductEligibilityDecision(Base):
             "ix_product_eligibility_decisions_snapshot_product",
             "snapshot_id", "product_id",
         ),
+    )
+
+
+# Dialektneutrale DB-Regeln (SQLite, PostgreSQL); identisch in Alembic und
+# ares_schema.sql.
+PRODUCT_EVIDENCE_HASH_CHECK = (
+    "length(source_document_sha256) = 64 AND length(canonical_payload_hash) = 64 "
+    "AND ltrim(source_document_sha256, '0123456789abcdef') = '' "
+    "AND ltrim(canonical_payload_hash, '0123456789abcdef') = ''"
+)
+PRODUCT_EVIDENCE_APPROVAL_CHECK = (
+    "status = 'draft' OR (approved_by IS NOT NULL AND approved_at IS NOT NULL AND approval_mode IS NOT NULL "
+    "AND approval_mode IN ('four_eyes', 'single_approver_attested'))"
+)
+PRODUCT_EVIDENCE_FOUR_EYES_CHECK = (
+    "approved_by IS NULL OR approved_by <> created_by "
+    "OR COALESCE(approval_mode, '') = 'single_approver_attested'"
+)
+PRODUCT_EVIDENCE_CLOSURE_CHECK = (
+    "status NOT IN ('retired', 'revoked') OR (retired_or_revoked_by IS NOT NULL "
+    "AND retired_or_revoked_at IS NOT NULL AND reason_code IS NOT NULL)"
+)
+
+
+class ProductEvidenceItem(Base):
+    """Granularer, freizugebender Produktnachweis (C-COMP-02 v1).
+
+    Ein freigegebener Nachweis ist inhaltlich unveränderlich. Ablauf wird
+    aus ``valid_until`` ermittelt; Widerruf und Ersatz sind explizite
+    Lebenszyklusereignisse und ändern nie den belegten Inhalt. Die Produkt- und
+    Anteilsklassenidentität prüft ausschliesslich
+    ``core.product_evidence.identity_matches`` (Erfassung, Freigabe, Auswertung).
+    """
+
+    __tablename__ = "product_evidence_items"
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"))
+    product_id = Column(String, ForeignKey("products.id"), nullable=False)
+    stable_instrument_id = Column(String, nullable=False)
+    share_class_id = Column(String)
+    jurisdiction = Column(String, nullable=False)
+    evidence_kind = Column(String, nullable=False)
+    source_type = Column(String, nullable=False)
+    source_reference = Column(String, nullable=False)
+    source_document_title = Column(String, nullable=False)
+    source_document_version = Column(String)
+    source_document_date = Column(String)
+    retrieved_at = Column(String, nullable=False)
+    source_document_sha256 = Column(String, nullable=False)
+    canonical_payload_json = Column(String, nullable=False)
+    canonical_payload_hash = Column(String, nullable=False)
+    as_of = Column(String, nullable=False)
+    valid_from = Column(String, nullable=False)
+    valid_until = Column(String)
+    status = Column(String, nullable=False, default="draft")
+    note = Column(String)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(String, nullable=False)
+    approved_by = Column(String, ForeignKey("users.id"))
+    approved_at = Column(String)
+    approval_mode = Column(String)
+    supersedes_id = Column(String, ForeignKey("product_evidence_items.id"))
+    retired_or_revoked_by = Column(String, ForeignKey("users.id"))
+    retired_or_revoked_at = Column(String)
+    reason_code = Column(String)
+    updated_at = Column(String, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('draft', 'approved', 'retired', 'revoked')",
+            name="ck_product_evidence_item_status",
+        ),
+        CheckConstraint(
+            "evidence_kind IN (" + ", ".join(repr(kind) for kind in PRODUCT_EVIDENCE_KINDS) + ")",
+            name="ck_product_evidence_item_kind",
+        ),
+        CheckConstraint(
+            "valid_until IS NULL OR valid_until >= valid_from",
+            name="ck_product_evidence_item_validity",
+        ),
+        CheckConstraint(PRODUCT_EVIDENCE_HASH_CHECK, name="ck_product_evidence_item_hash_hex"),
+        CheckConstraint(PRODUCT_EVIDENCE_APPROVAL_CHECK, name="ck_product_evidence_item_approval"),
+        CheckConstraint(PRODUCT_EVIDENCE_FOUR_EYES_CHECK, name="ck_product_evidence_item_four_eyes"),
+        CheckConstraint(PRODUCT_EVIDENCE_CLOSURE_CHECK, name="ck_product_evidence_item_closure"),
+        Index(
+            "ix_product_evidence_item_lookup",
+            "product_id", "tenant_id", "jurisdiction", "evidence_kind", "status",
+        ),
+        Index(
+            "ux_product_evidence_item_active_tenant",
+            "product_id", "stable_instrument_id", text("COALESCE(share_class_id, '')"), "tenant_id",
+            "jurisdiction", "evidence_kind", "as_of",
+            unique=True,
+            sqlite_where=text("tenant_id IS NOT NULL AND status = 'approved'"),
+            postgresql_where=text("tenant_id IS NOT NULL AND status = 'approved'"),
+        ),
+        Index(
+            "ux_product_evidence_item_active_global",
+            "product_id", "stable_instrument_id", text("COALESCE(share_class_id, '')"),
+            "jurisdiction", "evidence_kind", "as_of",
+            unique=True,
+            sqlite_where=text("tenant_id IS NULL AND status = 'approved'"),
+            postgresql_where=text("tenant_id IS NULL AND status = 'approved'"),
+        ),
+    )
+
+
+class ProductEvidenceSnapshot(Base):
+    """Unveränderliche Produktnachweis-Bindung eines Empfehlungslaufs."""
+
+    __tablename__ = "product_evidence_snapshots"
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    # Purge-fest wie Envelope und Override-Belege: keine harten FKs auf Mandat
+    # und Lauf (Entwurfs-Cleanup/Demo-Purge loeschen Laeufe physisch); die
+    # Bindung bleibt ueber das gehashte Payload pruefbar.
+    mandate_id = Column(String, nullable=False)
+    recommendation_run_id = Column(String, nullable=False)
+    product_ids_json = Column(String, nullable=False)
+    item_ids_json = Column(String, nullable=False)
+    item_hashes_json = Column(String, nullable=False)
+    eligibility_snapshot_id = Column(String)
+    cost_snapshot_id = Column(String)
+    conflict_snapshot_id = Column(String)
+    as_of = Column(String, nullable=False)
+    evaluated_at = Column(String, nullable=False)
+    expires_at = Column(String)
+    status = Column(String, nullable=False)
+    reason_codes_json = Column(String, nullable=False, default="[]")
+    canonical_payload_json = Column(String, nullable=False)
+    product_evidence_hash = Column(String, nullable=False, unique=True)
+    schema_version = Column(String, nullable=False, default="ares-product-evidence/v1")
+    evaluator_version = Column(String, nullable=False, default="ares-product-evidence/1")
+    created_at = Column(String, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('verified', 'missing', 'stale', 'conflict', 'revoked', 'hash_mismatch')",
+            name="ck_product_evidence_snapshot_status",
+        ),
+        Index("ix_product_evidence_snapshot_run", "recommendation_run_id"),
+    )
+
+
+for _product_evidence_snapshot_ddl in (
+    "CREATE TRIGGER IF NOT EXISTS trg_product_evidence_snapshot_immutable_update "
+    "BEFORE UPDATE ON product_evidence_snapshots FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'product_evidence_snapshots: Snapshot ist unveränderlich'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_product_evidence_snapshot_immutable_delete "
+    "BEFORE DELETE ON product_evidence_snapshots FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'product_evidence_snapshots: Snapshot ist unveränderlich'); END",
+):
+    event.listen(
+        ProductEvidenceSnapshot.__table__, "after_create",
+        DDL(_product_evidence_snapshot_ddl).execute_if(dialect="sqlite"),
+    )
+
+PRODUCT_EVIDENCE_SNAPSHOT_PG_FUNCTION = """
+CREATE OR REPLACE FUNCTION product_evidence_snapshots_immutable()
+RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'product_evidence_snapshots: Snapshot ist unveränderlich';
+END;
+$$ LANGUAGE plpgsql
+"""
+for _product_evidence_snapshot_pg_ddl in (
+    PRODUCT_EVIDENCE_SNAPSHOT_PG_FUNCTION,
+    "CREATE TRIGGER trg_product_evidence_snapshot_immutable BEFORE UPDATE OR DELETE "
+    "ON product_evidence_snapshots FOR EACH ROW "
+    "EXECUTE FUNCTION product_evidence_snapshots_immutable()",
+):
+    event.listen(
+        ProductEvidenceSnapshot.__table__, "after_create",
+        DDL(_product_evidence_snapshot_pg_ddl).execute_if(dialect="postgresql"),
+    )
+
+
+PRODUCT_EVIDENCE_MUTABLE_LIFECYCLE_COLUMNS: tuple[str, ...] = (
+    "status", "retired_or_revoked_by", "retired_or_revoked_at",
+    "reason_code", "updated_at",
+)
+PRODUCT_EVIDENCE_IMMUTABLE_COLUMNS: tuple[str, ...] = tuple(
+    column.name for column in ProductEvidenceItem.__table__.columns
+    if column.name not in PRODUCT_EVIDENCE_MUTABLE_LIFECYCLE_COLUMNS
+)
+_PEI_SQLITE_UNCHANGED = " AND ".join(
+    f"NEW.{column} IS OLD.{column}" for column in PRODUCT_EVIDENCE_IMMUTABLE_COLUMNS
+)
+PRODUCT_EVIDENCE_SQLITE_TRIGGERS: tuple[str, ...] = SQLITE_TENANT_TRIGGERS + (
+    "CREATE TRIGGER IF NOT EXISTS trg_product_evidence_immutable_update "
+    "BEFORE UPDATE ON product_evidence_items FOR EACH ROW "
+    "WHEN OLD.status <> 'draft' AND NOT (OLD.status = 'approved' "
+    "AND NEW.status IN ('retired', 'revoked') AND " + _PEI_SQLITE_UNCHANGED + ") "
+    "BEGIN SELECT RAISE(ABORT, 'product_evidence_items: freigegebener Nachweis ist unveränderlich'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_product_evidence_immutable_delete "
+    "BEFORE DELETE ON product_evidence_items FOR EACH ROW WHEN OLD.status <> 'draft' "
+    "BEGIN SELECT RAISE(ABORT, 'product_evidence_items: freigegebener Nachweis ist unveränderlich'); END",
+)
+for _product_evidence_trigger in PRODUCT_EVIDENCE_SQLITE_TRIGGERS:
+    event.listen(
+        ProductEvidenceItem.__table__,
+        "after_create",
+        DDL(_product_evidence_trigger).execute_if(dialect="sqlite"),
+    )
+
+_PEI_PG_UNCHANGED = " AND ".join(
+    f"NEW.{column} IS NOT DISTINCT FROM OLD.{column}"
+    for column in PRODUCT_EVIDENCE_IMMUTABLE_COLUMNS
+)
+PRODUCT_EVIDENCE_PG_FUNCTION = f"""
+CREATE OR REPLACE FUNCTION product_evidence_items_immutable()
+RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        IF OLD.status <> 'draft' THEN
+            RAISE EXCEPTION 'product_evidence_items: freigegebener Nachweis ist unveränderlich';
+        END IF;
+        RETURN OLD;
+    END IF;
+    IF {TENANT_MISMATCH_SQL} THEN
+        RAISE EXCEPTION '{TENANT_MISMATCH_MESSAGE}';
+    END IF;
+    IF TG_OP = 'INSERT' THEN
+        RETURN NEW;
+    END IF;
+    IF OLD.status <> 'draft' AND NOT (
+        OLD.status = 'approved' AND NEW.status IN ('retired', 'revoked')
+        AND {_PEI_PG_UNCHANGED}
+    ) THEN
+        RAISE EXCEPTION 'product_evidence_items: freigegebener Nachweis ist unveränderlich';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql
+"""
+PRODUCT_EVIDENCE_PG_TRIGGER = (
+    "CREATE TRIGGER trg_product_evidence_immutable BEFORE INSERT OR UPDATE OR DELETE "
+    "ON product_evidence_items FOR EACH ROW "
+    "EXECUTE FUNCTION product_evidence_items_immutable()"
+)
+for _product_evidence_pg_ddl in (
+    PRODUCT_EVIDENCE_PG_FUNCTION,
+    PRODUCT_EVIDENCE_PG_TRIGGER,
+):
+    event.listen(
+        ProductEvidenceItem.__table__,
+        "after_create",
+        DDL(_product_evidence_pg_ddl).execute_if(dialect="postgresql"),
     )
 
 

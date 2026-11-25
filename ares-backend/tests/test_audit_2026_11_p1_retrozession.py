@@ -166,12 +166,23 @@ def _set_product_retro(SF, rate, source="Vertrag", provider="Anbieter A"):
         product.retrocession_source = source if rate is not None else None
         product.provider = provider
         s.commit()
+    # C-COMP-02: wirksam ist nur der freigegebene, am Lauf gebundene Nachweis.
+    from models.review import RecommendationRun
+    from product_evidence_test_support import rebind_master_terms
+
+    with SF() as s:
+        run_id = s.query(RecommendationRun.id).scalar()
+    rebind_master_terms(SF, run_id)
 
 
 def test_build_cost_disclosure_reads_retro_from_product(cost_session_factory):
     _seed(cost_session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction="CH", product_ter_bps=20)
     with cost_session_factory() as db:
         unknown = build_cost_disclosure(db, _mandate(cost_session_factory))
+    _set_product_retro(cost_session_factory, 0)
+    with cost_session_factory() as db:
+        free = build_cost_disclosure(db, _mandate(cost_session_factory))
+    assert free["product_retrocessions"]["lines"][0]["status"] == "none"
     _set_product_retro(cost_session_factory, 40)
     with cost_session_factory() as db:
         present = build_cost_disclosure(db, _mandate(cost_session_factory))
@@ -179,7 +190,7 @@ def test_build_cost_disclosure_reads_retro_from_product(cost_session_factory):
     assert any("Retrozession unbekannt" in w for w in unknown["warnings"])
     items = [i for i in present["cost_items"] if i["key"] == "retrocession_product"]
     assert len(items) == 1 and items[0]["amount_rappen"] == 400_000
-    assert present["totals"] == unknown["totals"]
+    assert present["totals"] == free["totals"]
 
 
 def test_build_cost_disclosure_merges_manual_mandate_entry(cost_session_factory):

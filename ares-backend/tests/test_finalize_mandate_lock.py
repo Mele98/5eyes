@@ -164,11 +164,17 @@ def _add_full_position(session_factory, run_id, *, client_onboarding: bool = Tru
             target_weight_bps=10000, target_amount_rappen=500_000_00,
             created_at=now, updated_at=now,
         ))
+        run = s.get(RecommendationRun, run_id)
         if client_onboarding:
             from client_onboarding_fixture import satisfy_client_onboarding
 
-            run = s.get(RecommendationRun, run_id)
             satisfy_client_onboarding(s, s.get(Mandate, run.mandate_id))
+        # C-COMP-02: Nachweise ueber den echten Entwurfs-/Freigabeweg und Bindung
+        # wie nach Generate (der Lauf ist hier direkt eingefuegt).
+        from product_evidence_test_support import bind_synthetic_run
+
+        s.flush()
+        bind_synthetic_run(s, run)
         s.commit()
 
 

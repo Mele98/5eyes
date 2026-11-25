@@ -48,7 +48,7 @@ from services.document_archive import (
 from services.cost_disclosure import build_cost_disclosure, fee_agreement_missing
 from core import sustainability_preference as sustainability
 from core.reason_codes import DomainError, ReasonCode
-from services.portfolio_engine_payload import ESG_CUSTOMER_CLAIM_LABELS
+from services.portfolio_engine_payload import ESG_CUSTOMER_CLAIM_LABELS, run_ter_lookup
 from services.recommendation_release_gate import (
     firm_display_name,
     assert_run_evidence as _assert_run_evidence,
@@ -1059,6 +1059,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                 product_rows = db.query(Product).filter(Product.id.in_(product_ids)).all()
                 products_map = {p.id: p for p in product_rows}
 
+            ter_terms = run_ter_lookup(db, last_run)
             for pos in positions:
                 product_obj = products_map.get(pos.product_id)
                 asset_class = _bucket_key(getattr(product_obj, "asset_class", None)) or "alternatives"
@@ -1071,7 +1072,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                     "asset_class": asset_class,
                     "sub_asset_class": sub_class,
                     "currency": str(getattr(product_obj, "currency", "CHF") or "CHF"),
-                    "ter_bps": int(getattr(product_obj, "ter_bps", 0) or 0),
+                    "ter_bps": ter_terms(pos.product_id)[1],  # C-COMP-02: nur gebundene Evidenz
                     "provider": str(getattr(product_obj, "provider", "") or ""),
                     "target_weight_bps": int(getattr(pos, "target_weight_bps", 0) or 0),
                     "target_amount_rappen": target_amt,
@@ -1874,6 +1875,7 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
                 detail="Noch kein Portfolio für die aktuelle Asset Allocation generiert.",
             )
         if last_run is not None:
+            ter_terms = run_ter_lookup(db, last_run)  # C-COMP-02
             pos_list = (
                 db.query(RecommendationPosition)
                 .filter(RecommendationPosition.run_id == last_run.id)
@@ -1937,7 +1939,7 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
                     ),
                     "current_amount_rappen": current_amount,
                     "currency": str(getattr(prod, "currency", "CHF") or "CHF"),
-                    "ter_bps": int(getattr(prod, "ter_bps", 0) or 0),
+                    "ter_bps": ter_terms(pos.product_id)[1],  # C-COMP-02: nur gebundene Evidenz
                     "provider": str(getattr(prod, "provider", "") or ""),
                 })
     except HTTPException:
@@ -3039,12 +3041,12 @@ def _build_depotcheck_data(
                 "currency": item.get("currency") or "CHF",
                 "amount_rappen": int(item.get("target_amount_rappen", 0) or 0),
                 "weight_bps": int(item.get("target_weight_bps", 0) or 0),
-                "ter_bps": int(item.get("ter_bps", 0) or 0),
+                "ter_bps": item.get("ter_bps"),
             }
             for item in positions
         ],
-        weighted_ter_bps=_cost_item_rate(costs, "product_ter")
-        or int(fc.get("weighted_ter_bps", 0) or 0),
+        # C-COMP-02: nur der belegte Kostenausweis, kein Rueckfall auf Stammdaten.
+        weighted_ter_bps=_cost_item_rate(costs, "product_ter") or 0,
         weighted_duration_years_x10=int(fc.get("weighted_duration_years_x10", 0) or 0),
         weighted_esg_score_x10=int(fc.get("weighted_esg_score_x10", 0) or 0),
         covered_share_bps=int(fc.get("covered_share_bps", 0) or 0),

@@ -23,7 +23,7 @@ body{font-family:var(--f-s);}</style>
 <script src="./desktop-api.js"></script>
 <script src="./trade-list-preview.js"></script>
 <script src="./goal-analysis-integrity.js"></script>
-<script src="./advisory-log-finma.js"></script><script src="./product-master-data.js"></script><script src="./presentation-rounding.js"></script>
+<script src="./advisory-log-finma.js"></script><script src="./product-master-data.js"></script><script src="./product-evidence.js"></script><script src="./presentation-rounding.js"></script>
 <link rel="stylesheet" href="./ares.css"><link rel="stylesheet" href="./aa-chart.css">
 </head>
 <body>
@@ -350,7 +350,7 @@ body{font-family:var(--f-s);}</style>
     </div>
   </div>
 </div></div>
-<!-- E1: 2FA-Setup-Modal -->
+<!-- 2FA-Setup-Modal -->
 <div id="m-2fa" class="overlay"><div class="modal" style="max-width:430px">
   <div class="mhd"><div class="mtitle">Zwei-Faktor-Authentifizierung</div><button class="mx" onclick="cm('m-2fa')">&#10005;</button></div>
   <div class="mbody" id="m-2fa-body"><div style="font-size:11px;color:var(--n5)">Lädt…</div></div>
@@ -518,7 +518,7 @@ async function do2faDisable(){
   catch(e){ if(msg){msg.style.color='var(--neg)';msg.textContent=String(e.detail||e.message||'Code falsch');} }
 }
 </script>
-<!-- E1: Operator-Provisioning (Firmen/Tenants + Mitarbeiter) -->
+<!-- E1: Operator -->
 <div id="m-prov" class="overlay"><div class="modal" style="max-width:560px">
   <div class="mhd"><div class="mtitle">Firmen & Mitarbeiter (Operator)</div><button class="mx" onclick="cm('m-prov')">&#10005;</button></div>
   <div class="mbody" id="m-prov-body"><div style="font-size:11px;color:var(--n5)">Lädt…</div></div>

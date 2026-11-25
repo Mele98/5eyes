@@ -466,8 +466,9 @@ def test_endpoint_ter_unvollstaendig_meldet_warnung(
     assert resp.status_code == 200
     body = resp.json()
     assert body["is_complete"] is False
-    # Coverage < 100% (nur die Haelfte hat TER)
-    assert 0 < body["product_cost_coverage_bps"] < 10000
+    # C-COMP-02: ein Produkt ohne belegte TER macht den ganzen Nachweissatz
+    # unbindbar -- unbekannt statt teilweise aus Stammdaten.
+    assert body["product_cost_coverage_bps"] == 0
     # Eine Warnung muss die TER-Luecke explizit nennen
     assert any("TER" in w for w in body["warnings"])
 

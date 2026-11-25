@@ -694,6 +694,9 @@
    "get_current_user",
    "require_compliance_approver"
   ],
+  "GET /products/evidence/overview": [
+   "get_current_user"
+  ],
   "GET /products/export/csv": [
    "get_current_user",
    "require_admin"
@@ -721,6 +724,9 @@
   "GET /products/sustainability/standards": [
    "get_current_user",
    "require_staff"
+  ],
+  "GET /products/{product_id}/evidence": [
+   "get_current_user"
   ],
   "GET /products/{product_id}/sustainability-attributes": [
    "get_current_user",
@@ -1311,6 +1317,14 @@
    "get_current_user",
    "require_admin"
   ],
+  "POST /products/evidence/{evidence_id}/retire": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/evidence/{evidence_id}/revoke": [
+   "get_current_user",
+   "require_admin"
+  ],
   "POST /products/import": [
    "get_current_user",
    "require_admin"
@@ -1356,6 +1370,14 @@
    "require_admin"
   ],
   "POST /products/{product_id}/eligibility-rule/approve": [
+   "get_current_user",
+   "require_compliance_approver"
+  ],
+  "POST /products/{product_id}/evidence": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /products/{product_id}/evidence/approve": [
    "get_current_user",
    "require_compliance_approver"
   ],
@@ -1648,9 +1670,11 @@
   "GET /privacy/subject-requests": "Rollenpruefung im Handler (_require_case_operator).",
   "GET /privacy/subject-requests/{request_id}": "Rollenpruefung im Handler (_require_case_operator).",
   "GET /products": "Produktkatalog der Firma (Referenzdaten) ohne Kundendaten.",
+  "GET /products/evidence/overview": "Produktnachweise: Katalogdaten ohne Kundenbezug, eigener Tenant + Plattform (C-COMP-02)",
   "GET /products/sustainability/attributes": "Nachhaltigkeits-Referenzdaten der Produkte ohne Kundendaten.",
   "GET /products/sustainability/catalog": "Nachhaltigkeits-Referenzdaten der Produkte ohne Kundendaten.",
   "GET /products/sustainability/standards": "Nachhaltigkeits-Referenzdaten der Produkte ohne Kundendaten.",
+  "GET /products/{product_id}/evidence": "Produktnachweise: Katalogdaten ohne Kundenbezug, eigener Tenant + Plattform (C-COMP-02)",
   "GET /products/{product_id}/sustainability-attributes": "Nachhaltigkeits-Referenzdaten eines Produkts ohne Kundendaten.",
   "GET /protocol-bausteine": "Protokoll-Textbausteine der Firma (Vorlagen) ohne Kundendaten.",
   "GET /sustainability-preferences/definition": "Definition des Nachhaltigkeits-Fragebogens (Referenz) ohne Kundendaten.",

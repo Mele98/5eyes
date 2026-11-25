@@ -18280,6 +18280,578 @@
         "title": "ProductEligibilitySeenRule",
         "type": "object"
       },
+      "ProductEvidenceApprovalRequest": {
+        "description": "Freigabe genau der gesehenen Menge (alle oder keine).",
+        "properties": {
+          "attestation": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attestation"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProductEvidenceSeenItem"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ProductEvidenceApprovalRequest",
+        "type": "object"
+      },
+      "ProductEvidenceIssue": {
+        "properties": {
+          "evidence_kind": {
+            "title": "Evidence Kind",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
+          "reason_code": {
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "reason_code",
+          "evidence_kind",
+          "message"
+        ],
+        "title": "ProductEvidenceIssue",
+        "type": "object"
+      },
+      "ProductEvidenceItemCreate": {
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "evidence_kind": {
+            "enum": [
+              "instrument_identity",
+              "kid",
+              "costs",
+              "retrocession",
+              "suitability",
+              "liquidity",
+              "currency",
+              "sustainability",
+              "price_source"
+            ],
+            "title": "Evidence Kind",
+            "type": "string"
+          },
+          "jurisdiction": {
+            "pattern": "^[A-Z]{2,8}$",
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "payload": {
+            "title": "Payload",
+            "type": "object"
+          },
+          "retrieved_at": {
+            "format": "date-time",
+            "title": "Retrieved At",
+            "type": "string"
+          },
+          "scope": {
+            "default": "tenant",
+            "enum": [
+              "tenant",
+              "global"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "share_class_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Share Class Id"
+          },
+          "source_document_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Date"
+          },
+          "source_document_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Document Sha256",
+            "type": "string"
+          },
+          "source_document_title": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Source Document Title",
+            "type": "string"
+          },
+          "source_document_version": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Version"
+          },
+          "source_reference": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Reference",
+            "type": "string"
+          },
+          "source_type": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Source Type",
+            "type": "string"
+          },
+          "stable_instrument_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Stable Instrument Id",
+            "type": "string"
+          },
+          "supersedes_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Id"
+          },
+          "valid_from": {
+            "format": "date",
+            "title": "Valid From",
+            "type": "string"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          }
+        },
+        "required": [
+          "stable_instrument_id",
+          "jurisdiction",
+          "evidence_kind",
+          "source_type",
+          "source_reference",
+          "source_document_title",
+          "retrieved_at",
+          "source_document_sha256",
+          "payload",
+          "as_of",
+          "valid_from"
+        ],
+        "title": "ProductEvidenceItemCreate",
+        "type": "object"
+      },
+      "ProductEvidenceItemResponse": {
+        "properties": {
+          "approval_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Mode"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "as_of": {
+            "title": "As Of",
+            "type": "string"
+          },
+          "canonical_payload_hash": {
+            "title": "Canonical Payload Hash",
+            "type": "string"
+          },
+          "canonical_payload_json": {
+            "title": "Canonical Payload Json",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "evidence_kind": {
+            "title": "Evidence Kind",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "jurisdiction": {
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "product_id": {
+            "title": "Product Id",
+            "type": "string"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "retired_or_revoked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired Or Revoked At"
+          },
+          "retired_or_revoked_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired Or Revoked By"
+          },
+          "retrieved_at": {
+            "title": "Retrieved At",
+            "type": "string"
+          },
+          "share_class_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Share Class Id"
+          },
+          "source_document_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Date"
+          },
+          "source_document_sha256": {
+            "title": "Source Document Sha256",
+            "type": "string"
+          },
+          "source_document_title": {
+            "title": "Source Document Title",
+            "type": "string"
+          },
+          "source_document_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Version"
+          },
+          "source_reference": {
+            "title": "Source Reference",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "stable_instrument_id": {
+            "title": "Stable Instrument Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "supersedes_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Id"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "valid_from": {
+            "title": "Valid From",
+            "type": "string"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          }
+        },
+        "required": [
+          "id",
+          "product_id",
+          "stable_instrument_id",
+          "jurisdiction",
+          "evidence_kind",
+          "source_type",
+          "source_reference",
+          "source_document_title",
+          "retrieved_at",
+          "source_document_sha256",
+          "canonical_payload_json",
+          "canonical_payload_hash",
+          "as_of",
+          "valid_from",
+          "status",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ProductEvidenceItemResponse",
+        "type": "object"
+      },
+      "ProductEvidenceLifecycleRequest": {
+        "properties": {
+          "reason_code": {
+            "pattern": "^[A-Z][A-Z0-9_]{2,63}$",
+            "title": "Reason Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason_code"
+        ],
+        "title": "ProductEvidenceLifecycleRequest",
+        "type": "object"
+      },
+      "ProductEvidenceOverviewEntry": {
+        "properties": {
+          "issues": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ProductEvidenceIssue"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "product_id": {
+            "title": "Product Id",
+            "type": "string"
+          },
+          "product_name": {
+            "title": "Product Name",
+            "type": "string"
+          },
+          "share_class_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Share Class Id"
+          },
+          "stable_instrument_id": {
+            "title": "Stable Instrument Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "sub_asset_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sub Asset Class"
+          }
+        },
+        "required": [
+          "product_id",
+          "product_name",
+          "stable_instrument_id",
+          "status"
+        ],
+        "title": "ProductEvidenceOverviewEntry",
+        "type": "object"
+      },
+      "ProductEvidenceSeenItem": {
+        "description": "Genau der gesehene Entwurf: ID und Inhalts-Hash.",
+        "properties": {
+          "canonical_payload_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Canonical Payload Hash",
+            "type": "string"
+          },
+          "item_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "canonical_payload_hash"
+        ],
+        "title": "ProductEvidenceSeenItem",
+        "type": "object"
+      },
       "ProductIdMappingApplyRequest": {
         "properties": {
           "candidate_index": {
@@ -49690,6 +50262,174 @@
         ]
       }
     },
+    "/products/evidence/overview": {
+      "get": {
+        "description": "Je aktivem Produkt: vollständig belegt oder welche Nachweise fehlen.",
+        "operationId": "get_product_evidence_overview_products_evidence_overview_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "jurisdiction",
+            "required": false,
+            "schema": {
+              "default": "CH",
+              "pattern": "^[A-Z]{2,8}$",
+              "title": "Jurisdiction",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProductEvidenceOverviewEntry"
+                  },
+                  "title": "Response Get Product Evidence Overview Products Evidence Overview Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Product Evidence Overview",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/evidence/{evidence_id}/retire": {
+      "post": {
+        "operationId": "retire_product_evidence_products_evidence__evidence_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "evidence_id",
+            "required": true,
+            "schema": {
+              "title": "Evidence Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductEvidenceLifecycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductEvidenceItemResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire Product Evidence",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/evidence/{evidence_id}/revoke": {
+      "post": {
+        "operationId": "revoke_product_evidence_products_evidence__evidence_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "evidence_id",
+            "required": true,
+            "schema": {
+              "title": "Evidence Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductEvidenceLifecycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductEvidenceItemResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revoke Product Evidence",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
     "/products/export/csv": {
       "get": {
         "description": "AUDIT-2026-11 P1 (PO-6): Export der fuer diesen Tenant sichtbaren,\naktiven Fonds im Spaltenformat des CSV-Imports (globaler Katalog plus\neigene Fonds, nie die eines anderen Tenants -- dieselbe Abfrage wie\nGET /products).\n\nZweck: Stammdaten (ISIN, Domizil, TER-Quelle, Retrozession ...) extern\nergaenzen und wieder einspielen. Die Eignungsspalten bleiben leer: die\nEignung wird ueber die Vier-Augen-Regeln gepflegt und ist kein\nStammdatum. Fuer einen Re-Import muessen sie ergaenzt werden (eine\ngeaenderte Eignung wird dabei als Regel-Entwurf angelegt). Leere Zellen\nbedeuten \"nicht erfasst\" -- es wird nichts vorbelegt.",
@@ -50908,6 +51648,174 @@
           }
         ],
         "summary": "Approve Product Eligibility Rule",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/{product_id}/evidence": {
+      "get": {
+        "operationId": "list_product_evidence_products__product_id__evidence_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "product_id",
+            "required": true,
+            "schema": {
+              "title": "Product Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProductEvidenceItemResponse"
+                  },
+                  "title": "Response List Product Evidence Products  Product Id  Evidence Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Product Evidence",
+        "tags": [
+          "Produkte"
+        ]
+      },
+      "post": {
+        "operationId": "create_product_evidence_products__product_id__evidence_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "product_id",
+            "required": true,
+            "schema": {
+              "title": "Product Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductEvidenceItemCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductEvidenceItemResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Product Evidence",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/{product_id}/evidence/approve": {
+      "post": {
+        "description": "Freigabe genau der gesehenen ``(Nachweis, Inhalts-Hash)``-Menge.",
+        "operationId": "approve_product_evidence_products__product_id__evidence_approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "product_id",
+            "required": true,
+            "schema": {
+              "title": "Product Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductEvidenceApprovalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProductEvidenceItemResponse"
+                  },
+                  "title": "Response Approve Product Evidence Products  Product Id  Evidence Approve Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Product Evidence",
         "tags": [
           "Produkte"
         ]

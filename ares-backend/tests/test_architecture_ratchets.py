@@ -313,7 +313,9 @@ def test_exempt_leaves_allowlist_is_explicit_and_versioned(gate):
          # Zielkennzahl (M-3) als Review-Entscheid.
          "core.risk_parameter_set", "core.goal_metric_contract",
          # K3 (Handoff H-189): eine Regel fuer Bestand ausserhalb der Empfehlung.
-         "core.external_holdings_rule"}
+         "core.external_holdings_rule",
+         # C-COMP-02: Vertrag und Auswertung der Produktevidenz (Review-Entscheid).
+         "core.product_evidence"}
     )
 
 

@@ -549,6 +549,17 @@ class RecommendationRun(Base):
     # (decision_hash, Themen, Stichtag, Nachweis-ID je Position). NULL = kein
     # Ausschluss aktiv bzw. Altlauf (Alembic e7b3d9f1a2c4).
     sustainability_evidence_json = Column(String)
+    # C-COMP-02: granularer Produktnachweis, der vor dem Speichern eines
+    # Kundenlaufs vollständig und freigegeben sein muss. Die Snapshot-Zeile
+    # ist unveränderlich; Hash/Status liegen zusätzlich am Lauf, damit jeder
+    # Freigabekanal ohne Fallback fail-closed prüfen kann.
+    product_evidence_snapshot_id = Column(String, ForeignKey(
+        "product_evidence_snapshots.id",
+        name="fk_recommendation_runs_product_evidence_snapshot",
+        use_alter=True,
+    ))
+    product_evidence_hash = Column(String)
+    product_evidence_status = Column(String)
     result_status = Column(String, nullable=False, default="Draft")
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)

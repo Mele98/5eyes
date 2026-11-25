@@ -66,6 +66,7 @@ from core.advisory_envelope_codec import (
     rows_child_hash,
     utc_now,
 )
+from core import product_evidence
 from core.db_integrity import is_check_constraint_violation
 from core.evidence import ADVISORY_ENVELOPE_SCHEMA
 from core.presentation_rounding import ROUNDING_POLICY_VERSION
@@ -267,6 +268,9 @@ LEDGER_BINDING_KIND = "position_decision_ledger"
 
 
 PARAMETER_SET_BINDING_KIND = "risk_parameter_set"
+# C-COMP-02: ``product_evidence_set_hash`` als Kind-Bindung (Objekt =
+# product_evidence_snapshots-Zeile mit as_of/expires_at/status).
+PRODUCT_EVIDENCE_BINDING_KIND = "product_evidence_set"
 GOAL_METRIC_BINDING_KIND = "goal_metric"
 
 
@@ -321,6 +325,9 @@ def _bindings(
     ]
     p5 = [] if p5_hashes is None else _p5_bindings(ta, *p5_hashes)
     return p3 + p5 + [
+        {"binding_kind": PRODUCT_EVIDENCE_BINDING_KIND, "ordinal": 0,
+         "object_type": "product_evidence_snapshots", "object_id": str(run.product_evidence_snapshot_id),
+         "object_version": None, "child_hash": run.product_evidence_hash},
         {"binding_kind": MANIFEST_BINDING_KIND, "ordinal": 0,
          "object_type": AdvisoryEffectiveInputManifest.__tablename__, "object_id": str(manifest.id),
          "object_version": None, "child_hash": manifest.manifest_hash},
@@ -428,6 +435,14 @@ def seal_advisory_envelope(
         ), record_id=run.id, run=run.id, stage="valuation", coverage=projection.coverage_status,
             blockers=",".join(projection.blocker_codes), valuation_hash=projection.snapshot_hash,
             fx_basis_hash=projection.fx_basis_hash, **common)
+    # C-COMP-02: ohne heute wirksamen, gebundenen Evidenzsatz kein Siegel.
+    evidence_defect, _evidence_payload, _evidence_items = _product_evidence_state(db, run)
+    if evidence_defect is not None:
+        raise _reject(db, AdvisoryEnvelopeError(
+            ReasonCode(evidence_defect.code),
+            f"Der Beratungsentscheid kann nicht versiegelt werden: {evidence_defect.message()}",
+            extra={"product_id": evidence_defect.product_id, "evidence_kind": evidence_defect.kind},
+        ), record_id=run.id, run=run.id, stage="product_evidence", product=evidence_defect.product_id, **common)
     ledger_entries = valuation.ledger_entries
     ledger_digest = valuation.ledger_hash
     # CCX P5 (M-2/M-3): ohne kanonischen Parametersatz und ohne zertifizierte
@@ -959,10 +974,12 @@ def pull_freshness(
     ).all()
     if not edges:
         return ReasonCode.CCX_FRESHNESS_UNKNOWN, "edges=none", []
-    bound = {b.binding_kind: b.object_id for b in db.query(AdvisoryEnvelopeBinding).filter(
+    binding_rows = db.query(AdvisoryEnvelopeBinding).filter(
         AdvisoryEnvelopeBinding.tenant_id == envelope.tenant_id,
         AdvisoryEnvelopeBinding.envelope_id == envelope.id,
-    ).all()}
+    ).all()
+    bound = {b.binding_kind: b.object_id for b in binding_rows}
+    bound_hashes = {b.binding_kind: b.child_hash for b in binding_rows}
     run = db.query(RecommendationRun).filter(
         RecommendationRun.id == str(bound.get("recommendation_run") or ""),
     ).first()
@@ -971,19 +988,32 @@ def pull_freshness(
     ).first()
     if run is None or ta is None:
         return ReasonCode.CCX_FRESHNESS_UNKNOWN, "bound_objects=missing", []
+    # Zeitablauf erzeugt keine DB-Mutation. Deshalb wird die gebundene
+    # Produktevidenz zusätzlich bei jeder Pull-Prüfung aktuell bewertet.
+    # Widerruf/Ersatz werden bereits vom P2-Hook persistiert; Ablauf wird hier
+    # ohne erneutes Versiegeln sicher als STALE klassifiziert.
+    evidence_defect, _payload, _items = _product_evidence_state(db, run)
+    if evidence_defect is not None:
+        return ReasonCode.CCX_INPUT_STALE, f"product_evidence={evidence_defect.code}", []
+    if bound_hashes.get(PRODUCT_EVIDENCE_BINDING_KIND) != run.product_evidence_hash:
+        return ReasonCode.CCX_INPUT_STALE, f"product_evidence={ReasonCode.PRODUCT_EVIDENCE_HASH_MISMATCH.value}", []
     current_parts = collect_dependency_parts(db, mandate=mandate, run=run, target_allocation=ta)
-    current = {part.kind: part for part in current_parts}
+    # C-COMP-02 kann mehrere Produktnachweis-Kanten derselben Art besitzen.
+    # Deshalb ist (Art, Objekt) der Schlüssel; ein Dict nur nach Art würde
+    # alle bis auf das letzte Produkt verschlucken.
+    current = {(part.kind, part.object_id): part for part in current_parts}
     allow_legacy = legacy_projection_allowed(getattr(envelope, "sealed_at", None))
-    edge_kinds = {edge.dependency_kind for edge in edges}
-    unbound = sorted(set(current) - edge_kinds)
+    edge_keys = {(edge.dependency_kind, edge.dependency_object_id) for edge in edges}
+    unbound = sorted(set(current) - edge_keys)
     drift = [
-        (edge, current.get(edge.dependency_kind)) for edge in edges
-        if current.get(edge.dependency_kind) is None
-        or current[edge.dependency_kind].object_id != edge.dependency_object_id
+        (edge, current.get((edge.dependency_kind, edge.dependency_object_id))) for edge in edges
+        if current.get((edge.dependency_kind, edge.dependency_object_id)) is None
         # Heutige Projektion oder -- nur fuer Altsiegel (KN4-B N-917R3-06) --
         # Uebergangs-Hash frueherer Projektionen (KN-B Beruf, KN3-B
         # Mandantengrenze); unknown ist nie current.
-        or not current[edge.dependency_kind].accepts(edge.dependency_hash, allow_legacy=allow_legacy)
+        or not current[(edge.dependency_kind, edge.dependency_object_id)].accepts(
+            edge.dependency_hash, allow_legacy=allow_legacy,
+        )
     ]
     if drift and any(edge.dependency_kind in REFERENCE_KINDS for edge, _part in drift) \
             and decision_signed(db, envelope):
@@ -994,11 +1024,20 @@ def pull_freshness(
         kinds = ",".join(sorted(edge.dependency_kind for edge, _part in drift))
         return ReasonCode.CCX_INPUT_STALE, f"drift={kinds}", drift
     if unbound:
-        return ReasonCode.CCX_FRESHNESS_UNKNOWN, "unbound=" + ",".join(unbound), []
+        return ReasonCode.CCX_FRESHNESS_UNKNOWN, "unbound=" + ",".join(
+            f"{kind}:{object_id}" for kind, object_id in unbound
+        ), []
     empty = empty_required_kinds(current_parts)
     if empty:
         return ReasonCode.CCX_FRESHNESS_UNKNOWN, "empty=" + ",".join(empty), []
     return None, "", []
+
+
+def _product_evidence_state(db: Session, run: RecommendationRun):
+    """C-COMP-02: ``(Befund, Payload, Nachweise)`` des gebundenen Evidenzsatzes."""
+    return product_evidence.run_evidence_state(
+        lambda sql, params: db.execute(text(sql), params).mappings().all(), str(run.id), today=utc_now()[:10],
+    )
 
 
 def _freshness_reason(code: str) -> ReasonCode:
@@ -1064,8 +1103,17 @@ def current_envelope_freshness(db: Session, *, mandate: Any) -> dict[str, Any]:
         cause = freshness_cause(str(kind or ""))
         if cause not in causes:
             causes.append(cause)
+    status = envelope_freshness_status(envelope)
+    # C-COMP-02: der Ablauf eines Nachweises ist keine Mutation (kein Ereignis);
+    # die Anzeige prueft den gebundenen Satz deshalb zusaetzlich lesend.
+    if status["freshness_status"] == FRESHNESS_FRESH:
+        pull_code, pull_detail, _drift = pull_freshness(db, envelope, mandate=mandate)
+        if pull_code == ReasonCode.CCX_INPUT_STALE and pull_detail.startswith("product_evidence="):
+            status["freshness_status"] = FRESHNESS_STALE
+            status["stale_reason_code"] = pull_detail.partition("=")[2]
+            causes.append(freshness_cause("product_evidence"))
     return {
-        **envelope_freshness_status(envelope),
+        **status,
         "invalidation_count": len(sequences),
         "last_invalidation_sequence": max(sequences) if sequences else None,
         "causes": causes,

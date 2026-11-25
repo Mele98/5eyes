@@ -118,12 +118,14 @@ from core.risk_parameter_set import ParameterSetMissing
 
 import json
 import logging
-from datetime import date
+from datetime import date, datetime, timezone
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
 from core import sustainability_preference as _sustainability
+from core.product_evidence import bound_rate_terms, bound_term
 from models.mandates import Mandate
 from models.review import Product, ProductUniverseEntry
 from models.tenant import DEFAULT_TENANT_ID as _DEFAULT_TENANT_ID
@@ -1601,7 +1603,28 @@ def product_ter_status(product) -> str:
     return TER_STATUS_MISSING
 
 
-def _product_score(product: Product, sub_asset_class: str, prefs: dict, jurisdiction_ctx: dict | None = None) -> int:
+def run_ter_lookup(db, run_or_id):
+    """``Produkt -> (Status, TER bps)`` ausschliesslich aus dem gebundenen
+    Evidenzsatz des Laufs (C-COMP-02); kein Satz = ``missing``, nie 0."""
+    terms = bound_rate_terms(
+        lambda sql, params: db.execute(text(sql), params).mappings().all(),
+        getattr(run_or_id, "id", run_or_id),
+        today=datetime.now(timezone.utc).date().isoformat(),
+    )
+    return lambda product_id: bound_term(terms, product_id, "costs")
+
+
+def _ranking_ter(product, evidence) -> tuple[str, int | None]:
+    """C-COMP-02: mit Evidenzkontext (Kundenlauf) zaehlen nur belegte Kosten;
+    ohne Beleg ist die TER ``missing`` -- nie 0 und nie das Stammdatenfeld."""
+    if evidence is not None:
+        return evidence.costs(product)
+    return product_ter_status(product), getattr(product, "ter_bps", None)
+
+
+def _product_score(
+    product: Product, sub_asset_class: str, prefs: dict, jurisdiction_ctx: dict | None = None, evidence=None,
+) -> int:
     """WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): siehe
     _product_matches_constraints() -- ohne jurisdiction_ctx exakt das
     bisherige CH-Verhalten (home_currency="CHF", home_equity_label="Schweiz")."""
@@ -1618,10 +1641,11 @@ def _product_score(product: Product, sub_asset_class: str, prefs: dict, jurisdic
     # Boni, ein Produkt mit bekannter TER (Score >= 0) geht immer vor; nur der
     # Themen-Ausschluss (-10000) liegt noch tiefer. Ausnahme Konto-/Festgeld
     # (``product_type='Cash'``, OWN-PE-05): dort entfaellt die TER.
-    if product_ter_status(product) == TER_STATUS_MISSING:
+    ter_status, ter_bps = _ranking_ter(product, evidence)
+    if ter_status == TER_STATUS_MISSING:
         score -= MISSING_TER_SCORE_PENALTY
-    else:
-        score -= int(product.ter_bps or 0)
+    elif ter_bps is not None:
+        score -= int(ter_bps)
     if product.currency == home_currency:
         score += 40
     if product.sub_asset_class == sub_asset_class:
@@ -1656,17 +1680,22 @@ def _product_score(product: Product, sub_asset_class: str, prefs: dict, jurisdic
     return score
 
 
-def _product_selection_key(product: Product, sub_asset_class: str, prefs: dict, jurisdiction_ctx: dict | None = None) -> tuple:
+def _product_selection_key(
+    product: Product, sub_asset_class: str, prefs: dict, jurisdiction_ctx: dict | None = None, evidence=None,
+) -> tuple:
     """PO-13 (Audit 2026-11): Sortierschluessel der Produktwahl je Sleeve.
 
     Hoechster Score zuerst; bei Gleichstand entscheidet nicht mehr die
     Datenbank-Reihenfolge (SQLite: Einfuegereihenfolge, Postgres: undefiniert),
     sondern ein stabiler Tie-Break: Produkte mit ISIN vor solchen ohne, dann
-    ISIN aufsteigend, dann Produkt-ID aufsteigend.
+    ISIN aufsteigend, dann Produkt-ID aufsteigend. Mit Evidenzkontext gehen
+    vollstaendig belegte Produkte vor (C-COMP-02); ist im Slot keines belegt,
+    sperrt das Gate vor der Persistenz.
     """
     isin = str(getattr(product, "isin", None) or "").strip().upper()
     return (
-        -_product_score(product, sub_asset_class, prefs, jurisdiction_ctx=jurisdiction_ctx),
+        0 if evidence is None or evidence.verified(product) else 1,
+        -_product_score(product, sub_asset_class, prefs, jurisdiction_ctx=jurisdiction_ctx, evidence=evidence),
         0 if isin else 1,
         isin,
         str(getattr(product, "id", None) or ""),

@@ -53,6 +53,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from product_evidence_test_support import generate_with_evidence
 import pytest
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -354,7 +355,7 @@ def _seed_case(api, db_path, advisor_id, case):
     preferences = {**UI_PREFERENCES, **(case["preferences"] or {})}
     status, generate = api("POST", f"/mandates/{mid}/target-allocation/generate", {"preferences": preferences})
     assert status == 200, generate
-    status, body = api("POST", f"/mandates/{mid}/recommendations/generate", {})
+    status, body = generate_with_evidence(api, db_path, mid)  # C-COMP-02
     assert status == 200, body
     recorded = _record_holdings(api, db_path, mid) if case.get("holdings") else 0
     _finalize_and_publish(api, db_path, mid)

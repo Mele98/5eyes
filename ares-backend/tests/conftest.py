@@ -326,3 +326,18 @@ def _ccx_p5_no_test_vector_marker(request):
     previous = set_test_risky_fraction(None)
     yield
     set_test_risky_fraction(previous)
+
+
+@_pytest.fixture(autouse=True, scope="module")
+def _c_comp_02_synthetic_product_evidence(request):
+    """C-COMP-02: nur die abschliessend gelisteten Bestandsmodule erhalten
+    synthetische Produktevidenz ueber den echten Entwurfs-/Freigabeweg
+    (tests/product_evidence_test_support.py); alle Gates bleiben aktiv. Jedes
+    andere Modul laeuft ohne Evidenz."""
+    import product_evidence_test_support as support
+
+    if os.path.basename(str(request.path)) not in support.SYNTHETIC_EVIDENCE_MODULES:
+        yield
+        return
+    with support.synthetic_evidence_for_existing_flows():
+        yield

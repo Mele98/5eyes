@@ -321,6 +321,11 @@ def _init_result_dict(mandate: Mandate) -> dict:
     }
 
 
+def _known_ter(product) -> int | None:
+    value = getattr(product, "ter_bps", None)
+    return None if value is None else _safe_int(value)
+
+
 def _select_latest_run(db: Session, mandate: Mandate) -> RecommendationRun | None:
     """Der fuer den Depot-Check gueltige Lauf: Final vor Draft vor juengstem."""
     # Kontrollrunde 2026-09-20: RecommendationRun.result_status ist entweder
@@ -972,12 +977,14 @@ def compute_depot_check(
             "currency": str(getattr(prod, "currency", "") or ""),
             "amount_rappen": amount,
             "weight_bps": weight_bps,
-            "ter_bps": _safe_int(getattr(prod, "ter_bps", 0)),
+            # IST-Analyse bestehender Bestaende (keine Empfehlung): Stammdatum,
+            # fehlend = None und nie 0 (C-COMP-02).
+            "ter_bps": _known_ter(prod),
             "currency_exposure_source": position_currency_source[rec_pos.id],
         })
         # Fund-Characteristics gewichtet
-        ter = _safe_int(getattr(prod, "ter_bps", 0))
-        if ter > 0:
+        ter = _known_ter(prod)
+        if ter is not None:
             ter_weighted_sum += ter * amount
             covered_amount += amount
         duration = _safe_int(getattr(prod, "duration_years_x10", 0))
@@ -1010,7 +1017,7 @@ def compute_depot_check(
             "currency": str(getattr(wp, "currency", "") or "CHF"),
             "amount_rappen": amount,
             "weight_bps": weight_bps,
-            "ter_bps": 0,
+            "ter_bps": None,
         })
         tier = _wealth_position_liquidity_tier(wp, bucket)
         liquidity_buckets[tier] += amount

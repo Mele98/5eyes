@@ -36,11 +36,12 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from sqlalchemy import or_
+from sqlalchemy import or_, text as _sql_text
 from sqlalchemy.orm import Session
 
 from models.clients import Client
 from models.mandates import Mandate
+from core.product_evidence import bound_rate_terms, bound_term
 from core.reason_codes import DomainError, ReasonCode
 from models.users import User
 from models.allocation import OptimizerPolicy
@@ -1575,6 +1576,11 @@ def _build_positionen(db: Session, mandate: Mandate) -> dict[str, Any]:
 
     rec_positions = _cached_latest_rec_positions(db, mandate)
     products_map = _cached_rec_products_by_id(db, mandate)
+    ter_terms = bound_rate_terms(
+        lambda sql, params: db.execute(_sql_text(sql), params).mappings().all(),
+        latest_run.id if latest_run.product_evidence_status else None,
+        today=datetime.now(timezone.utc).date().isoformat(),
+    )
     groups_by_key = {g["key"]: g for g in groups}
     total_rappen = 0
     for rp in rec_positions:
@@ -1609,7 +1615,7 @@ def _build_positionen(db: Session, mandate: Mandate) -> dict[str, Any]:
             "sub_asset_class": str(getattr(prod, "sub_asset_class", "") or ""),
             "currency": str(getattr(prod, "currency", "") or ""),
             "market_value_rappen": amount,
-            "ter_bps": _safe_int(getattr(prod, "ter_bps", 0)) or None,
+            "ter_bps": bound_term(ter_terms, rp.product_id, "costs")[1],  # C-COMP-02: nur gebundene Evidenz
             "provider": str(getattr(prod, "provider", "") or ""),
         })
         groups_by_key[bucket_key]["total_rappen"] += amount

@@ -5939,6 +5939,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/products/evidence/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Product Evidence Overview
+         * @description Je aktivem Produkt: vollständig belegt oder welche Nachweise fehlen.
+         */
+        get: operations["get_product_evidence_overview_products_evidence_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/evidence/{evidence_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retire Product Evidence */
+        post: operations["retire_product_evidence_products_evidence__evidence_id__retire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/evidence/{evidence_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Product Evidence */
+        post: operations["revoke_product_evidence_products_evidence__evidence_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/products/export/csv": {
         parameters: {
             query?: never;
@@ -6464,6 +6518,44 @@ export interface paths {
          *     Sperre, Vergleich, Freigabe und Audit sind eine Transaktion.
          */
         post: operations["approve_product_eligibility_rule_products__product_id__eligibility_rule_approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/{product_id}/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Product Evidence */
+        get: operations["list_product_evidence_products__product_id__evidence_get"];
+        put?: never;
+        /** Create Product Evidence */
+        post: operations["create_product_evidence_products__product_id__evidence_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/{product_id}/evidence/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Product Evidence
+         * @description Freigabe genau der gesehenen ``(Nachweis, Inhalts-Hash)``-Menge.
+         */
+        post: operations["approve_product_evidence_products__product_id__evidence_approve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -12530,6 +12622,184 @@ export interface components {
             rule_hash: string;
             /** Rule Id */
             rule_id: string;
+        };
+        /**
+         * ProductEvidenceApprovalRequest
+         * @description Freigabe genau der gesehenen Menge (alle oder keine).
+         */
+        ProductEvidenceApprovalRequest: {
+            /** Attestation */
+            attestation?: string | null;
+            /** Items */
+            items: components["schemas"]["ProductEvidenceSeenItem"][];
+        };
+        /** ProductEvidenceIssue */
+        ProductEvidenceIssue: {
+            /** Evidence Kind */
+            evidence_kind: string;
+            /** Message */
+            message: string;
+            /** Product Id */
+            product_id?: string | null;
+            /** Reason Code */
+            reason_code: string;
+            /** Status */
+            status: string;
+        };
+        /** ProductEvidenceItemCreate */
+        ProductEvidenceItemCreate: {
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
+            /**
+             * Evidence Kind
+             * @enum {string}
+             */
+            evidence_kind: "instrument_identity" | "kid" | "costs" | "retrocession" | "suitability" | "liquidity" | "currency" | "sustainability" | "price_source";
+            /** Jurisdiction */
+            jurisdiction: string;
+            /** Note */
+            note?: string | null;
+            /** Payload */
+            payload: Record<string, unknown>;
+            /**
+             * Retrieved At
+             * Format: date-time
+             */
+            retrieved_at: string;
+            /**
+             * Scope
+             * @default tenant
+             * @enum {string}
+             */
+            scope?: "tenant" | "global";
+            /** Share Class Id */
+            share_class_id?: string | null;
+            /** Source Document Date */
+            source_document_date?: string | null;
+            /** Source Document Sha256 */
+            source_document_sha256: string;
+            /** Source Document Title */
+            source_document_title: string;
+            /** Source Document Version */
+            source_document_version?: string | null;
+            /** Source Reference */
+            source_reference: string;
+            /** Source Type */
+            source_type: string;
+            /** Stable Instrument Id */
+            stable_instrument_id: string;
+            /** Supersedes Id */
+            supersedes_id?: string | null;
+            /**
+             * Valid From
+             * Format: date
+             */
+            valid_from: string;
+            /** Valid Until */
+            valid_until?: string | null;
+        };
+        /** ProductEvidenceItemResponse */
+        ProductEvidenceItemResponse: {
+            /** Approval Mode */
+            approval_mode?: string | null;
+            /** Approved At */
+            approved_at?: string | null;
+            /** Approved By */
+            approved_by?: string | null;
+            /** As Of */
+            as_of: string;
+            /** Canonical Payload Hash */
+            canonical_payload_hash: string;
+            /** Canonical Payload Json */
+            canonical_payload_json: string;
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /** Evidence Kind */
+            evidence_kind: string;
+            /** Id */
+            id: string;
+            /** Jurisdiction */
+            jurisdiction: string;
+            /** Note */
+            note?: string | null;
+            /** Product Id */
+            product_id: string;
+            /** Reason Code */
+            reason_code?: string | null;
+            /** Retired Or Revoked At */
+            retired_or_revoked_at?: string | null;
+            /** Retired Or Revoked By */
+            retired_or_revoked_by?: string | null;
+            /** Retrieved At */
+            retrieved_at: string;
+            /** Share Class Id */
+            share_class_id?: string | null;
+            /** Source Document Date */
+            source_document_date?: string | null;
+            /** Source Document Sha256 */
+            source_document_sha256: string;
+            /** Source Document Title */
+            source_document_title: string;
+            /** Source Document Version */
+            source_document_version?: string | null;
+            /** Source Reference */
+            source_reference: string;
+            /** Source Type */
+            source_type: string;
+            /** Stable Instrument Id */
+            stable_instrument_id: string;
+            /** Status */
+            status: string;
+            /** Supersedes Id */
+            supersedes_id?: string | null;
+            /** Tenant Id */
+            tenant_id?: string | null;
+            /** Updated At */
+            updated_at: string;
+            /** Valid From */
+            valid_from: string;
+            /** Valid Until */
+            valid_until?: string | null;
+        };
+        /** ProductEvidenceLifecycleRequest */
+        ProductEvidenceLifecycleRequest: {
+            /** Reason Code */
+            reason_code: string;
+        };
+        /** ProductEvidenceOverviewEntry */
+        ProductEvidenceOverviewEntry: {
+            /**
+             * Issues
+             * @default []
+             */
+            issues?: components["schemas"]["ProductEvidenceIssue"][];
+            /** Product Id */
+            product_id: string;
+            /** Product Name */
+            product_name: string;
+            /** Share Class Id */
+            share_class_id?: string | null;
+            /** Stable Instrument Id */
+            stable_instrument_id: string;
+            /** Status */
+            status: string;
+            /** Sub Asset Class */
+            sub_asset_class?: string | null;
+        };
+        /**
+         * ProductEvidenceSeenItem
+         * @description Genau der gesehene Entwurf: ID und Inhalts-Hash.
+         */
+        ProductEvidenceSeenItem: {
+            /** Canonical Payload Hash */
+            canonical_payload_hash: string;
+            /** Item Id */
+            item_id: string;
         };
         /** ProductIdMappingApplyRequest */
         ProductIdMappingApplyRequest: {
@@ -27144,6 +27414,107 @@ export interface operations {
             };
         };
     };
+    get_product_evidence_overview_products_evidence_overview_get: {
+        parameters: {
+            query?: {
+                jurisdiction?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductEvidenceOverviewEntry"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retire_product_evidence_products_evidence__evidence_id__retire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evidence_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductEvidenceLifecycleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductEvidenceItemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_product_evidence_products_evidence__evidence_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evidence_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductEvidenceLifecycleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductEvidenceItemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     export_products_csv_products_export_csv_get: {
         parameters: {
             query?: never;
@@ -27896,6 +28267,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductEligibilityApprovalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_product_evidence_products__product_id__evidence_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductEvidenceItemResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_product_evidence_products__product_id__evidence_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductEvidenceItemCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductEvidenceItemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_product_evidence_products__product_id__evidence_approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductEvidenceApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductEvidenceItemResponse"][];
                 };
             };
             /** @description Validation Error */

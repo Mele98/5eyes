@@ -5,7 +5,7 @@
     "ids": 1011,
     "js_functions": 1763,
     "modal_structures": 102,
-    "script_blocks": 46,
+    "script_blocks": 47,
     "style_blocks": 2,
     "sub_sections": 42
   },
@@ -25658,8 +25658,8 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "4b7d3a45e206edfa4ed347273dd218146ed9b297d199d533b8967aa53b92a00e",
-  "source_size_bytes": 1614900,
+  "source_sha256": "59bc416b26e7732d108588e1d320045435c03fc0efea04e2504a516f716b88e1",
+  "source_size_bytes": 1614897,
   "sub_sections": [
     {
       "class": "sbb",

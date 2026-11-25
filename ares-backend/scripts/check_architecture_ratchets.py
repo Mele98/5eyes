@@ -200,7 +200,11 @@ FAN_OUT_EXEMPT_LEAVES = frozenset(
      "core.risk_parameter_set", "core.goal_metric_contract",
      # K3 (H-189): eine Regel fuer Bestand ausserhalb der Empfehlung
      # (Depotcheck, Depot-Snapshot, Handelsliste, Erfassung).
-     "core.external_holdings_rule"}
+     "core.external_holdings_rule",
+     # C-COMP-02: Vertrag, Identitaet und Auswertung der Produktevidenz als
+     # reines Blatt -- eine Regel fuer Eligibility-, Freigabe-, Frische- und
+     # Kostenpfad ohne neue Modulkanten.
+     "core.product_evidence"}
 )
 _STDLIB = frozenset(sys.stdlib_module_names) | {"__future__"}
 _DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})
