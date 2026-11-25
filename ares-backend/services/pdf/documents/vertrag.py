@@ -13,7 +13,7 @@ from reportlab.platypus import KeepTogether, Paragraph, Spacer, Table, TableStyl
 
 from services.pdf.base import PDFContext
 from services.pdf.components.header import _esc, make_banner_header
-from services.pdf.components.unterschrift import make_unterschrift_section
+from services.pdf.components.unterschrift import make_signature_block
 from core.presentation_rounding import format_amount_minor
 from services.pdf.styles import (
     COLOR_BORDER,
@@ -176,7 +176,7 @@ def build_vertrag_flowables(ctx: PDFContext, data) -> list:
         ))
 
     # ---- Bestätigung & Unterschrift (Standard-Komponente) ----
-    flowables.extend(make_unterschrift_section())
+    flowables.extend(make_signature_block(ctx))
 
     return flowables
 
@@ -418,7 +418,8 @@ def build_kundeninformation_flowables(ctx: PDFContext, data) -> list:
         f'{int(data.legal_profile_revision)} · {_esc(str(data.legal_profile_hash)[:12])}</font>',
         _para_compact(after=4),
     ))
-    flowables.extend(make_unterschrift_section(
+    flowables.extend(make_signature_block(
+        ctx,
         client_confirm_text=KUNDENINFORMATION_RECEIPT_TEXT,
         advisor_confirm_text="Übergeben durch:",
     ))

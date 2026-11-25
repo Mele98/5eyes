@@ -1931,10 +1931,13 @@ class AllocationPublishRequest(BaseModel):
 
 class PublicationInboxItem(BaseModel):
     """ROL-05: eine zur Freigabe vorgelegte Akte, datenminimiert -- Mandat,
-    vorbereitende Person und die zu publizierende Soll-Allokation; keine
-    Personalien, Vermoegenswerte oder Kundendokumente."""
+    Kundenname (ROL-b, CTO-Entscheid H-187: die freigebende Person darf die
+    Akte identifizieren), vorbereitende Person und die zu publizierende
+    Soll-Allokation; keine weiteren Personalien, keine Vermoegenswerte oder
+    Kundendokumente."""
     mandate_id: str
     mandate_number: Optional[str] = None
+    client_name: Optional[str] = None
     mandate_type: Optional[str] = None
     prepared_by: Optional[str] = None
     prepared_by_name: Optional[str] = None

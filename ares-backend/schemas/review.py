@@ -2509,6 +2509,11 @@ class ReportNotesResponse(BaseResponse):
     previous_versions_total: int = 0
 
 
+class ProductEligibilitySeenRule(BaseModel):
+    rule_id: str = Field(min_length=1, max_length=200)
+    rule_hash: str = Field(min_length=1, max_length=200)
+
+
 class ProductEligibilityApprovalRequest(BaseModel):
     """ELIG-GOVERNANCE-001 (2026-10-22): Body fuer POST /products/{id}/
     eligibility-rule/approve. Standard ist Vier-Augen (leerer Body). Die
@@ -2517,6 +2522,11 @@ class ProductEligibilityApprovalRequest(BaseModel):
     ist (genau eine freigabeberechtigte Person), prueft der Server."""
     single_approver_attestation: bool = False
     attestation_reason: str | None = Field(default=None, max_length=2000)
+    # H-193 Fixrunde 1 (N-939-02): die gesehene Fassung -- je offene Regel
+    # Regel-ID und Pruefwert (rule_hash) aus GET /products/eligibility-drafts.
+    # Fuer die Pruefperson Pflicht; wird sie mitgesendet, gilt sie fuer jede
+    # Rolle. Weicht sie vom offenen Stand ab -> 409 (typisiert).
+    seen_rules: list[ProductEligibilitySeenRule] | None = Field(default=None, max_length=200)
 
 
 class ProductEligibilityApprovalResponse(BaseModel):
@@ -2526,9 +2536,17 @@ class ProductEligibilityApprovalResponse(BaseModel):
 
 
 class ProductEligibilityDraftItem(BaseModel):
+    """ROL-b (H-187 Nachtrag 3): zusaetzlich Produktbezeichnung, erfassende
+    Person und Inhalt der Regel(n), damit die externe Pruefperson ohne Zugriff
+    auf das Fondsuniversum beurteilen kann, was sie freigibt."""
     product_id: str
     rule_ids: list[str]
     authored_by_current_user: bool
+    product_name: str | None = None
+    isin: str | None = None
+    asset_class: str | None = None
+    authored_by_names: list[str] = Field(default_factory=list)
+    rules: list[dict] = Field(default_factory=list)
 
 
 class ProductEligibilityDraftsResponse(BaseModel):

@@ -18,18 +18,20 @@ from reportlab.lib.units import mm
 from reportlab.pdfgen.canvas import Canvas
 
 
-WATERMARK_MODES = ("none", "entwurf", "vertraulich", "vorvertrag", "unpublished", "vertragsvorlage", "depotbank", "gebuehren")
-# C-890-01 Nachtrag 4 (N-897-12): kundenwirksamer Bericht ohne jede
-# KYC-Bestaetigung -> sichtbar als Entwurf vor Vertragsabschluss.
-VORVERTRAG_TEXT = "Entwurf – vor Vertragsabschluss (ohne KYC-Bestätigung)"
-# CCX-P4: Kundendokument einer nicht (gueltig) publizierten Soll-Allokation.
-UNPUBLISHED_TEXT = "Entwurf – Soll-Allokation nicht publiziert"
-# H-179 V-1: Vertrag ohne freigegebene Vertragsvorlage bzw. ohne Ort.
-CONTRACT_DRAFT_TEXT = "Entwurf – Vertragsvorlage nicht freigegeben"
-# N-927-06: Kostenausweis ohne gueltige Angabe zu Zuwendungen der Depotbank.
-DEPOT_BANK_DRAFT_TEXT = "Entwurf – Angabe zu Zuwendungen der Depotbank fehlt"
-# EXE-P (H-187): Kostenausweis ohne Gebuehrenvereinbarung -- nie ein erfundener Satz.
-FEE_AGREEMENT_DRAFT_TEXT = "Entwurf – keine Gebührenvereinbarung erfasst"
+from core.customer_terms import (  # noqa: F401 -- eine Quelle (H-193), Re-Export
+    CONTRACT_DRAFT_TEXT,
+    DEPOT_BANK_DRAFT_TEXT,
+    FEE_AGREEMENT_DRAFT_TEXT,
+    FINAL_MODE,
+    READONLY_VIEW_MODE,
+    READONLY_VIEW_TEXT,
+    UNPUBLISHED_TEXT,
+    VORVERTRAG_TEXT,
+    WATERMARK_MODES,
+    draft_headline,
+    is_final_document,
+    normalize_mode,
+)
 
 
 def _editorial_bold_font() -> str:
@@ -52,6 +54,7 @@ def draw_watermark(
     mode: str,
     page_width: float,
     page_height: float,
+    view_reason: str | None = None,
 ) -> None:
     """Zeichnet das Wasserzeichen auf den Canvas.
 
@@ -61,14 +64,12 @@ def draw_watermark(
 
     Args:
         canvas: ReportLab-Canvas (gilt nur fuer die aktuelle Seite)
-        mode: 'entwurf' | 'vertraulich' | 'none'
+        mode: 'none' (final) oder ein Nicht-Final-Modus; Unbekanntes wird gekennzeichnet
         page_width: in points
         page_height: in points
     """
-    normalized = str(mode or "none").strip().lower()
-    if normalized not in WATERMARK_MODES:
-        normalized = "none"
-    if normalized == "none":
+    normalized = normalize_mode(mode)
+    if normalized == FINAL_MODE:
         return
 
     canvas.saveState()
@@ -79,14 +80,10 @@ def draw_watermark(
             _draw_vertraulich_watermark(canvas, page_width, page_height)
         elif normalized == "vorvertrag":
             _draw_vorvertrag_watermark(canvas, page_width, page_height)
-        elif normalized == "unpublished":
-            _draw_headline_watermark(canvas, page_width, page_height, UNPUBLISHED_TEXT)
-        elif normalized == "vertragsvorlage":
-            _draw_headline_watermark(canvas, page_width, page_height, CONTRACT_DRAFT_TEXT)
-        elif normalized == "depotbank":
-            _draw_headline_watermark(canvas, page_width, page_height, DEPOT_BANK_DRAFT_TEXT)
-        elif normalized == "gebuehren":
-            _draw_headline_watermark(canvas, page_width, page_height, FEE_AGREEMENT_DRAFT_TEXT)
+        else:
+            _draw_headline_watermark(
+                canvas, page_width, page_height, draft_headline(normalized, view_reason),
+            )
     finally:
         canvas.restoreState()
 

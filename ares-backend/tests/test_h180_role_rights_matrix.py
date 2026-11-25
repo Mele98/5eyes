@@ -29,6 +29,11 @@ ROL-05 Freigabe-Inbox; N-926-02 Handler-Rollenpruefungen (``handler_checks``),
 GET-Routen nur mit Anmeldung/``require_staff`` (``weak_reads``) und generische
 Fremdrollen-Probe.
 
+ROL-b (H-193, CTO-Entscheid H-187 Nachtrag 3): Pruefperson gibt Produkt-
+Eignungsregeln frei (``GET /products/eligibility-drafts``, ``POST
+/products/{id}/eligibility-rule/approve`` jetzt ``require_compliance_approver``
+statt ``require_admin``), erfasst/aendert Produkte nie.
+
 Alle Namen/Werte sind fiktive Testwerte.
 """
 from __future__ import annotations
@@ -132,6 +137,14 @@ MATRIX: list[tuple[str, str, str, object, bool, str]] = [
      "A A A A A - A - A A"),
     ("Produkt anlegen", "POST", "/products", {}, False,
      "A - - - - - A - A -"),
+    ("Produkt aendern", "PUT", "/products/p-x", {}, False,
+     "A - - - - - A - A -"),
+    # ROL-b (CTO-Entscheid H-187 Nachtrag 3): die Pruefperson liest die offenen
+    # Eignungsregeln und gibt sie als zweite Person frei, erfasst/aendert aber nie.
+    ("Offene Eignungsregeln lesen", "GET", "/products/eligibility-drafts", None, False,
+     "A - - - - A A - A -"),
+    ("Eignungsregel freigeben", "POST", "/products/p-x/eligibility-rule/approve", {}, False,
+     "A - - - - A A - A -"),
     ("Benutzer auflisten", "GET", "/users", None, False,
      "A - - - - - A - A -"),
     ("Benutzer anlegen", "POST", "/users", {}, False,

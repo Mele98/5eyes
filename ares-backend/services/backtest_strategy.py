@@ -85,13 +85,17 @@ def load_annual_returns_matrix(
 
     Phase 3 Sub-Asset (2026-06-09): Filter sub_asset_class IS NULL, damit
     Top-Level-Aggregate getrennt von Sub-Asset-Returns bleiben.
+
+    N-935R-03 (ROL-b): in Produktion/EXE zaehlen Zeilen mit ``source='seed'``
+    (Start-Seeding des Quellbetriebs, keine freigegebenen Daten) nie -- auch
+    nicht aus einer uebernommenen Bestands-DB.
     """
-    rows = (
-        db.query(AssetClassAnnualReturn)
-        .filter(AssetClassAnnualReturn.sub_asset_class.is_(None))
-        .order_by(AssetClassAnnualReturn.year, AssetClassAnnualReturn.asset_class)
-        .all()
-    )
+    if production_mode is None:
+        production_mode = bool(getattr(sys, "frozen", False))
+    query = db.query(AssetClassAnnualReturn).filter(AssetClassAnnualReturn.sub_asset_class.is_(None))
+    if production_mode:
+        query = query.filter(_released_annual_return_source())
+    rows = query.order_by(AssetClassAnnualReturn.year, AssetClassAnnualReturn.asset_class).all()
     by_year: dict[int, dict[str, int]] = {}
     for row in rows:
         bucket_en = ASSET_CLASS_DE_TO_EN.get(str(row.asset_class or "").strip())
@@ -114,8 +118,6 @@ def load_annual_returns_matrix(
     # Ablehnung (REFERENCE_DATA_PACKAGE_MISSING, 409) statt eines leeren Backtests.
     # ``production_mode`` reicht der Aufrufer herein (``settings.production_mode``);
     # ohne Angabe gilt die gepackte EXE (``sys.frozen``) immer als Produktion.
-    if production_mode is None:
-        production_mode = bool(getattr(sys, "frozen", False))
     if not complete and production_mode:
         raise ReferenceDataPackageMissing(
             "Es fehlen freigegebene historische Jahresrenditen (Backtest). Die installierte "
@@ -130,7 +132,18 @@ def load_annual_returns_matrix(
 # ---------------------------------------------------------------------------
 
 
-def load_sub_asset_annual_returns_matrix(db: Session) -> dict[int, dict[str, int]]:
+SEED_ANNUAL_RETURN_SOURCE = "seed"
+
+
+def _released_annual_return_source():
+    """N-935R-03: Filter "nicht aus dem Start-Seeding" (NULL-Quelle zaehlt
+    als nicht geseedet, wie bisher manuell erfasste Zeilen)."""
+    return (AssetClassAnnualReturn.source.is_(None)) | (AssetClassAnnualReturn.source != SEED_ANNUAL_RETURN_SOURCE)
+
+
+def load_sub_asset_annual_returns_matrix(
+    db: Session, *, production_mode: bool | None = None,
+) -> dict[int, dict[str, int]]:
     """Laedt Sub-Asset-Annual-Returns -> {year: {sub_asset_key: bps}}.
 
     Im Unterschied zu load_annual_returns_matrix:
@@ -140,13 +153,14 @@ def load_sub_asset_annual_returns_matrix(db: Session) -> dict[int, dict[str, int
       1988, EM ab 1988, Bonds ab 2007 etc.)
     - Caller (compute_sub_asset_portfolio_returns) entscheidet pro
       Benchmark welche Sub-Assets gebraucht sind und welche Jahre nutzbar.
+    - N-935R-03: in Produktion/EXE ohne ``source='seed'``-Zeilen.
     """
-    rows = (
-        db.query(AssetClassAnnualReturn)
-        .filter(AssetClassAnnualReturn.sub_asset_class.isnot(None))
-        .order_by(AssetClassAnnualReturn.year, AssetClassAnnualReturn.sub_asset_class)
-        .all()
-    )
+    if production_mode is None:
+        production_mode = bool(getattr(sys, "frozen", False))
+    query = db.query(AssetClassAnnualReturn).filter(AssetClassAnnualReturn.sub_asset_class.isnot(None))
+    if production_mode:
+        query = query.filter(_released_annual_return_source())
+    rows = query.order_by(AssetClassAnnualReturn.year, AssetClassAnnualReturn.sub_asset_class).all()
     by_year: dict[int, dict[str, int]] = {}
     for row in rows:
         sub_key = str(row.sub_asset_class or "").strip()
@@ -1333,7 +1347,7 @@ def _run_strategy_backtest(
     sub_normalized = _normalize_sub_asset_weights(benchmark_sub_weights_bps)
     sub_benchmark_meta: dict | None = None
     if sub_normalized is not None:
-        sub_matrix = load_sub_asset_annual_returns_matrix(db)
+        sub_matrix = load_sub_asset_annual_returns_matrix(db, production_mode=production_mode)
         sub_keys_used = list(sub_normalized.keys())
         sub_years_available = _years_with_all_sub_assets(sub_matrix, sub_keys_used)
         # Schnittmenge mit start_year/end_year

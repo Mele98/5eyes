@@ -16,7 +16,9 @@ from services.pdf.components.depotcheck_soll import (
 )
 from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.single_report_disclaimer import make_single_report_cover
-from services.pdf.components.unterschrift import make_unterschrift_section
+# H-193 Fixrunde 1: Text und Box stehen zentral in components/unterschrift.py
+# (NOT_FOR_SIGNATURE_TEXT hier nur noch Re-Export fuer Bestandsaufrufer).
+from services.pdf.components.unterschrift import NOT_FOR_SIGNATURE_TEXT, make_signature_block  # noqa: F401
 from core.presentation_rounding import allocation_pct_texts, format_amount_minor, format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
@@ -149,12 +151,11 @@ def build_contract_signoff_flowables(
         make_paragraph_styles()["body"],
     ))
     flowables.append(Spacer(1, 6 * mm))
-    if (getattr(ctx, "watermark_mode", "none") or "none") == UNPUBLISHED_MODE:
-        # N-910-01: Soll-Allokation nicht (gueltig) publiziert -> kein
-        # Unterschriftsblock, nur der Hinweis (Entwurf, nie archiviert).
-        flowables.append(_not_for_signature_box())
-        return flowables
-    flowables.extend(make_unterschrift_section(
+    # N-910-01 / H-193 Fixrunde 1 (N-939-01): nur die finale Fassung traegt
+    # Unterschriftsfelder; nicht publiziert, Ansicht durch "Lesend" und jeder
+    # andere Entwurf zeigen "Nicht zur Unterzeichnung" (zentrale Regel).
+    flowables.extend(make_signature_block(
+        ctx,
         client_confirm_text=(
             "Ich bestätige, dass mir Risikoprofil, Zielallokation, "
             "Bandbreiten, Kosten, Risiken und die finale Empfehlung erklärt "
@@ -165,29 +166,6 @@ def build_contract_signoff_flowables(
         signature_space_mm=18,
     ))
     return flowables
-
-
-UNPUBLISHED_MODE = "unpublished"
-NOT_FOR_SIGNATURE_TEXT = "Nicht zur Unterzeichnung"
-
-
-def _not_for_signature_box() -> Table:
-    """Ersatz des Unterschriftsblocks fuer einen Entwurf (N-910-01)."""
-    text = (
-        f'<font name="{FONT_BOLD}" size="12" color="#B91C1C">{NOT_FOR_SIGNATURE_TEXT}</font><br/>'
-        f'<font name="{FONT_DEFAULT}" size="9" color="#334155">'
-        "Entwurf – die Soll-Allokation ist nicht publiziert. Dieses Dokument dient "
-        "der Besprechung; unterzeichnet wird erst die Fassung nach der Publikation.</font>"
-    )
-    box = Table([[Paragraph(text, make_paragraph_styles()["body"])]], colWidths=[PAGE_SIZE[0] - 24 * mm])
-    box.setStyle(TableStyle([
-        ("BOX", (0, 0), (-1, -1), 1.0, colors.HexColor("#B91C1C")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-    ]))
-    return box
 
 
 def _start_page(

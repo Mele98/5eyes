@@ -93,6 +93,11 @@ def archive_generated_pdf(
     content_json: str | None = None,
     binding: dict | None = None,
 ) -> ContractDocument:
+    # ROL-b (CTO-Entscheid H-187): "Lesend" gibt nie ein Dokument ab -- ein
+    # Abruf ist eine Ansicht (routers/pdf_reports.py, watermark "ansicht").
+    # Letzte Sperre gegen einen kuenftigen Pfad ohne diese Markierung.
+    if getattr(current_user, "role", None) == "readonly":
+        raise PermissionError("Rolle 'Lesend' archiviert keine Dokumente (nur Ansicht).")
     latest = (
         db.query(ContractDocument)
         .filter(

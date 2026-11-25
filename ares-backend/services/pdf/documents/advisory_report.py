@@ -16,10 +16,13 @@ Risikoprofil, Building Blocks, Weiteres Vorgehen) folgen in U-P26 PR B-F.
 """
 from __future__ import annotations
 
-from core.customer_terms import customer_term, decision_footer_label, short_reference
+from core.customer_terms import (
+    READONLY_VIEW_MODE, customer_term, decision_footer_label, is_final_document, normalize_mode, short_reference,
+)
 from core.goal_metric_contract import GOAL_STATUS_LEGACY, goal_status_display, goal_status_fields
 import logging
 import time
+from types import SimpleNamespace
 from datetime import datetime
 from io import BytesIO
 from typing import Any
@@ -52,7 +55,7 @@ from services.pdf.components.advisory_page_chrome import (
 )
 from services.pdf.components.compliance_audit import customer_suitability_text, render_compliance_audit_section
 from services.pdf.components.kostenausweis import build_kostenausweis_flowables
-from services.pdf.components.unterschrift import make_unterschrift_section
+from services.pdf.components.unterschrift import make_signature_block
 from services.pdf.components.table_of_contents import (
     TocCollector,
     TocSectionAnchor,
@@ -109,6 +112,7 @@ def render_advisory_report_pdf(
     watermark_mode: str = "none",
     decision_ref: dict | None = None,
     meta: dict | None = None,
+    view_reason: str | None = None,
 ) -> bytes | None:
     """PDF-Bytes des Advisory-Reports für ein Mandat, oder ``None`` falls das
     Dokument unter dem Publikations-Gate nicht client-ready ist.
@@ -166,13 +170,17 @@ def render_advisory_report_pdf(
         payload["provisional_notice"] = provisional_notice
     # EXE-P (H-187): ohne Gebuehrenvereinbarung ist der Bericht (mit Kostenteil) ein Entwurf;
     # N-935-04: wie jeder Entwurf ohne Pruefnummer im Fuss (nur der IC-Vermerk).
-    if (watermark_mode or "none") == "none" and fee_agreement_missing(payload.get("cost_disclosure")):
+    fee_missing = fee_agreement_missing(payload.get("cost_disclosure"))
+    if is_final_document(watermark_mode) and fee_missing:
         watermark_mode = "gebuehren"
         decision_ref = {k: v for k, v in (decision_ref or {}).items() if k == "ic_release_status"} or None
+    elif watermark_mode == READONLY_VIEW_MODE and not view_reason and fee_missing:
+        # N-939-05: die Ansicht nennt auch den Gebuehren-Entwurf als Grund.
+        view_reason = "gebuehren"
     if meta is not None:  # N-935-04: der Router setzt daraus X-Ares-Draft
-        meta["watermark_mode"] = watermark_mode or "none"
+        meta["watermark_mode"] = normalize_mode(watermark_mode)
     return render_advisory_report_pdf_from_payload(
-        payload, watermark_mode=watermark_mode, decision_ref=decision_ref,
+        payload, watermark_mode=watermark_mode, decision_ref=decision_ref, view_reason=view_reason,
     )
 
 
@@ -224,7 +232,7 @@ def assert_advisory_log_integrity(payload: dict[str, Any]) -> None:
 
 def render_advisory_report_pdf_from_payload(
     payload: dict[str, Any], *, watermark_mode: str = "none",
-    decision_ref: dict | None = None,
+    decision_ref: dict | None = None, view_reason: str | None = None,
 ) -> bytes:
     """Pure PDF-Render aus einem bereits berechneten Aggregator-Payload.
 
@@ -265,11 +273,14 @@ def render_advisory_report_pdf_from_payload(
     # Pass 1 zaehlt Seiten + sammelt Section-Startseiten via TocCollector.
     # Pass 2 rendert mit den realen page-numbers in der TOC-Tabelle.
     # Vorher: single-pass mit AdvisoryNumberedCanvas — TOC zeigte nur Titel.
+    # H-193 Fixrunde 1 (N-939-01): Markierungszustand fuer Unterschriftsblock
+    # (nur final) und Wasserzeichen (jede Seite).
+    document_state = SimpleNamespace(watermark_mode=watermark_mode, view_reason=view_reason)
     _scratch_buf, scratch_doc = _new_doc()
     counter = _PageCounter()
     toc_collector = TocCollector()
     scratch_doc.build(
-        _build_all_flowables(payload, styles, toc_collector=toc_collector),
+        _build_all_flowables(payload, styles, toc_collector=toc_collector, document_state=document_state),
         onFirstPage=counter, onLaterPages=counter,
     )
     total_pages = counter.page_count or 1
@@ -285,12 +296,15 @@ def render_advisory_report_pdf_from_payload(
         generated_at_iso=generated_at,
         total_pages_hint=total_pages,
         decision_label=decision_footer_label(decision_ref),  # CCX P5
+        watermark_mode=document_state.watermark_mode,
+        view_reason=view_reason,
     )
     out_doc.build(
         _build_all_flowables(
             payload, styles,
             toc_page_numbers=toc_page_numbers,
             toc_section_ids=toc_section_ids,
+            document_state=document_state,
         ),
         onFirstPage=chrome, onLaterPages=chrome,
     )
@@ -306,6 +320,7 @@ def _build_all_flowables(
     toc_collector: TocCollector | None = None,
     toc_page_numbers: dict[str, int] | None = None,
     toc_section_ids: dict[str, str] | None = None,
+    document_state: Any = None,
 ) -> list[Any]:
     """Erzeugt einen *frischen* Flowable-Snapshot — wird zweimal aufgerufen
     (Pass 1 zum Zaehlen + TOC-Sammeln, Pass 2 zum Zeichnen mit echten
@@ -429,7 +444,8 @@ def _build_all_flowables(
     render_compliance_audit_section(payload, flowables, styles)
     # U-93: Signatur-Block am Bericht-Ende.
     flowables.append(PageBreak())
-    flowables.extend(make_unterschrift_section())
+    # H-193 Fixrunde 1 (N-939-01): Unterschriften nur in der finalen Fassung.
+    flowables.extend(make_signature_block(document_state))
     return flowables
 
 

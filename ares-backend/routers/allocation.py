@@ -1161,6 +1161,17 @@ def _inbox_allocation_fields(db: Session, target_allocation_id: str | None) -> d
     }
 
 
+def _inbox_client_name(mandate: Mandate) -> str | None:
+    client = getattr(mandate, "client", None)
+    if client is None:
+        return None
+    name = " ".join(
+        part for part in (str(getattr(client, "first_name", "") or "").strip(),
+                          str(getattr(client, "last_name", "") or "").strip()) if part
+    )
+    return name or None
+
+
 def _publication_inbox(db: Session, user: User) -> list[tuple[Mandate, dict]]:
     tenant_id = tenant_id_for_new_record(user)
     items: list[tuple[Mandate, dict]] = []
@@ -1179,6 +1190,9 @@ def _publication_inbox(db: Session, user: User) -> list[tuple[Mandate, dict]]:
         items.append((mandate, {
             "mandate_id": str(mandate.id),
             "mandate_number": mandate.mandate_number,
+            # ROL-b (CTO-Entscheid H-187): die freigebende Person darf die
+            # vorgelegte Akte identifizieren -- Kundenname, sonst nichts.
+            "client_name": _inbox_client_name(mandate),
             "mandate_type": getattr(mandate, "mandate_type", None),
             "prepared_by": envelope.sealed_by,
             "prepared_by_name": getattr(preparer, "full_name", None),

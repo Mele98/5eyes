@@ -188,3 +188,77 @@ def decision_footer_label(decision_ref) -> str:
     if status is not None and status != "RELEASED":
         label += " · " + IC_UNRELEASED_FOOTER
     return label
+
+
+# --- Markierungszustand der Kunden-PDFs (Entwurf / Ansicht / final) ---
+WATERMARK_MODES = (
+    "none", "entwurf", "vertraulich", "vorvertrag", "unpublished", "vertragsvorlage", "depotbank", "gebuehren",
+    "ansicht",
+)
+# C-890-01 Nachtrag 4 (N-897-12): kundenwirksamer Bericht ohne jede
+# KYC-Bestaetigung -> sichtbar als Entwurf vor Vertragsabschluss.
+VORVERTRAG_TEXT = "Entwurf – vor Vertragsabschluss (ohne KYC-Bestätigung)"
+# CCX-P4: Kundendokument einer nicht (gueltig) publizierten Soll-Allokation.
+UNPUBLISHED_TEXT = "Entwurf – Soll-Allokation nicht publiziert"
+# H-179 V-1: Vertrag ohne freigegebene Vertragsvorlage bzw. ohne Ort.
+CONTRACT_DRAFT_TEXT = "Entwurf – Vertragsvorlage nicht freigegeben"
+# N-927-06: Kostenausweis ohne gueltige Angabe zu Zuwendungen der Depotbank.
+DEPOT_BANK_DRAFT_TEXT = "Entwurf – Angabe zu Zuwendungen der Depotbank fehlt"
+# EXE-P (H-187): Kostenausweis ohne Gebuehrenvereinbarung -- nie ein erfundener Satz.
+FEE_AGREEMENT_DRAFT_TEXT = "Entwurf – keine Gebührenvereinbarung erfasst"
+# ROL-b (CTO-Entscheid H-187): Abruf durch die Rolle "Lesend" -- eine Ansicht,
+# kein abgegebenes Dokument (nie archiviert, nicht signierbar).
+READONLY_VIEW_TEXT = "Ansicht – nicht abgegeben"
+
+
+# H-193 Fixrunde 1 (N-939-01/-05): eine Quelle fuer "final oder nicht".
+# Final -- und damit archivierbar und unterschreibbar -- ist nur eine Fassung
+# ohne jeden Markierungsmodus ("none"). Jeder andere, auch ein unbekannter,
+# Modus ist eine Nicht-Final-Fassung (fail-closed): Entwurf, nicht publiziert,
+# Ansicht durch "Lesend" usw. Gleiche Regel wie _archive_final (nur "none") und
+# services.signature_artifact (Vermerk != "none" -> nicht signierbar).
+FINAL_MODE = "none"
+READONLY_VIEW_MODE = "ansicht"
+# Fehlender, leerer oder unbekannter Modus: nie final, aber sichtbar.
+UNKNOWN_MODE = "unbekannt"
+UNKNOWN_DRAFT_TEXT = "Entwurf – nicht final"
+# Zeile oben auf jeder Seite (Wasserzeichen und Fuss) je Nicht-Final-Modus;
+# jeder hier nicht genannte Nicht-Final-Modus traegt UNKNOWN_DRAFT_TEXT.
+DRAFT_HEADLINES = {
+    "vorvertrag": VORVERTRAG_TEXT,
+    "unpublished": UNPUBLISHED_TEXT,
+    "vertragsvorlage": CONTRACT_DRAFT_TEXT,
+    "depotbank": DEPOT_BANK_DRAFT_TEXT,
+    "gebuehren": FEE_AGREEMENT_DRAFT_TEXT,
+    READONLY_VIEW_MODE: READONLY_VIEW_TEXT,
+}
+
+
+def is_final_document(mode: str | None) -> bool:
+    """True nur fuer den ausdruecklichen Modus "none". Fehlend, None, leer oder
+    unbekannt ist keine belegte Finalitaet (fail-closed)."""
+    return isinstance(mode, str) and mode == FINAL_MODE
+
+
+def normalize_mode(mode: str | None) -> str:
+    """"none" nur, wenn ausdruecklich so gesetzt; sonst ein bekannter
+    Entwurfsmodus oder ``UNKNOWN_MODE``."""
+    if is_final_document(mode):
+        return FINAL_MODE
+    candidate = str(mode or "").strip().lower()
+    return candidate if candidate in WATERMARK_MODES and candidate != FINAL_MODE else UNKNOWN_MODE
+
+
+def draft_headline(mode: str | None, view_reason: str | None = None) -> str | None:
+    """Kennzeichnung einer Nicht-Final-Fassung (None nur fuer final).
+    N-939-05: eine Ansicht durch "Lesend" verdeckt den eigentlichen Grund nicht
+    -- z. B. "Ansicht – nicht abgegeben · Entwurf – Soll-Allokation nicht publiziert"."""
+    normalized = normalize_mode(mode)
+    if normalized == FINAL_MODE:
+        return None
+    text = DRAFT_HEADLINES.get(normalized, UNKNOWN_DRAFT_TEXT)
+    if normalized == READONLY_VIEW_MODE and view_reason:
+        reason = draft_headline(view_reason)
+        if reason and reason != text:
+            return f"{text} · {reason}"
+    return text
