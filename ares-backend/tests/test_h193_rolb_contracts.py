@@ -505,3 +505,20 @@ def test_contract_signoff_has_no_statement_after_return():
                if isinstance(n, ast.FunctionDef) and n.name == "build_contract_signoff_flowables"]
     returns = [i for i, n in enumerate(func.body) if isinstance(n, ast.Return)]
     assert returns == [len(func.body) - 1]
+
+
+def test_final_client_information_signature_block_is_unchanged(monkeypatch):
+    """Vorlagen-Pin ARES-KI-FIDLEG-5: die finale Fassung bekommt genau den
+    bisherigen Unterschriftsblock (gleiche Argumente, gleiche Flowables); nur
+    Nicht-Final-Fassungen aendern sich. Deshalb keine neue Vorlagenversion."""
+    from types import SimpleNamespace
+
+    from services.pdf.components import unterschrift
+
+    calls = []
+    monkeypatch.setattr(unterschrift, "make_unterschrift_section", lambda **kw: calls.append(kw) or ["BLOCK"])
+    kwargs = {"left_label": "Kunde", "right_label": "Berater"}
+    assert unterschrift.make_signature_block(SimpleNamespace(watermark_mode="none"), **kwargs) == ["BLOCK"]
+    assert calls == [kwargs]
+    assert unterschrift.make_signature_block(SimpleNamespace(watermark_mode="gebuehren"), **kwargs) != ["BLOCK"]
+    assert len(calls) == 1

@@ -618,7 +618,10 @@ TEMPLATE_TEXT_PINS = {
     # Veraenderung); der Kundentext ist fuer dieselben Daten byte-gleich
     # (test_l2c_dsg_protocol_texts::test_kundeninformation_ties_text_is_unchanged_for_sealed_description),
     # deshalb keine neue Vorlagenversion. Aus dem Tree neu berechnet.
-    "ARES-KI-FIDLEG-5": "f9664784710d9664c860a517455ec4548b741590ee65be0dff0514af435c7c9a",
+    # H-193 (ROL-b): nur der Aufruf des Unterschriftsblocks laeuft ueber
+    # make_signature_block; die finale Fassung ist unveraendert
+    # (test_h193_rolb_contracts::test_final_client_information_signature_block_is_unchanged).
+    "ARES-KI-FIDLEG-5": "07002f86b8b35bfe2cbe3c746941d89a0284adaa74b4b9f8bd80f69f75a62347",
 }
 
 
