@@ -11,6 +11,7 @@ from services.pdf.base import DepotCheckData, PDFContext
 from services.pdf.components.backtest_metrics import make_backtest_metrics_table
 from services.pdf.components.depotcheck_soll import (
     make_concentration_table,
+    make_external_holdings_table,
     make_cost_table,
     make_diversification_heatmap,
     make_exposure_bars,
@@ -27,6 +28,7 @@ from services.pdf.components.stress_table import make_stress_table
 from services.pdf.components.wealth_chart import make_wealth_chart
 from services.pdf.styles import FONT_BOLD, FONT_DEFAULT, make_paragraph_styles
 from core.presentation_rounding import format_amount_minor, format_bps_as_pct
+from core.external_holdings_rule import recommendation_zero_message
 
 
 def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
@@ -160,6 +162,20 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
     flowables.append(Spacer(1, 6 * mm))
     flowables.append(_section_title("Grösste Zielpositionen"))
     flowables.append(make_concentration_table(data.top_positions, ctx.base_currency))
+    if data.external_holdings:
+        # K3 / N-915-06: nie still weggelassen; Wert aus demselben Bestand wie das IST.
+        flowables.append(Spacer(1, 6 * mm))
+        flowables.append(_section_title("Titel ausserhalb der Empfehlung"))
+        flowables.append(_fallback(
+            "Gehaltene Titel, die nicht in der Empfehlung stehen. Ihr Wert zählt zum "
+            "IST-Bestand, ihr Ziel ist 0. Verkaufen oder halten ist ein Vorschlag; "
+            "der Entscheid liegt beim Kunden."
+        ))
+        flowables.append(make_external_holdings_table(data.external_holdings, ctx.base_currency))
+        if data.recommendation_zero_titles:
+            # N-937-02: die Annahme "nicht erfasst = 0" bleibt sichtbar.
+            flowables.append(Spacer(1, 3 * mm))
+            flowables.append(_fallback(recommendation_zero_message(list(data.recommendation_zero_titles))))
     flowables.append(PageBreak())
 
     _start_page(

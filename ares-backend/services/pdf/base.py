@@ -498,6 +498,10 @@ class DepotCheckData:
     recovery_months, annual_breakdown."""
     # Auto-Warnings
     warnings: list[str] = field(default_factory=list)
+    # K3 / N-915-06: Titel ausserhalb der Empfehlung (Depotcheck ``fremdbestand``).
+    external_holdings: list = field(default_factory=list)
+    # K3 / N-937-02: Titel der Empfehlung, die dabei ohne erfassten Bestand 0 zaehlen.
+    recommendation_zero_titles: list = field(default_factory=list)
     cost_disclosure: Mapping[str, object] = field(default_factory=dict)
     performance: Mapping[str, object] = field(default_factory=dict)
     qualitative_assessment: str | None = None

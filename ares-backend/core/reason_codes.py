@@ -168,6 +168,8 @@ class ReasonCode(StrEnum):
     EMPTY = "empty"
     EVIDENCE_MISSING = "evidence_missing"
     EVIDENCE_STALE = "evidence_stale"
+    EXTERNAL_HOLDING_DUPLICATE_ISIN = "EXTERNAL_HOLDING_DUPLICATE_ISIN"
+    EXTERNAL_HOLDING_IN_RECOMMENDATION = "EXTERNAL_HOLDING_IN_RECOMMENDATION"
     FEE_RATE_NEGATIVE = "fee_rate_negative"
     FEE_RATE_NOT_A_NUMBER = "fee_rate_not_a_number"
     FEE_RATE_NOT_INTEGRAL = "fee_rate_not_integral"

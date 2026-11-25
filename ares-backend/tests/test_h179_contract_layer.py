@@ -752,7 +752,7 @@ def test_alembic_frozen_approver_columns_folded_into_c7e1_up_down_up(tmp_path):
 
     url = f"sqlite:///{tmp_path / 's02.db'}"
     script = ScriptDirectory.from_config(alembic_cfg(url))
-    assert script.get_heads() == ["f3c8a1d6b2e4"]  # L2d: neuer Kopf (hinter L2c)
+    assert script.get_heads() == ["d3b7e1f9a5c2"]  # K3: neuer Kopf (hinter L2d)
     assert "e5a9c3d7b1f4" not in {r.revision for r in script.walk_revisions()}
     frozen = {"approver_role", "approver_ready", "approver_mailbox_digest", "creator_mailbox_digest"}
     command.upgrade(alembic_cfg(url), "c7e1a9d3f5b2")

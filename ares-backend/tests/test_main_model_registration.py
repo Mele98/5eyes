@@ -238,7 +238,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "ef1bc00d02f20409bcc15254cba6b47235aab94dffe476759
 # Merge ROL-05 + L2c: beide additiv, aus dem Tree neu berechnet.
 # L2d / N-938-01: mitigation_action ist eine geschlossene Kategorie (Literal);
 # kein Pfad geaendert (Feld-Diff api/openapi.json, export_openapi.py).
-GOLDEN_OPENAPI_SHA256 = "a9bc7fe67bb06802254c39b7674c30a96ab91f82bd44410c037e418b5cdf66b3"
+# K3 (H-189, N-915-06): nur additiv -- GET/PUT /mandates/{id}/external-holdings
+# [/{wp_id}] und Schemas ExternalHolding*; kein bestehender Pfad/Feld geaendert.
+# K3 auf L2d: aus dem Tree neu berechnet (api/openapi.json, export_openapi.py).
+GOLDEN_OPENAPI_SHA256 = "7e13df2e3ac00aa92926e8080f98c2611edae862279f77f7572095a7e2d182cc"
 
 _PROBE = """
 import hashlib, json

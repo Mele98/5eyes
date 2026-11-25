@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
 from models.snapshots import DepotSnapshot
-from services.depot_check import _select_latest_run, compute_depot_check
+from services.depot_check import _select_latest_run, compute_depot_check, has_external_holdings
 from services.holdings_valuation import (
     ValuationError,
     ValuationProjection,
@@ -422,7 +422,10 @@ def mandate_has_recorded_holdings(db: Session, mandate: Mandate) -> bool:
     Holding je Produkt mit Stueckzahl oder Marktwert > 0) -- derselbe Filter
     wie die Bestandsbewertung des Depot-Snapshots. Nur bei ``False`` ist ein
     Depot-Check-PDF ohne Snapshot-Bindung (reine SOLL-Analyse) zulaessig."""
-    return mandate_has_recorded_depot_holdings(db, mandate.id)
+    if mandate_has_recorded_depot_holdings(db, mandate.id):
+        return True
+    # K3 / N-915-06: auch erfasster Fremdbestand ist ein Depotbestand.
+    return has_external_holdings(db, mandate)
 
 
 def ensure_current_depot_check_analysis(

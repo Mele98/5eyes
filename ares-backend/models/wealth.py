@@ -79,6 +79,10 @@ class WealthPosition(Base):
     # Werte deaktivierter Property-/Collateral-Funktionen neutralisiert hat (alter
     # Wert + Aktion, core/property_gate.py). NULL = kein Fall.
     property_gate_review_json = Column(String)
+    # K3 / N-915-06: Titel eines Depots im Beratungsvermoegen, die nicht in der
+    # Empfehlung stehen (Fremdbestand, services/external_holdings.py). JSON-Liste;
+    # NULL = keine erfasst. Nur ueber die eigene Route geschrieben.
+    external_holdings_json = Column(String)
     notes = Column(String)
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)

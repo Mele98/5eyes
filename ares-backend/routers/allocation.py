@@ -30,6 +30,7 @@ from schemas.allocation import (
     OptimizerRunResponse,
     OptimizerPolicyCreate, OptimizerPolicyUpdate, OptimizerPolicyResponse,
     OptimizerPolicyDetailResponse, HouseMatrixRowsReplace,
+    ExternalHoldingsResponse, ExternalHoldingsUpdate,
 )
 from schemas.review import ReportNotesResponse, ReportNotesUpdate
 from core import sustainability_preference as sustainability
@@ -120,7 +121,12 @@ from services.advisory_report_cache import (
     cached_compute_advisory_report,
     invalidate_mandate as invalidate_advisory_cache,
 )
-from services.depot_check import compute_depot_check
+from services.depot_check import (
+    ExternalHoldingsWriteError,
+    compute_depot_check,
+    external_holdings_overview,
+    replace_external_holdings,
+)
 from services.backtest_stress import gated_stress_replays
 from services.backtest_ab import run_ab_backtest
 from services.backtest_strategy import run_strategy_backtest
@@ -1328,6 +1334,50 @@ def goal_target_sensitivity(
 # - Top-10-Positionen + Fund-Charakteristika (TER/Duration/ESG)
 # - Liquiditaets-Profil + automatische Warnings
 # ============================================================================
+
+
+@router.get("/mandates/{mandate_id}/external-holdings", response_model=ExternalHoldingsResponse)
+def list_external_holdings(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """K3 / N-915-06: Titel ausserhalb der Empfehlung je Depot, mit Status
+    (dieselbe Bewertung wie Depotcheck, Depot-Snapshot und Handelsliste)."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return ExternalHoldingsResponse(**external_holdings_overview(db, mandate))
+
+
+@router.put("/mandates/{mandate_id}/external-holdings/{wp_id}", response_model=ExternalHoldingsResponse)
+def put_external_holdings(
+    mandate_id: str,
+    wp_id: str,
+    body: ExternalHoldingsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """K3 / N-915-06: ersetzt die Fremdtitel eines Depots im Beratungsvermoegen.
+    Wie jede Bestandsaenderung macht das den versiegelten Entscheid STALE
+    (Freshness-Hook ``positions``); nichts wird automatisch neu berechnet."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    items = [{**item.model_dump(), "valuation_date": item.valuation_date.isoformat() if item.valuation_date else None}
+             for item in body.items]
+    try:
+        changed = replace_external_holdings(db, mandate, wp_id, items, now=_now())
+    except ExternalHoldingsWriteError as exc:
+        db.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    if changed is not None:
+        depot_id, old_count, new_count = changed
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="wealth_positions", record_id=str(depot_id), action="UPDATE",
+            field_name="external_holdings_json", old_value=f"{old_count} Titel", new_value=f"{new_count} Titel",
+            client_id=mandate.client_id, mandate_id=str(mandate.id))
+        db.commit()
+        # Die Titel haengen am Kunden: alle seine Mandate (wie routers/wealth.py).
+        for (other_id,) in db.query(Mandate.id).filter(Mandate.client_id == mandate.client_id).all():
+            invalidate_advisory_cache(str(other_id))
+    return ExternalHoldingsResponse(**external_holdings_overview(db, mandate))
 
 
 @router.get("/mandates/{mandate_id}/depot-check")
