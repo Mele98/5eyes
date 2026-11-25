@@ -3850,12 +3850,11 @@ def _kundeninformation_ties_and_offer(db: Session, mandate: Mandate, tenant_id: 
         ConflictOfInterestDisclosure.mandate_id == mandate.id,
         ConflictOfInterestDisclosure.deleted_at.is_(None),
     ).order_by(ConflictOfInterestDisclosure.created_at).all()
-    reader = ProtocolReader(db)
     for row in conflicts:
         provider = f" ({row.inducement_provider})" if row.inducement_provider else ""
         # L2c (H-192): versiegelte Beschreibung geoeffnet; veraendert sperrt
         # das Kunden-PDF (409 vor der Archivierung).
-        texts = conflict_text_view(db, row, client_id=getattr(mandate, "client_id", None), reader=reader)
+        texts = conflict_text_view(db, row, client_id=getattr(mandate, "client_id", None))
         if texts["text_state"] == PROTOCOL_TEXT_TAMPERED:
             raise AdvisoryLogIntegrityFailed(
                 str(row.id), document="Kundeninformation", entry_kind="conflict_disclosure",

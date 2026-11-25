@@ -72,10 +72,13 @@ def test_one_category_list_everywhere():
 
 
 def test_classic_mask_offers_a_select_not_a_free_text_field():
-    html = (FRONTEND / "ares.html").read_text(encoding="utf-8")
+    from tests.monolith_source import read_monolith_bundle
+
+    html = read_monolith_bundle()
     assert '<select class="fi" id="nco-mitigation"></select>' in html
     assert 'id="nco-mitigation" placeholder' not in html
-    assert '<script src="./conflict-mitigation.js"></script>' in html
+    # Das Bundle zieht ausgelagerte Skripte ein: die Maske laedt die Liste.
+    assert (FRONTEND / "conflict-mitigation.js").read_text(encoding="utf-8").strip() in html
 
 
 @pytest.mark.parametrize("value", [FREE_TEXT, "", "ok", "weitergabe an kunden"])
