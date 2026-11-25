@@ -23,7 +23,7 @@ from tests.test_ccx_p4_allocation_publish import (  # noqa: F401
 
 NOW = "2026-11-21T09:00:00.000Z"
 ITEM_KEYS = {
-    "mandate_id", "mandate_number", "mandate_type", "prepared_by", "prepared_by_name", "sealed_at",
+    "mandate_id", "mandate_number", "client_name", "mandate_type", "prepared_by", "prepared_by_name", "sealed_at",
     "target_allocation_id", "validation_hash", "can_publish", "blocker_codes", "targets_bps", "bands_bps",
 }
 

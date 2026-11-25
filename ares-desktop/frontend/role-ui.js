@@ -12,7 +12,11 @@
  *   - portfolio_management: Referenzdaten-Rolle ohne Kundensicht -- keine
  *     Kundenmaske (Kundenliste, Beratungsschritte, Seiten), dazu ein Hinweis.
  *   - admin / compliance_reviewer: Knopf "Freigaben" mit der Freigabe-Inbox der
- *     Vier-Augen-Publikation (nur vorgelegte Akten, datenminimiert).
+ *     Vier-Augen-Publikation (nur vorgelegte Akten, datenminimiert; ROL-b: mit
+ *     Mandatsnummer und Kundenname).
+ *   - ROL-b: compliance_reviewer sieht in ihrer Freigabe-Ansicht die offenen
+ *     Produkt-Eignungsregeln der Firma und gibt sie als zweite Person frei
+ *     (Erfassen bleibt beim Admin; der Server sperrt alles andere).
  */
 (function () {
   'use strict';
@@ -84,6 +88,7 @@
       : '<span style="font-size:10px;color:var(--n4)">Noch nicht freigebbar (Prüfung offen)</span>';
     return '<div class="card mb" style="padding:8px">'
       + '<div style="font-size:11px;font-weight:600">Mandat ' + escapeText(item.mandate_number || item.mandate_id)
+      + (item.client_name ? ' · ' + escapeText(item.client_name) : '')
       + (item.mandate_type ? ' · ' + escapeText(item.mandate_type) : '') + '</div>'
       + '<div style="font-size:10px;color:var(--n4)">Vorbereitet von ' + escapeText(item.prepared_by_name || '–')
       + (item.sealed_at ? ' am ' + escapeText(String(item.sealed_at).slice(0, 10)) : '') + '</div>'
@@ -163,6 +168,96 @@
     if (btn) btn.style.display = show ? '' : 'none';
   }
 
+  // ROL-b: offene Produkt-Eignungsregeln in der Freigabe-Ansicht der Pruefperson.
+  function ruleText(rule) {
+    var parts = ['Risikoprofil ' + escapeText(rule.profile_from) + '–' + escapeText(rule.profile_to)];
+    if (rule.prohibited) parts.push('gesperrt');
+    if (rule.requires_suitability) parts.push('Eignungsprüfung nötig');
+    if (rule.requires_appropriateness) parts.push('Angemessenheitsprüfung nötig');
+    if (rule.requires_override) parts.push('nur mit Ausnahmebewilligung');
+    if (rule.max_position_bps != null) parts.push('max. ' + (rule.max_position_bps / 100).toFixed(2) + ' % je Position');
+    if ((rule.service_modes || []).length) parts.push('Dienstleistung: ' + rule.service_modes.map(escapeText).join(', '));
+    if ((rule.client_classifications || []).length) {
+      parts.push('Kundensegment: ' + rule.client_classifications.map(escapeText).join(', '));
+    }
+    if (rule.jurisdiction) parts.push('Rechtsraum ' + escapeText(rule.jurisdiction));
+    if ((rule.requires_knowledge_categories || []).length) {
+      parts.push('Kenntnisse: ' + rule.requires_knowledge_categories.map(escapeText).join(', '));
+    }
+    if (rule.minimum_experience_level) parts.push('Mindesterfahrung ' + escapeText(rule.minimum_experience_level));
+    return parts.join(' · ') + ' · Prüfwert ' + escapeText(String(rule.rule_hash || '').slice(0, 12));
+  }
+
+  function draftHtml(draft) {
+    var title = escapeText(draft.product_name || draft.product_id)
+      + (draft.isin ? ' · ' + escapeText(draft.isin) : '')
+      + (draft.asset_class ? ' · ' + escapeText(draft.asset_class) : '');
+    var action = draft.authored_by_current_user
+      ? '<span style="font-size:10px;color:var(--n4)">Selbst erfasst – Freigabe durch eine andere Person</span>'
+      : '<button class="btn btn-sm" data-elig-approve="' + escapeText(draft.product_id) + '">Freigeben</button>';
+    return '<div class="card mb" style="padding:8px">'
+      + '<div style="font-size:11px;font-weight:600">' + title + '</div>'
+      + '<div style="font-size:10px;color:var(--n4)">Erfasst von ' + escapeText((draft.authored_by_names || []).join(', ') || '–')
+      + '</div>'
+      + (draft.rules || []).map(function (r) { return '<div style="font-size:10px;margin:4px 0">' + ruleText(r) + '</div>'; }).join('')
+      + action + '</div>';
+  }
+
+  // N-939-02: genau die zuletzt dargestellte Fassung je Produkt (rule_id, rule_hash);
+  // sie wird unveraendert mitgesendet -- kein zweites Laden vor der Freigabe.
+  var shownRules = {};
+
+  async function loadEligibilityDrafts(notice) {
+    var box = document.getElementById('elig-reviewer-body');
+    if (!box) return;
+    box.innerHTML = '<div style="font-size:12px;font-weight:600">Produkt-Eignungsregeln (Freigabe als zweite Person)</div>'
+      + '<div id="elig-reviewer-list" style="font-size:10px">Wird geladen…</div>';
+    var list = document.getElementById('elig-reviewer-list');
+    try {
+      var res = await apiCall('/products/eligibility-drafts');
+      var drafts = (res && res.drafts) || [];
+      var shown = {};
+      drafts.forEach(function (d) {
+        shown[d.product_id] = (d.rules || []).map(function (r) { return { rule_id: r.rule_id, rule_hash: r.rule_hash }; });
+      });
+      var html = drafts.length ? drafts.map(draftHtml).join('') : 'Keine offenen Eignungsregeln.';
+      list.innerHTML = (notice ? '<div role="alert" style="color:#9E4747">' + escapeText(notice) + '</div>' : '') + html;
+      shownRules = shown;
+    } catch (err) {
+      shownRules = {};
+      list.textContent = 'Eignungsregeln konnten nicht geladen werden: ' + (err && err.message ? err.message : err);
+    }
+  }
+
+  async function onEligibilityClick(event) {
+    var target = event.target;
+    var productId = target && target.getAttribute && target.getAttribute('data-elig-approve');
+    if (!productId) return;
+    target.disabled = true;
+    try {
+      await apiCall('/products/' + encodeURIComponent(productId) + '/eligibility-rule/approve', {
+        method: 'POST', body: JSON.stringify({ seen_rules: shownRules[productId] || [] })
+      });
+      await loadEligibilityDrafts();
+    } catch (err) {
+      var message = 'Freigabe abgelehnt: ' + (err && err.message ? err.message : err);
+      if (err && (err.status === 409 || err.status === 404)) return loadEligibilityDrafts(message);
+      target.disabled = false;
+      target.insertAdjacentText('afterend', ' ' + message);
+    }
+  }
+
+  function ensureEligibilityReviewerBox(current) {
+    var view = document.getElementById('krp-reviewer-view');
+    if (current !== 'compliance_reviewer' || !view || document.getElementById('elig-reviewer-body')) return;
+    var box = document.createElement('div');
+    box.id = 'elig-reviewer-body';
+    box.style.cssText = 'display:grid;gap:8px;margin-top:16px';
+    box.addEventListener('click', onEligibilityClick);
+    view.appendChild(box);
+    loadEligibilityDrafts();
+  }
+
   var lastRole = null;
   function apply() {
     var current = role();
@@ -175,10 +270,16 @@
     ensureInboxButton(current === 'admin' || current === 'compliance_reviewer', current);
   }
 
-  window.AresRoleUi = { apply: apply, openInbox: openInbox, writeSelector: WRITE_SELECTOR };
-  function start() {
+  window.AresRoleUi = {
+    apply: apply, openInbox: openInbox, writeSelector: WRITE_SELECTOR, loadEligibilityDrafts: loadEligibilityDrafts
+  };
+  function tick() {
     apply();
-    setInterval(apply, 1000);
+    ensureEligibilityReviewerBox(role());
+  }
+  function start() {
+    tick();
+    setInterval(tick, 1000);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();

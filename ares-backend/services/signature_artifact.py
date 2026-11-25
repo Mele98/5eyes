@@ -52,7 +52,9 @@ def _is_draft_artifact(doc: Any) -> bool:
         meta = json.loads(raw)
     except (TypeError, ValueError):
         return False
-    return isinstance(meta, dict) and str(meta.get("watermark_mode") or "none") != "none"
+    # Ohne Vermerk: Archivexemplar (nur finale Fassungen werden archiviert). Ein
+    # vorhandener Vermerk muss ausdruecklich "none" lauten (H-193, fail-closed).
+    return isinstance(meta, dict) and meta.get("watermark_mode", "none") != "none"
 
 
 def assert_signable_artifact(doc: Any) -> None:

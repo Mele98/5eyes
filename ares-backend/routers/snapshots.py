@@ -3,7 +3,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from database import get_db
+from database import annual_returns_release_required, get_db
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
 from services.data_classification import enforce_data_classification
@@ -207,14 +207,17 @@ def get_drift(
     snapshot_year = int(snapshot.snapshot_date[:4])
     current_year = datetime.now(timezone.utc).year
 
-    returns_rows = (
-        db.query(AssetClassAnnualReturn)
-        .filter(
-            AssetClassAnnualReturn.year >= snapshot_year,
-            AssetClassAnnualReturn.year < current_year,
-        )
-        .all()
+    returns_query = db.query(AssetClassAnnualReturn).filter(
+        AssetClassAnnualReturn.year >= snapshot_year,
+        AssetClassAnnualReturn.year < current_year,
     )
+    if annual_returns_release_required():
+        # N-935R-03 (ROL-b): in Produktion/EXE nie Jahresrenditen aus dem
+        # Start-Seeding (source='seed'), auch nicht aus einer Bestands-DB.
+        returns_query = returns_query.filter(
+            (AssetClassAnnualReturn.source.is_(None)) | (AssetClassAnnualReturn.source != "seed")
+        )
+    returns_rows = returns_query.all()
 
     # Jahres-Returns als Dict aufbauen
     returns_by_year: dict[int, dict[str, int]] = {}

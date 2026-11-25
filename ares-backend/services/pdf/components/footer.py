@@ -10,7 +10,17 @@ from typing import TYPE_CHECKING
 
 from reportlab.pdfgen.canvas import Canvas
 
-from core.customer_terms import DECISION_NONE_TEXT, decision_footer_label  # noqa: F401 -- CCX P5
+from core.customer_terms import (  # noqa: F401 -- CCX P5; Entwurfstexte: eine Quelle, Re-Export
+    CONTRACT_DRAFT_TEXT,
+    DECISION_NONE_TEXT,
+    DEPOT_BANK_DRAFT_TEXT,
+    FEE_AGREEMENT_DRAFT_TEXT,
+    READONLY_VIEW_TEXT,
+    UNPUBLISHED_TEXT,
+    VORVERTRAG_TEXT,
+    decision_footer_label,
+    draft_headline,
+)
 from jurisdictions.documents import default_documents
 from services.pdf.styles import (
     COLOR_BORDER,
@@ -72,19 +82,6 @@ def _fit_disclaimer_lines(full_text: str, page_width: float) -> tuple[float, lis
     return size, lines
 
 
-# C-890-01 Nachtrag 4 (N-897-12): gleicher Text wie
-# services/pdf/components/watermark.py::VORVERTRAG_TEXT (Test prueft Gleichheit).
-VORVERTRAG_TEXT = "Entwurf – vor Vertragsabschluss (ohne KYC-Bestätigung)"
-# CCX-P4: gleicher Text wie services/pdf/components/watermark.py::UNPUBLISHED_TEXT.
-UNPUBLISHED_TEXT = "Entwurf – Soll-Allokation nicht publiziert"
-# H-179 V-1: gleicher Text wie services/pdf/components/watermark.py::CONTRACT_DRAFT_TEXT.
-CONTRACT_DRAFT_TEXT = "Entwurf – Vertragsvorlage nicht freigegeben"
-# N-927-06: gleicher Text wie services/pdf/components/watermark.py::DEPOT_BANK_DRAFT_TEXT.
-DEPOT_BANK_DRAFT_TEXT = "Entwurf – Angabe zu Zuwendungen der Depotbank fehlt"
-# EXE-P (H-187): gleicher Text wie watermark.FEE_AGREEMENT_DRAFT_TEXT.
-FEE_AGREEMENT_DRAFT_TEXT = "Entwurf – keine Gebührenvereinbarung erfasst"
-
-
 def _draw_vorvertrag_mark(canvas: Canvas, page_width: float, page_height: float,
                           headline: str = VORVERTRAG_TEXT) -> None:
     """Kundenwirksamer Bericht ohne jede KYC-Bestaetigung: Zeile oben auf jeder
@@ -122,17 +119,13 @@ def make_footer_callback(ctx: PDFContext, disclaimer: str | None = None):
     def _draw_footer(canvas: Canvas, doc):
         page_num = canvas.getPageNumber()
         page_width, _ = PAGE_SIZE
-        mode = getattr(ctx, "watermark_mode", "none") or "none"
-        if mode == "vorvertrag":
-            _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1])
-        elif mode == "unpublished":
-            _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1], UNPUBLISHED_TEXT)
-        elif mode == "vertragsvorlage":
-            _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1], CONTRACT_DRAFT_TEXT)
-        elif mode == "depotbank":
-            _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1], DEPOT_BANK_DRAFT_TEXT)
-        elif mode == "gebuehren":
-            _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1], FEE_AGREEMENT_DRAFT_TEXT)
+        # H-193 Fixrunde 1 (N-939-05): eine Quelle fuer die Kennzeichnung;
+        # eine Ansicht nennt zusaetzlich den eigentlichen Entwurfsgrund.
+        headline = draft_headline(
+            getattr(ctx, "watermark_mode", None), getattr(ctx, "view_reason", None),
+        )
+        if headline:
+            _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1], headline)
 
         canvas.saveState()
         canvas.setFont(FONT_DEFAULT, FONT_SIZE_FOOTER)

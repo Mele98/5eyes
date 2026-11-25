@@ -18,11 +18,13 @@ rules about *which* rule may count as evidence live in one place:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from models.product_eligibility import (
@@ -1334,3 +1336,70 @@ def supersession_chain_violations(db: Session, rule: ProductEligibilityRule) -> 
         if index == 0 or open_until is not None and (end is None or end > open_until):
             open_until, open_id = end, row_id
     return violations
+
+
+# ===========================================================================
+# H-193 (N-939-02): Freigabe an die gesehene Fassung binden. claim_seen_rules
+# laeuft in der Transaktion der Freigabe (kein eigener Commit): zuerst ein
+# bedingtes UPDATE je gesehener Regel (SQLite: Schreibsperre, PostgreSQL:
+# Zeilensperre bis zum Commit), DANACH der Vergleich der vollstaendigen Menge am
+# frisch gelesenen Stand. Eine spaeter eingefuegte Regel ist nie Teil der Freigabe.
+# ===========================================================================
+
+
+class SeenRulesMismatch(Exception):
+    """Gesehene und offene Fassung stimmen nicht ueberein (Router: 409)."""
+
+
+def seen_rules_sha256(pairs: list[tuple[str, str]]) -> str:
+    """Hash der sortierten gesehenen Menge (rule_id, rule_hash) fuers Audit."""
+    canonical = json.dumps(sorted(pairs), separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("ascii")).hexdigest()
+
+
+def open_draft_rules(db: Session, product_id: str, *, refresh: bool = False) -> list:
+    """Offene Entwurfsregeln (mit Regelset) eines Produkts in fester Reihenfolge."""
+    query = db.query(ProductEligibilityRule, ProductEligibilityRuleSet).join(
+        ProductEligibilityRuleSet, ProductEligibilityRuleSet.id == ProductEligibilityRule.rule_set_id,
+    ).filter(
+        ProductEligibilityRule.product_id == product_id,
+        ProductEligibilityRule.status == "draft",
+    ).order_by(ProductEligibilityRule.created_at, ProductEligibilityRule.id)
+    return (query.populate_existing() if refresh else query).all()
+
+
+def seen_rules_exist(db: Session, product_id: str, tenant_id: str | None, rule_ids: list[str]) -> bool:
+    """Gehoert eine gesehene Regel (beliebiger Status) zu diesem Produkt und dieser Firma?"""
+    rows = db.query(ProductEligibilityRule, ProductEligibilityRuleSet).join(
+        ProductEligibilityRuleSet, ProductEligibilityRuleSet.id == ProductEligibilityRule.rule_set_id,
+    ).filter(ProductEligibilityRule.product_id == product_id, ProductEligibilityRule.id.in_(rule_ids)).all()
+    return any(rule_visible_to_tenant(rule, rule_set, tenant_id) for rule, rule_set in rows)
+
+
+def claim_seen_rules(db: Session, *, product_id: str, tenant_id: str | None,
+                     pairs: list[tuple[str, str]], now: str) -> list[str]:
+    """Sperrt und vergleicht die gesehene Menge; liefert genau deren Regel-IDs.
+
+    ``SeenRulesMismatch`` bei doppelter, fehlender, zusaetzlicher, unbekannter
+    oder geaenderter Regel (Pruefwert oder Inhalt). Rollback macht der Aufrufer.
+    """
+    if len({rule_id for rule_id, _ in pairs}) != len(pairs):
+        raise SeenRulesMismatch
+    for rule_id, rule_hash in sorted(pairs):
+        claimed = db.execute(update(ProductEligibilityRule).where(
+            ProductEligibilityRule.id == rule_id,
+            ProductEligibilityRule.product_id == product_id,
+            ProductEligibilityRule.status == "draft",
+            ProductEligibilityRule.rule_hash == rule_hash,
+        ).values(updated_at=now).execution_options(synchronize_session=False))
+        if claimed.rowcount != 1:
+            raise SeenRulesMismatch
+    rules = [rule for rule, rule_set in open_draft_rules(db, product_id, refresh=True)
+             if rule_visible_to_tenant(rule, rule_set, tenant_id)]
+    if sorted((rule.id, rule.rule_hash) for rule in rules) != sorted(pairs):
+        raise SeenRulesMismatch
+    # Der Pruefwert muss zum gespeicherten Inhalt passen (Entwuerfe stammen aus
+    # dem Tenant-Produktpfad); sonst waere der angezeigte Inhalt nicht gebunden.
+    if any(rule_hash_from_row(rule, source=TENANT_PRODUCT_RULE_SOURCE) != rule.rule_hash for rule in rules):
+        raise SeenRulesMismatch
+    return [rule.id for rule in rules]

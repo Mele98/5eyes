@@ -20,20 +20,20 @@ def _read_source() -> str:
 def test_unterschrift_imports_present():
     """Sicherstellen dass Import + Aufruf in advisory_report.py konstant bleibt."""
     src = _read_source()
-    assert "from services.pdf.components.unterschrift import make_unterschrift_section" in src
-    assert "make_unterschrift_section()" in src
+    assert "from services.pdf.components.unterschrift import make_signature_block" in src
+    assert "make_signature_block(document_state)" in src
 
 
 def test_unterschrift_called_after_compliance_audit():
-    """Source-Parse: make_unterschrift_section() muss NACH
+    """Source-Parse: make_signature_block(document_state) muss NACH
     render_compliance_audit_section auftauchen (= letzte Sektion)."""
     src = _read_source()
     compliance_idx = src.rfind("render_compliance_audit_section(payload")
-    unterschrift_idx = src.rfind("make_unterschrift_section()")
+    unterschrift_idx = src.rfind("make_signature_block(document_state)")
     assert compliance_idx > 0, "render_compliance_audit_section call nicht gefunden"
-    assert unterschrift_idx > 0, "make_unterschrift_section call nicht gefunden"
+    assert unterschrift_idx > 0, "make_signature_block call nicht gefunden"
     assert unterschrift_idx > compliance_idx, (
-        "make_unterschrift_section() muss NACH render_compliance_audit_section "
+        "make_signature_block(document_state) muss NACH render_compliance_audit_section "
         f"kommen (compliance@{compliance_idx}, unterschrift@{unterschrift_idx})"
     )
 
@@ -42,9 +42,9 @@ def test_unterschrift_has_pagebreak_before():
     """Vor dem Signatur-Block muss ein PageBreak stehen damit Unterschrift
     auf eigener Seite landet (PDF-Druck-Disziplin)."""
     src = _read_source()
-    unterschrift_idx = src.find("make_unterschrift_section()")
+    unterschrift_idx = src.find("make_signature_block(document_state)")
     assert unterschrift_idx > 0
-    # Suche letzten PageBreak vor make_unterschrift_section()
+    # Suche letzten PageBreak vor make_signature_block(document_state)
     before = src[:unterschrift_idx]
     last_pagebreak = before.rfind("PageBreak()")
     assert last_pagebreak > 0
@@ -53,7 +53,7 @@ def test_unterschrift_has_pagebreak_before():
     gap = src[last_pagebreak:unterschrift_idx]
     lines_in_gap = gap.count("\n")
     assert lines_in_gap < 10, (
-        f"PageBreak und make_unterschrift_section duerfen nicht so weit "
+        f"PageBreak und make_signature_block duerfen nicht so weit "
         f"auseinander stehen (Gap={lines_in_gap} Zeilen)"
     )
 

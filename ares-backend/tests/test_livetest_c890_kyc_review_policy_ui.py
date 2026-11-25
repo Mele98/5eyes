@@ -16,6 +16,7 @@ Backend-Shards ist sie ein sichtbarer Skip. Alle Fristen sind TESTWERTE.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import socket
@@ -317,3 +318,52 @@ def test_reviewer_approves_owner_content_in_browser_without_capture_form(server)
             page.wait_for_selector(f"#oc-reviewer-body tr[data-owner-key='{key}'][data-owner-status='freigegeben']")
         finally:
             browser.close()
+
+
+def test_reviewer_approves_product_eligibility_rule_in_browser(server):
+    """ROL-b (CTO-Entscheid H-187 Nachtrag 3): die Pruefperson sieht in ihrer
+    Freigabe-Ansicht die offene Eignungsregel eines vom Admin erfassten Fonds
+    (role-ui.js) und gibt sie per Klick als zweite Person frei."""
+    base, httpx = server
+    owner = _seed(base, httpx)
+    r = httpx.post(base + "/products", headers=owner, timeout=30, json={
+        "product_name": "TEST-ROLb Hausfonds (Testwert)", "product_type": "Fonds", "asset_class": "Aktien",
+        "currency": "CHF", "suitability_profile_from": 2, "suitability_profile_to": 7})
+    assert r.status_code == 201, r.text
+    pid = r.json()["id"]
+    rev, secret = _activate_reviewer(base, httpx, _invite_api(base, httpx, owner))
+    sync_api = _playwright_sync_api()
+    with sync_api.sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            _login(page, base, "extern", PW2, secret)
+            button = f"#elig-reviewer-body [data-elig-approve='{pid}']"
+            page.wait_for_selector(button)
+            text = page.inner_text("#elig-reviewer-body")
+            assert "TEST-ROLb Hausfonds (Testwert)" in text and "Risikoprofil 2–7" in text
+            shown = httpx.get(base + "/products/eligibility-drafts", headers=rev, timeout=30).json()["drafts"][0]["rules"]
+            # H-193: der Browser sendet genau die angezeigte Fassung, ohne vorheriges
+            # Neuladen; nach 409 laedt er neu und zeigt den Grund.
+            calls, first = [], []
+            page.on("request", lambda q: calls.append((q.method, q.post_data)) if "/products/" in q.url else None)
+
+            def stale_once(route):
+                if first:
+                    return route.continue_()
+                first.append(1)
+                return route.fulfill(status=409, content_type="application/json", body=json.dumps({"detail": {
+                    "reason_code": "PRODUCT_ELIGIBILITY_SEEN_VERSION_MISMATCH", "message": "Testwert geändert"}}))
+
+            page.route("**/eligibility-rule/approve", stale_once)
+            page.click(button)
+            page.wait_for_selector("#elig-reviewer-list [role=alert]:has-text('SEEN_VERSION_MISMATCH')")
+            assert [m for m, _ in calls] == ["POST", "GET"], calls
+            assert json.loads(calls[0][1]) == {"seen_rules": [
+                {"rule_id": r["rule_id"], "rule_hash": r["rule_hash"]} for r in shown]}
+            page.click(button)
+            page.wait_for_selector("#elig-reviewer-list:has-text('Keine offenen Eignungsregeln.')")
+        finally:
+            browser.close()
+    drafts = httpx.get(base + "/products/eligibility-drafts", headers=owner, timeout=30).json()
+    assert pid not in {d["product_id"] for d in drafts["drafts"]}

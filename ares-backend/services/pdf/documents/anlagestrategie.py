@@ -47,7 +47,7 @@ from services.pdf.components.text_sections import (
     make_kennzahlen_erlaeuterungen_section,
     make_zusammenfassung_section,
 )
-from services.pdf.components.unterschrift import make_unterschrift_section
+from services.pdf.components.unterschrift import make_signature_block
 from services.pdf.components.ziele_table import make_ziele_section
 
 
@@ -329,7 +329,7 @@ def build_anlagestrategie_flowables(
     # ============================================================
     flowables.extend(make_zusammenfassung_section())
     flowables.append(PageBreak())
-    flowables.extend(make_unterschrift_section())
+    flowables.extend(make_signature_block(ctx))
     flowables.append(PageBreak())
 
     # ============================================================
@@ -477,7 +477,7 @@ def _build_anlagestrategie_flowables_template_order(
     # 9 Zusammenfassung + Unterschrift
     flowables.extend(make_zusammenfassung_section())
     flowables.append(Spacer(1, 6 * mm))
-    flowables.extend(make_unterschrift_section())
+    flowables.extend(make_signature_block(ctx))
     flowables.append(PageBreak())
 
     # 10 Ausgangslage-Cover

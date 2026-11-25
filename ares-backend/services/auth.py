@@ -332,6 +332,11 @@ _COMPLIANCE_REVIEWER_ALLOWED: tuple[tuple[str, str], ...] = (
     # nur die vorgelegten Akten (datenminimiert) und deren Freigabe.
     ("GET", r"/publication-inbox"),
     ("POST", r"/publication-inbox/[^/]+/approve"),
+    # ROL-b (CTO-Entscheid H-187 Nachtrag 3): offene Produkt-Eignungsregeln der
+    # Firma lesen und als zweite Person freigeben -- Erfassen (POST/PUT
+    # /products, Import) und das Fondsuniversum bleiben gesperrt.
+    ("GET", r"/products/eligibility-drafts"),
+    ("POST", r"/products/[^/]+/eligibility-rule/approve"),
 )
 
 

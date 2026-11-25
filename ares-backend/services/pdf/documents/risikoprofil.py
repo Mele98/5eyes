@@ -8,7 +8,7 @@ from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 from services.pdf.base import PDFContext, RisikoprofilData
 from services.pdf.components.eignungspruefung import make_eignungspruefung_section
 from services.pdf.components.header import _esc, make_banner_header
-from services.pdf.components.unterschrift import make_unterschrift_section
+from services.pdf.components.unterschrift import make_signature_block
 from core.customer_terms import customer_reference_text, short_reference
 from core.presentation_rounding import format_amount_minor
 from services.pdf.styles import (
@@ -93,7 +93,8 @@ def build_risikoprofil_flowables(
         flowables.append(signoff_lines_table(data.signoff_lines, styles, advisor_annex=advisor_annex))
 
     flowables.append(Spacer(1, 8 * mm))
-    flowables.extend(make_unterschrift_section(
+    flowables.extend(make_signature_block(
+        ctx,
         client_confirm_text=(
             "Ich bestätige, dass die vorstehenden Angaben zu Risikoprofil, "
             "Kenntnissen und Erfahrungen im Beratungsgespräch besprochen "

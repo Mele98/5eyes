@@ -241,7 +241,13 @@ GOLDEN_SORTED_TABLES_SHA256 = "ef1bc00d02f20409bcc15254cba6b47235aab94dffe476759
 # K3 (H-189, N-915-06): nur additiv -- GET/PUT /mandates/{id}/external-holdings
 # [/{wp_id}] und Schemas ExternalHolding*; kein bestehender Pfad/Feld geaendert.
 # K3 auf L2d: aus dem Tree neu berechnet (api/openapi.json, export_openapi.py).
-GOLDEN_OPENAPI_SHA256 = "7e13df2e3ac00aa92926e8080f98c2611edae862279f77f7572095a7e2d182cc"
+# H-193 ROL-b: nur additiv -- ProductEligibilityApprovalRequest.seen_rules
+# (optional, ProductEligibilitySeenRule), PublicationInboxItem.client_name,
+# ProductEligibilityDraftItem.product_name/isin/asset_class/authored_by_names/rules
+# (optional) und die descriptions der beiden Eignungsregel-Routen bzw. Schemas;
+# kein Pfad, kein bestehendes Feld geaendert (Feld-Diff api/openapi.json:
+# 99 hinzugefuegte, 3 geaenderte description-Zeilen, export_openapi.py).
+GOLDEN_OPENAPI_SHA256 = "da21c1cfa87257b1a8fb382c68f557408eee7daa77e7201cfd6f190c1f3b48ee"
 
 _PROBE = """
 import hashlib, json
