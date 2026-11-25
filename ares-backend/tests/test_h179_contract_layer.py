@@ -990,7 +990,7 @@ def test_cost_disclosure_without_depot_bank_inducement_is_a_draft(sf):
     assert watermark.DEPOT_BANK_DRAFT_TEXT == footer.DEPOT_BANK_DRAFT_TEXT and "depotbank" in watermark.WATERMARK_MODES
     source = inspect.getsource(pdf_reports.get_cost_disclosure_pdf) if hasattr(
         pdf_reports, "get_cost_disclosure_pdf") else inspect.getsource(pdf_reports)
-    assert 'watermark_mode="depotbank"' in source
+    assert '_with_draft_reason(ctx, "depotbank")' in source
     with sf() as db:
         m = mandate(db)
         m.depot_bank = "Bank X"
