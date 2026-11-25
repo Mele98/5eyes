@@ -6,8 +6,8 @@
     "sha256": "73d0e0f4b1b49a24e940d3d87a22c48b796178e3e4b14aec685d249e18b118a2"
    },
    {
-    "chars": 771,
-    "sha256": "ba881f13025eb0d7361711006bdd17dd8697753f17747c3b821195f17cff9eeb"
+    "chars": 705,
+    "sha256": "2ccdeebbebf883b635aaff2a4fbddb5c21dd2e32e105b5916d376ad9ebea9517"
    }
   ],
   "pages": 2
@@ -19,8 +19,8 @@
     "sha256": "ca8cb00bc4a7d5f68e90bfbb6a96b98c88886f4bca09dac5e7e5a4835e544c77"
    },
    {
-    "chars": 1552,
-    "sha256": "5a35c556f4c1f8a744d8f93304c3f06adebb3bd189cfc26eeb062cae22716b45"
+    "chars": 1385,
+    "sha256": "840c528a20b3351443c0fb8bb5860b5b325a377e227fe2feddd84ba8f6ae8ee7"
    }
   ],
   "pages": 2
@@ -28,14 +28,10 @@
  "vertrag": {
   "page_text": [
    {
-    "chars": 927,
-    "sha256": "5236193b53c61e7ffd7f9f31fda0328c0675f7e942031e209ec74c9d5f8e9068"
-   },
-   {
-    "chars": 475,
-    "sha256": "c6281185ada3185b05b7808723397adfdf2cc2e365d8e810be0234638af74f93"
+    "chars": 1047,
+    "sha256": "7c7117cdbda83ffdc2138ec5e19de96c3d784fddb8b9139381a29cac2d051879"
    }
   ],
-  "pages": 2
+  "pages": 1
  }
 }
