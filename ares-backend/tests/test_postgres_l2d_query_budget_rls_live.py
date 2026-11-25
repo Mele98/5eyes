@@ -5,7 +5,7 @@ NICHT-Owner, NOSUPERUSER, NOBYPASSRLS mit versiegelten Zeilen:
 
 * Beratungslog: 20 Eintraege kosten hoechstens fuenf SELECTs mehr als einer;
 * Kundenbericht: 20 Notizversionen hoechstens fuenf mehr als eine;
-* ein fremder Mandant sieht weder Eintraege noch Versionen;
+* eine fremde Firma erreicht weder Eintraege (404, Mandat unsichtbar) noch Versionen;
 * Gegenprobe: ohne Schluesselkontext waechst die Zahl linear.
 
 Uebersprungen ohne ``POSTGRES_TEST_DATABASE_URL`` (CI-Job ``postgres-rls``).
@@ -18,6 +18,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
@@ -78,6 +79,8 @@ def pg_app():
             seed.flush()
             seed.add(User(id="adv-1", username=f"adv-{token}", password_hash="x", full_name="ADV-1",
                           role="advisor", is_active=1, tenant_id=TENANT, created_at=NOW, updated_at=NOW))
+            seed.add(User(id="adv-2", username=f"adv2-{token}", password_hash="x", full_name="ADV-2",
+                          role="advisor", is_active=1, tenant_id=FOREIGN, created_at=NOW, updated_at=NOW))
             seed.flush()
             seed.add(Client(id="c-1", tenant_id=TENANT, client_number="K-1", first_name="Eva",
                             last_name="Muster", advisor_id="adv-1", created_at=NOW, updated_at=NOW))
@@ -161,7 +164,13 @@ def test_advisory_log_selects_are_constant_under_rls(pg_app):
         assert count <= baseline + 5, (baseline, count)
     with pg_app() as db:
         set_tenant_context(db, FOREIGN)
-        assert db.execute(text("SELECT COUNT(*) FROM advisory_log")).scalar_one() == 0
+        # advisory_log hat (dokumentierter Altbestand, TENANT_DERIVED_BACKLOG) keine
+        # eigene RLS-Policy; die Firmengrenze laeuft ueber das Mandat.
+        assert db.execute(text(
+            "SELECT COUNT(*) FROM advisory_log a JOIN mandates m ON m.id = a.mandate_id")).scalar_one() == 0
+        with pytest.raises(HTTPException) as denied:
+            review_api.list_advisory_log("m-1", db=db, current_user=user(db, "adv-2"))
+        assert denied.value.status_code == 404
 
 
 def test_report_selects_are_constant_under_rls(pg_app):
