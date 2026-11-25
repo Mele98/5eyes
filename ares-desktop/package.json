@@ -61,6 +61,7 @@
       "frontend/kn4-ui.js",
       "frontend/kn5-ui.js",
       "frontend/p5c-ui.js",
+      "frontend/conflict-mitigation.js",
       "frontend/eligibility-overrides.js",
       "frontend/desktop-api.js",
       "frontend/build-info.js",

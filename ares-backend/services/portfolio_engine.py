@@ -6,7 +6,7 @@ import random
 import time
 from collections import defaultdict
 from dataclasses import dataclass, replace
-from datetime import date, datetime, timezone
+from datetime import date
 from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ from config import RunContext, settings, strategy_self_test_package
 from core.chf_amount import normalize_chf_amount_text
 from core.holdings_rule import select_valuation_runs
 from core.evidence import SCHEME_V1_ASCII, canonical_json, evidence_hash
-from database import new_uuid
+from database import new_uuid, validity_day, validity_instant
 from models.allocation import (
     BuildingBlock,
     CapitalMarketAssumption,
@@ -236,11 +236,11 @@ class StoredReferencePrice:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    return validity_instant()
 
 
 def _today() -> str:
-    return date.today().isoformat()
+    return validity_day()
 
 
 def _parse_bps_percent(value) -> int | None:
@@ -1872,7 +1872,7 @@ def _ensure_runtime_reference_data_ch(
             policy_name=DEFAULT_POLICY_NAME,
             version=1,
             is_current=1,
-            valid_from=today,
+            valid_from=now,  # L2d / N-938-06: gleiche Uhr wie valid_to (UTC)
             optimizer_engine="goal_based_v1",
             max_real_estate_bps=2000,
             max_alternatives_bps=1000,

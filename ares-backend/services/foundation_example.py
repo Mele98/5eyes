@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from database import new_uuid
+from database import new_uuid, validity_day
 from models.allocation import TargetAllocation
 from models.clients import Client, ClientNationality, ClientOptHistory
 from models.mandates import Mandate
@@ -40,7 +40,7 @@ def _now() -> str:
 
 
 def _today() -> str:
-    return date.today().isoformat()
+    return validity_day()
 
 
 def _rappen(chf: int | float) -> int:

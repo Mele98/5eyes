@@ -49,7 +49,7 @@ from services.fx_basis import FxBasisError, compute_wealth_totals, load_fx_basis
 # KN9a / N-934-01..02: eine Integritaetsregel fuer alle Kundenkanaele.
 from services.advisory_log_service import (  # noqa: F401  (Re-Export)
     PROTOCOL_TEXT_TAMPERED, AdvisoryLogIntegrityFailed, advisory_log_integrity_message,
-    assert_shown_entries_intact, conflict_text_view, customer_protocol_entry, report_notes_view)
+    assert_shown_entries_intact, conflict_text_view, customer_protocol_entry, ProtocolReader, report_notes_view)
 
 
 def assert_report_advisory_log_integrity(payload: dict[str, Any], *, document: str) -> None:
@@ -819,7 +819,8 @@ def _load_report_notes(db: Session, mandate: Mandate) -> Any | None:
     # (gleiche Attributnamen wie die Kopfzeile). ``veraendert`` liefert leere
     # Felder (Standardtexte) und sperrt die Kundenkanaele.
     try:
-        return report_notes_view(db, str(mandate.id), client_id=getattr(mandate, "client_id", None))
+        return report_notes_view(db, str(mandate.id), client_id=getattr(mandate, "client_id", None),
+                                 with_history=False)
     except Exception:  # noqa: BLE001 — robust gegen Schema-Mismatch in alten DBs
         return None
 
@@ -4243,6 +4244,7 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
     has_unacknowledged = False
     has_undisclosed = False
     has_indeterminate = False
+    reader = ProtocolReader(db)
     for row in rows:
         ctype = str(getattr(row, "conflict_type", "") or "unknown")
         counts_by_type[ctype] = counts_by_type.get(ctype, 0) + 1
@@ -4257,7 +4259,7 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
             has_undisclosed = True
         if resolution_state in _CONFLICT_INDETERMINATE_STATES:
             has_indeterminate = True
-        texts = conflict_text_view(db, row, client_id=getattr(mandate, "client_id", None))
+        texts = conflict_text_view(db, row, client_id=getattr(mandate, "client_id", None), reader=reader)
         if texts["text_state"] == PROTOCOL_TEXT_TAMPERED:
             integrity_failed_ids.append(str(getattr(row, "id", "") or ""))
         entries.append({

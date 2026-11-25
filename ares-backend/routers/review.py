@@ -24,7 +24,7 @@ from models.review import (
     ConflictOfInterestDisclosure, Product, ProductSuitability,
     ProductUniverseEntry,
     RecommendationRun, RecommendationPosition, RecommendationHolding, AuditLog,
-    ClientInformationDelivery,
+    ClientInformationDelivery, CONFLICT_MITIGATION_ACTIONS,
 )
 from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
 from models.profiling import RiskAssessment, SuitabilityCheck
@@ -1430,14 +1430,14 @@ def list_advisory_log(
     Mit `?include_history=true` werden alle Versionen geliefert (für
     Compliance-Audit). Default: nur aktuelle Köpfe der Versions-Ketten.
     """
-    from services.advisory_log_service import serialize_response
+    from services.advisory_log_service import serialize_entries
 
     _get_mandate_or_404(mandate_id, db, current_user)
     q = db.query(AdvisoryLog).filter(AdvisoryLog.mandate_id == mandate_id)
     if not include_history:
         q = q.filter(AdvisoryLog.superseded_by_id.is_(None))
     rows = q.order_by(AdvisoryLog.entry_date.desc()).all()
-    return [serialize_response(r, db) for r in rows]
+    return serialize_entries(rows, db)
 
 
 @router.get(
@@ -1683,6 +1683,18 @@ def update_advisory_log_entry(
                 f"Aktuelle Version: {entry.superseded_by_id}"
             ),
         )
+    if _advisory_log.entry_integrity_failed(entry):
+        # N-938-04: nie einen veraenderten Vorgaenger durch eine neue,
+        # frisch gesiegelte Fassung «heilen».
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "ADVISORY_LOG_INTEGRITY_FAILED", "entry_kind": "advisory_log",
+            "entry_id": entry.id,
+            "message": (
+                "Die Prüfsumme dieses Beratungsprotokoll-Eintrags passt nicht zu seinem Inhalt. "
+                "Der Eintrag wurde nach dem Speichern verändert oder ist beschädigt und kann "
+                "nicht durch eine neue Version ersetzt werden. Bitte neu erfassen."
+            ),
+        })
 
     if body.status is not None:
         current_status = entry.status or "Empfohlen"
@@ -2561,7 +2573,8 @@ def list_conflicts(
         ConflictOfInterestDisclosure.deleted_at.is_(None)
     ).all()
     # L2c (H-192): Freitexte geoeffnet, nie als Umschlag.
-    return [_conflict_response(row, db, client_id=mandate.client_id) for row in rows]
+    reader = _advisory_log.ProtocolReader(db)
+    return [_conflict_response(row, db, client_id=mandate.client_id, reader=reader) for row in rows]
 
 
 @router.post("/mandates/{mandate_id}/conflicts",
@@ -2711,7 +2724,9 @@ def _validated_event_timestamp(
     return candidate
 
 
-def _conflict_response(conflict, db: Session | None = None, *, client_id: str | None = None) -> dict:
+def _conflict_response(
+    conflict, db: Session | None = None, *, client_id: str | None = None, reader=None,
+) -> dict:
     """Die Konfliktzeile samt abgeleitetem Nachweiszustand.
 
     Derselbe Resolver wie im Advisory-Report (CONFLICT-STATE-001), damit der
@@ -2731,7 +2746,7 @@ def _conflict_response(conflict, db: Session | None = None, *, client_id: str | 
     }
     # L2c: versiegelte Freitexte geoeffnet; geloescht -> «Gelöscht (DSG).»,
     # veraendert -> leer (Kundenkanaele sperren separat).
-    texts = _advisory_log.conflict_text_view(db, conflict, client_id=client_id)
+    texts = _advisory_log.conflict_text_view(db, conflict, client_id=client_id, reader=reader)
     payload["description"] = texts["description"]
     payload["mitigation_action"] = texts["mitigation_action"]
     payload.pop("text_seal", None)
@@ -2881,17 +2896,26 @@ def mitigate_conflict(
                        "(nach dem Speichern verändert oder beschädigt). Er wird nicht geändert.",
         })
     previous = getattr(conflict, "mitigation_action", None)
-    conflict.mitigation_action = body.mitigation_action.strip()
+    conflict.mitigation_action = body.mitigation_action
     conflict.updated_at = _now()
+    # L2d / N-938-01: ins Audit-Log nur Kategorien, nie ein Freitext. Ein
+    # Altwert ausserhalb der Liste erscheint nur als Hinweis.
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="conflict_of_interest_disclosures", record_id=conflict.id,
         action="UPDATE", field_name="mitigation_action",
-        old_value=previous, new_value=conflict.mitigation_action,
+        old_value=_mitigation_audit_value(previous), new_value=conflict.mitigation_action,
         mandate_id=mandate_id, client_id=mandate.client_id,
         ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(conflict)
     return _conflict_response(conflict, db, client_id=mandate.client_id)
+
+
+def _mitigation_audit_value(value):
+    """Audit-Wert der Massnahme: Kategorie oder Hinweis, nie ein Freitext (L2d)."""
+    if value is None or value in CONFLICT_MITIGATION_ACTIONS:
+        return value
+    return "geändert (früherer Wert ohne Kategorie, nicht protokolliert)"
 
 
 @router.post("/mandates/{mandate_id}/conflicts/{conflict_id}/attach-document",

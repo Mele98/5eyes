@@ -114,15 +114,11 @@ PROTOCOL_TEXT_ERASED = "geloescht_dsg"
 PROTOCOL_TEXT_TAMPERED = "veraendert"
 ERASED_TEXT = "Gelöscht (DSG)."
 ProtocolTextSealError = pii_vault.PiiVaultError
+ProtocolReader = pii_vault.KeyReader
 
 
 def mandate_client_id(db: Session, mandate_id: Any) -> str | None:
-    if not mandate_id:
-        return None
-    value = db.execute(
-        _sql_text("SELECT client_id FROM mandates WHERE id = :id"), {"id": str(mandate_id)},
-    ).scalar()
-    return str(value) if value else None
+    return pii_vault.KeyReader(db).client_of_mandate(mandate_id)
 
 
 def seal_protocol_value(db: Session, client_id: str | None, value: Any) -> Any:
@@ -133,6 +129,7 @@ def seal_protocol_value(db: Session, client_id: str | None, value: Any) -> Any:
 
 def reveal_protocol_values(
     db: Session | None, client_id: str | None, values: dict[str, Any], fields,
+    *, reader: pii_vault.KeyReader | None = None,
 ) -> tuple[dict[str, Any], str]:
     """(Klartexte, Zustand) fuer die genannten Felder.
 
@@ -142,6 +139,8 @@ def reveal_protocol_values(
     das gilt als ``veraendert`` (nie Umschlag ausgeben)."""
     plain: dict[str, Any] = {}
     state = PROTOCOL_TEXT_OK
+    if reader is None and db is not None:
+        reader = pii_vault.KeyReader(db)
     for field in fields:
         value = values.get(field)
         if not pii_vault.is_sealed(value):
@@ -151,7 +150,7 @@ def reveal_protocol_values(
             plain[field] = None
             state = PROTOCOL_TEXT_TAMPERED
             continue
-        text_value, status = pii_vault.reveal_state(db, value, client_id=client_id or "")
+        text_value, status = pii_vault.reveal_state(db, value, client_id=client_id or "", reader=reader)
         if status == pii_vault.REVEAL_SHREDDED:
             plain[field] = None
             if state == PROTOCOL_TEXT_OK:
@@ -170,18 +169,26 @@ def seal_advisory_entry_texts(db: Session, entry: AdvisoryLog, client_id: str | 
         setattr(entry, field, seal_protocol_value(db, client_id, getattr(entry, field, None)))
 
 
-def advisory_entry_text_state(db: Session | None, entry: Any) -> tuple[dict[str, Any], str]:
+def advisory_entry_text_state(
+    db: Session | None, entry: Any, *, reader: pii_vault.KeyReader | None = None,
+) -> tuple[dict[str, Any], str]:
     """(Klartexte, Zustand) der versiegelten Felder eines Eintrags."""
     values = {field: getattr(entry, field, None) for field in ADVISORY_LOG_SEALED_FIELDS}
     if db is None:
-        db = object_session(entry) if isinstance(entry, AdvisoryLog) else None
+        db = reader.db if reader is not None else (
+            object_session(entry) if isinstance(entry, AdvisoryLog) else None)
     if not any(pii_vault.is_sealed(v) for v in values.values()):
         return values, PROTOCOL_TEXT_OK
-    client_id = mandate_client_id(db, getattr(entry, "mandate_id", None)) if db is not None else None
-    return reveal_protocol_values(db, client_id, values, ADVISORY_LOG_SEALED_FIELDS)
+    if db is None:
+        return reveal_protocol_values(None, None, values, ADVISORY_LOG_SEALED_FIELDS)
+    reader = reader or pii_vault.KeyReader(db)
+    client_id = reader.client_of_mandate(getattr(entry, "mandate_id", None))
+    return reveal_protocol_values(db, client_id, values, ADVISORY_LOG_SEALED_FIELDS, reader=reader)
 
 
-def conflict_text_view(db: Session | None, row: Any, *, client_id: str | None = None) -> dict[str, Any]:
+def conflict_text_view(
+    db: Session | None, row: Any, *, client_id: str | None = None, reader: pii_vault.KeyReader | None = None,
+) -> dict[str, Any]:
     """Interessenkonflikt -> Anzeigeform mit Klartext, ``text_state`` und
     ``integrity_verified`` (Siegel ueber die Umschlaege)."""
     values = {field: getattr(row, field, None) for field in CONFLICT_SEALED_FIELDS}
@@ -189,8 +196,9 @@ def conflict_text_view(db: Session | None, row: Any, *, client_id: str | None = 
     if db is None:
         db = object_session(row)
     if client_id is None and db is not None:
-        client_id = mandate_client_id(db, getattr(row, "mandate_id", None))
-    plain, state = reveal_protocol_values(db, client_id, values, CONFLICT_SEALED_FIELDS)
+        reader = reader or pii_vault.KeyReader(db)
+        client_id = reader.client_of_mandate(getattr(row, "mandate_id", None))
+    plain, state = reveal_protocol_values(db, client_id, values, CONFLICT_SEALED_FIELDS, reader=reader)
     verified: bool | None = None
     if stored_seal:
         verified = protocol_text_seal(
@@ -227,19 +235,21 @@ def seal_conflict_texts(db: Session, row: Any, client_id: str | None) -> None:
 # ueber die Umschlaege). Die Kopfzeile ``mandate_report_notes`` traegt nur
 # noch Metadaten; die Historie vor L2c (``previous_versions_json``) liegt als
 # ein versiegelter Umschlag in der Kopfzeile.
-def _report_note_versions(db: Session, mandate_id: str) -> list[dict[str, Any]]:
+def _report_note_versions(db: Session, mandate_id: str, *, latest_only: bool = False) -> list[dict[str, Any]]:
     rows = db.execute(
         _sql_text(
             "SELECT * FROM mandate_report_note_versions WHERE mandate_id = :mid "
-            "ORDER BY version DESC"
+            "ORDER BY version DESC" + (" LIMIT 1" if latest_only else "")
         ),
         {"mid": str(mandate_id)},
     ).mappings().all()
     return [dict(row) for row in rows]
 
 
-def _reveal_note_version(db: Session, row: dict[str, Any], client_id: str | None) -> dict[str, Any]:
-    plain, state = reveal_protocol_values(db, client_id, row, REPORT_NOTE_FIELDS)
+def _reveal_note_version(
+    db: Session, row: dict[str, Any], client_id: str | None, reader: pii_vault.KeyReader | None = None,
+) -> dict[str, Any]:
+    plain, state = reveal_protocol_values(db, client_id, row, REPORT_NOTE_FIELDS, reader=reader)
     if report_note_version_hash(row) != row.get("content_hash") or str(row.get("client_id") or "") != str(client_id or ""):
         state = PROTOCOL_TEXT_TAMPERED
     if state == PROTOCOL_TEXT_TAMPERED:
@@ -265,7 +275,9 @@ def _legacy_history(db: Session, head: Any, client_id: str | None) -> tuple[list
     return (parsed if isinstance(parsed, list) else []), PROTOCOL_TEXT_OK
 
 
-def report_notes_view(db: Session, mandate_id: str, *, client_id: str | None = None):
+def report_notes_view(
+    db: Session, mandate_id: str, *, client_id: str | None = None, with_history: bool = True,
+):
     """Aktueller Stand der Berichtsnotizen (geoeffnet) oder None.
 
     Attribute wie die alte ORM-Zeile (``aa_anmerkungen`` …), dazu
@@ -273,7 +285,11 @@ def report_notes_view(db: Session, mandate_id: str, *, client_id: str | None = N
     ``history`` (neueste zuerst: Aenderungen je Version, danach die
     Historie vor L2c) und die Metadaten der Kopfzeile. ``veraendert``
     liefert leere Felder (Report faellt auf Standardtexte zurueck) und
-    sperrt die Kundenkanaele."""
+    sperrt die Kundenkanaele.
+
+    N-938-02: Kundenkanaele lesen mit ``with_history=False`` nur die aktuelle,
+    gepruefte Version. Die ganze Historie oeffnen und pruefen nur die
+    Berater-Endpunkte (GET/PUT report-notes)."""
     head = db.query(MandateReportNotes).filter(MandateReportNotes.mandate_id == str(mandate_id)).first()
     if head is None:
         # Versionen gibt es nur mit Kopfzeile (PUT legt beide an, die
@@ -281,9 +297,10 @@ def report_notes_view(db: Session, mandate_id: str, *, client_id: str | None = N
         return None
     if client_id is None:
         client_id = mandate_client_id(db, mandate_id)
-    versions = _report_note_versions(db, mandate_id)
-    revealed = [_reveal_note_version(db, row, client_id) for row in versions]
-    legacy, legacy_state = _legacy_history(db, head, client_id)
+    reader = pii_vault.KeyReader(db)
+    versions = _report_note_versions(db, mandate_id, latest_only=not with_history)
+    revealed = [_reveal_note_version(db, row, client_id, reader) for row in versions]
+    legacy, legacy_state = _legacy_history(db, head, client_id) if with_history else ([], PROTOCOL_TEXT_OK)
     if revealed:
         current = {field: revealed[0].get(field) for field in REPORT_NOTE_FIELDS}
         state = revealed[0]["text_state"]
@@ -301,7 +318,7 @@ def report_notes_view(db: Session, mandate_id: str, *, client_id: str | None = N
     ):
         state = PROTOCOL_TEXT_ERASED
     history: list[dict] = []
-    for newer, older in zip(revealed, revealed[1:] + [None]):
+    for newer, older in zip(revealed if with_history else [], revealed[1:] + [None]):
         changes = {}
         for field in REPORT_NOTE_FIELDS:
             old_value = older.get(field) if older else None
@@ -327,7 +344,11 @@ def append_report_note_version(
 ) -> dict[str, Any] | None:
     """Neue append-only Version (Freitexte versiegelt). None, wenn sich nichts
     aendert. Fail-closed ``ProtocolTextSealError`` nach DSG-Loeschung; bei
-    ``veraendert`` lehnt der Aufrufer vorher ab."""
+    ``veraendert`` lehnt der Aufrufer vorher ab.
+
+    N-938-03: Eine Kopfzeile mit Text, aber ohne Version (Altbestand) wird
+    zuerst als Version 1 uebernommen (Urheber und Zeitpunkt der Kopfzeile) und
+    zurueckgelesen -- auch bei einem PUT ohne Aenderung."""
     current = report_notes_view(db, mandate_id, client_id=client_id)
     merged = {field: (getattr(current, field, None) if current is not None else None) for field in REPORT_NOTE_FIELDS}
     changed = False
@@ -335,12 +356,35 @@ def append_report_note_version(
         if field in merged and (merged[field] or None) != (value or None):
             merged[field] = value or None
             changed = True
+    version = int(getattr(current, "current_version", 0) or 0)
+    legacy = {field: (getattr(current, field, None) or None) for field in REPORT_NOTE_FIELDS}
+    adopted = None
+    if version == 0 and current is not None and current.text_state == PROTOCOL_TEXT_OK and any(legacy.values()):
+        version = 1
+        adopted = _insert_report_note_version(
+            db, mandate_id=mandate_id, client_id=client_id, version=1, values=legacy,
+            edited_by=current.last_edited_by or edited_by, edited_at=current.last_edited_at or edited_at,
+        )
+        stored = report_notes_view(db, mandate_id, client_id=client_id, with_history=False)
+        if stored.text_state != PROTOCOL_TEXT_OK or any(
+            (getattr(stored, field) or None) != legacy[field] for field in REPORT_NOTE_FIELDS
+        ):
+            raise ProtocolTextSealError("Bestehende Berichtsnotizen konnten nicht als Version gesichert werden.")
     if not changed:
-        return None
+        return adopted
+    return _insert_report_note_version(
+        db, mandate_id=mandate_id, client_id=client_id, version=version + 1, values=merged,
+        edited_by=edited_by, edited_at=edited_at,
+    )
+
+
+def _insert_report_note_version(
+    db: Session, *, mandate_id: str, client_id: str | None, version: int, values: dict[str, Any],
+    edited_by: str, edited_at: str,
+) -> dict[str, Any]:
     row = {
-        "id": new_uuid(), "mandate_id": str(mandate_id), "client_id": client_id,
-        "version": int(getattr(current, "current_version", 0) or 0) + 1,
-        **{field: seal_protocol_value(db, client_id, merged[field]) for field in REPORT_NOTE_FIELDS},
+        "id": new_uuid(), "mandate_id": str(mandate_id), "client_id": client_id, "version": version,
+        **{field: seal_protocol_value(db, client_id, values[field]) for field in REPORT_NOTE_FIELDS},
         "edited_by": edited_by, "edited_at": edited_at,
     }
     row["content_hash"] = report_note_version_hash(row)
@@ -992,7 +1036,7 @@ class AdvisoryLogIntegrityFailed(Exception):
         self.entry_kind = entry_kind
 
 
-def entry_integrity_failed(entry: Any) -> bool:
+def entry_integrity_failed(entry: Any, reader: pii_vault.KeyReader | None = None) -> bool:
     """True nur, wenn die Pruefsumme nicht zum Inhalt passt. Nimmt eine
     DB-Zeile (wird jetzt geprueft) oder ein serialisiertes Dict
     (``integrity_verified`` aus ``serialize_response``)."""
@@ -1004,7 +1048,7 @@ def entry_integrity_failed(entry: Any) -> bool:
         return True
     # L2c: Siegel passt, aber Umschlag veraendert (fremder Schluessel,
     # unlesbar, Tombstone ohne belegte Loeschung).
-    return advisory_entry_text_state(None, entry)[1] == PROTOCOL_TEXT_TAMPERED
+    return advisory_entry_text_state(None, entry, reader=reader)[1] == PROTOCOL_TEXT_TAMPERED
 
 
 def _entry_label(entry: Any) -> str:
@@ -1033,8 +1077,11 @@ def assert_shown_entries_intact(
     """Fail-closed: wirft ``AdvisoryLogIntegrityFailed`` beim ersten gezeigten
     Eintrag mit nicht passender Pruefsumme. ``latest_only`` nennt ihn in der
     Ursache «letzter Eintrag» (Advisory-Report zeigt nur diesen)."""
+    reader = None
     for entry in entries or ():
-        if entry_integrity_failed(entry):
+        if reader is None and isinstance(entry, AdvisoryLog) and (session := object_session(entry)) is not None:
+            reader = pii_vault.KeyReader(session)
+        if entry_integrity_failed(entry, reader):
             entry_id = entry.get("id") if isinstance(entry, dict) else getattr(entry, "id", None)
             raise AdvisoryLogIntegrityFailed(
                 str(entry_id or "") or None, document=document,
@@ -1056,7 +1103,7 @@ CUSTOMER_SIGNOFF_ENTRY_TEXT = (
 )
 
 
-def customer_protocol_entry(entry: Any) -> dict:
+def customer_protocol_entry(entry: Any, reader: pii_vault.KeyReader | None = None) -> dict:
     """Ein Protokolleintrag in der Form der Kunden-PDFs (Beratungsprotokoll,
     Beratungsentscheid)."""
     get = entry.get if isinstance(entry, dict) else (lambda key: getattr(entry, key, None))
@@ -1065,7 +1112,7 @@ def customer_protocol_entry(entry: Any) -> dict:
         texts = {field: entry.get(field) for field in ADVISORY_LOG_SEALED_FIELDS}
         state = PROTOCOL_TEXT_OK
     else:
-        texts, state = advisory_entry_text_state(None, entry)
+        texts, state = advisory_entry_text_state(None, entry, reader=reader)
     if state == PROTOCOL_TEXT_ERASED:
         texts = {field: (ERASED_TEXT if field in ("title", "description") else "") for field in texts}
     for field, value in texts.items():
@@ -1086,14 +1133,22 @@ def customer_protocol_entry(entry: Any) -> dict:
     return view
 
 
-def serialize_response(entry: AdvisoryLog, db: Session | None = None) -> dict:
+def serialize_entries(entries, db: Session) -> list[dict]:
+    """Liste mit EINEM Schluessel-/Mandatskontext (N-938-02)."""
+    reader = pii_vault.KeyReader(db)
+    return [serialize_response(entry, db, reader=reader) for entry in entries]
+
+
+def serialize_response(
+    entry: AdvisoryLog, db: Session | None = None, *, reader: pii_vault.KeyReader | None = None,
+) -> dict:
     """Wandelt AdvisoryLog-Row in API-Response-Dict (JSON-Felder → Listen).
 
     L2c: die versiegelten Freitexte werden ueber ``advisory_entry_text_state``
     geoeffnet (Session: ``db`` oder die der Zeile). ``text_state`` sagt
     ``ok`` / ``geloescht_dsg`` / ``veraendert``; ``veraendert`` setzt
     ``integrity_verified`` auf False (sperrt die Kundenkanaele, KN9a)."""
-    texts, text_state = advisory_entry_text_state(db, entry)
+    texts, text_state = advisory_entry_text_state(db, entry, reader=reader)
     if text_state == PROTOCOL_TEXT_ERASED:
         texts = {"title": ERASED_TEXT, "description": ERASED_TEXT, "location": None, "participants_json": None}
     elif text_state == PROTOCOL_TEXT_TAMPERED:

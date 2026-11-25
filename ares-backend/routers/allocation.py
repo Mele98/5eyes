@@ -10,7 +10,7 @@ import json
 from types import SimpleNamespace
 
 from config import settings
-from database import get_db, new_uuid
+from database import get_db, new_uuid, validity_day, validity_end, validity_instant
 from models.users import User
 from models.mandates import Mandate
 from models.allocation import TargetAllocation, OptimizerPolicy, OptimizerRun, CapitalMarketAssumption, HouseMatrix, BuildingBlock
@@ -150,7 +150,7 @@ _bootstrap_logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    return validity_instant()
 
 
 def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Mandate:
@@ -1914,7 +1914,7 @@ def create_optimizer_policy(
         ).with_for_update().first()
         if prev:
             prev.is_current = 0
-            prev.valid_to = now
+            prev.valid_to = validity_end(prev.valid_from, now)
             prev.updated_at = now
             # The new active row is inserted below.  Persist deactivation
             # first so the immediate partial unique index never sees two
@@ -2095,7 +2095,7 @@ def activate_optimizer_policy(
     ).with_for_update().first()
     if prev and prev.id != policy_id:
         prev.is_current = 0
-        prev.valid_to = now
+        prev.valid_to = validity_end(prev.valid_from, now)
         prev.updated_at = now
         # SQLAlchemy orders same-table UPDATEs by primary key.  Without this
         # boundary it can activate ``policy`` before clearing ``prev`` and
@@ -2198,8 +2198,10 @@ def create_depot_snapshot(
 
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     try:
+        # L2d: Stichtag = Kalendertag der Prozess-Zeitzone (KN7), wie Preise,
+        # Bestandsstichtage und FX-Erfassung; vorher UTC-Datum (00:00-01:00 CH falsch).
         snapshot = build_depot_snapshot(
-            db, mandate, as_of=datetime.now(timezone.utc).date(),
+            db, mandate, as_of=date.fromisoformat(validity_day()),
         )
         row, created = persist_depot_snapshot(
             db, snapshot, mandate=mandate, created_by=current_user.id, created_at=_now(),

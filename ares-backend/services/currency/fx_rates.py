@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Mapping
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import text
 
@@ -163,16 +163,33 @@ def is_substitute_source(source) -> bool:
     return str(source or "").strip().casefold() in ("", DEFAULT_RATE_SOURCE.casefold())
 
 
+def observed_day(observed_at) -> date | None:
+    """L2d: Kalendertag einer Kursbeobachtung in der Zeitbasis des Stichtags
+    (Kalendertag der Prozess-Zeitzone, KN7). Ein Zeitpunkt mit Zone (die API
+    schreibt UTC, ``...Z``) wird in die Prozess-Zeitzone umgerechnet; ein reines
+    Datum gilt unveraendert. Unlesbar -> ``None``."""
+    raw = str(observed_at or "").strip()
+    if len(raw) < 10:
+        return None
+    if len(raw) > 10:
+        try:
+            stamp = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            stamp = None
+        if stamp is not None and stamp.tzinfo is not None:
+            return stamp.astimezone().date()
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+
+
 def quote_status(source, observed_at, *, as_of: date, max_age_days: int) -> str:
     """Status eines beobachteten Kurses: Ersatzkurs/ohne Datum MISSING, nach dem
     Stichtag MISMATCH, aelter als die Frist STALE."""
     if is_substitute_source(source):
         return FX_STATUS_MISSING
-    raw = str(observed_at or "").strip()
-    try:
-        observed = date.fromisoformat(raw[:10]) if len(raw) >= 10 else None
-    except ValueError:
-        observed = None
+    observed = observed_day(observed_at)
     if observed is None:
         return FX_STATUS_MISSING
     if observed > as_of:

@@ -104,6 +104,9 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     # P5c (H-186): Zielstatus nur aus M-3 (goalStatusView) und keine stille
     # Neuberechnung bei Klicks mit anderer Absicht (loadStrategyOnly).
     ("p5c-ui.js", "js"),
+    # L2d (H-194, N-938-01): Massnahme eines Interessenkonflikts als Auswahlliste
+    # (Kategorie wie CHECK-Regel und API), kein Freitext.
+    ("conflict-mitigation.js", "js"),
     # E2 Nachhaltigkeitspraeferenzen (Dok. 106): Kundenmaske nach dem Risikoprofil.
     ("sustainability-preferences.js", "js"),
 )

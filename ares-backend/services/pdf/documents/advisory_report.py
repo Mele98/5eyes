@@ -43,7 +43,7 @@ from services.cost_disclosure import build_cost_disclosure, fee_agreement_missin
 from services.advisory_report import (  # noqa: F401  (Re-Export fuer routers.pdf_reports)
     AdvisoryLogIntegrityFailed, _build_suitability_compliance, advisory_log_integrity_message,
     assert_report_advisory_log_integrity, assert_shown_entries_intact, compute_advisory_report,
-    conflict_text_view, customer_protocol_entry, PROTOCOL_TEXT_TAMPERED)
+    conflict_text_view, customer_protocol_entry, PROTOCOL_TEXT_TAMPERED, ProtocolReader)
 from services.pdf.fonts import register_editorial_fonts
 from services.pdf.components.advisory_page_chrome import (
     AdvisoryNumberedCanvas,

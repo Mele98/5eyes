@@ -1,5 +1,5 @@
 {
- "dump_sha256": "b0233212ad7b666482594b7cadb9a83c66702bf61ca66e5874df83f0d9a1ef2c",
+ "dump_sha256": "9f17f9f895db43074a145173548f1d0af42cc7aced856d737823396b108a5544",
  "tables": {
   "asset_class_annual_returns": {
    "columns": [
@@ -334,7 +334,7 @@
    ],
    "row_count": 1,
    "row_sha256": [
-    "87e1a991cfe285494ec34105a25d79f1"
+    "c9bd5a9c5a75f1e5530931713065eb75"
    ]
   },
   "product_eligibility_rule_sets": {

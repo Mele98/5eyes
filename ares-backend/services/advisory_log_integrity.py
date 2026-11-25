@@ -229,7 +229,8 @@ def _constant_time_eq(a: str, b: str) -> bool:
 # ``pii_vault.reveal`` ihn oeffnet.
 # ---------------------------------------------------------------------------
 # ``decision`` und ``conflict_of_interest_disclosures.mitigation_action`` sind
-# Kategorien (CHECK-Liste im Desktop-Schema ares_schema.sql), kein Freitext.
+# Kategorien (CHECK-Liste im Desktop-Schema ares_schema.sql; L2d: auch API-Literal
+# und Postgres-CHECK), kein Freitext.
 ADVISORY_LOG_SEALED_FIELDS = ("title", "description", "location", "participants_json")
 CONFLICT_SEALED_FIELDS = ("description",)
 REPORT_NOTE_FIELDS = (

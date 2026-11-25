@@ -312,6 +312,39 @@ def new_uuid() -> str:
     return str(uuid.uuid4())
 
 
+# L2d / N-938-06: eine Zeitbasis fuer Gueltigkeitsfelder (valid_from/valid_to).
+# Die CHECK-Regel ``valid_to IS NULL OR valid_to >= valid_from`` vergleicht Text.
+# Beide Felder einer Tabelle muessen deshalb von derselben Uhr in derselben
+# Form kommen. Vorher legte der Seed die Policy mit dem lokalen Datum an
+# (``2026-11-22``) und die Abloesung schrieb einen UTC-Zeitpunkt
+# (``2026-11-21T23:30...Z``): in der Schweiz zwischen 00:00 und 01:00 war
+# valid_to < valid_from -> 422.
+# * Zeitpunkt-Tabellen (optimizer_policies): ``validity_instant()`` (UTC).
+# * Datums-Tabellen (client_knowledge, risk_assessments, planning_assumptions):
+#   ``validity_day()`` = Kalendertag der Prozess-Zeitzone (Stichtag-Regel KN7).
+def validity_instant() -> str:
+    """UTC-Zeitpunkt fuer valid_from UND valid_to von Zeitpunkt-Tabellen."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def validity_day() -> str:
+    """Kalendertag der Prozess-Zeitzone fuer valid_from UND valid_to von
+    Datums-Tabellen (gleiche Regel wie der Stichtag, KN7)."""
+    return datetime.now().date().isoformat()
+
+
+def validity_end(valid_from: str | None, end: str) -> str:
+    """valid_to beim Abloesen einer Version: ``end``, aber nie vor valid_from.
+
+    Nur fuer Altzeilen noetig, deren valid_from noch mit der anderen Uhr
+    geschrieben wurde (lokales Datum vor L2d). Dann endet die Version an ihrem
+    Beginn (leeres Intervall) statt die CHECK-Regel zu verletzen. Neue Zeilen
+    kommen von derselben Uhr und erreichen den Fall nie."""
+    if valid_from and end < str(valid_from):
+        return str(valid_from)
+    return end
+
+
 def bootstrap_sqlite_schema(
     db_path: str | Path | None = None,
     schema_path: str | Path | None = None,

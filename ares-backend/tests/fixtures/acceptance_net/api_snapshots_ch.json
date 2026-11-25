@@ -466,7 +466,7 @@
   "status": 404
  },
  "optimizer_policy.current": {
-  "sha256": "41253ec6fcbd65178f66527f52329b5add704a70cb547e591787d3772fc9d53b",
+  "sha256": "523a8228a7b401e6952500a8634b8fa5d9d9a9b89eddbd1676ce3d6f92860109",
   "shape": {
    "allow_other_assets_for_goals": "int",
    "created_at": "str",

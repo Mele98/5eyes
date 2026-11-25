@@ -221,8 +221,25 @@ class AdvisoryLog(Base):
     recommendation_run = relationship("RecommendationRun")
 
 
+# L2d / N-938-01: die Massnahme ist eine Kategorie, kein Freitext -- dieselbe
+# Liste wie die CHECK-Regel im Desktop-Schema (ares_schema.sql). API (Literal),
+# ORM, Postgres (Alembic f3c8a1d6b2e4) und Classic-Maske lesen diese Liste.
+CONFLICT_MITIGATION_ACTIONS = (
+    "Weitergabe an Kunden",
+    "Ablehnung",
+    "Offenlegung ohne Mitigation",
+    "Strukturelle Massnahme",
+)
+CONFLICT_MITIGATION_CHECK_SQL = "mitigation_action IS NULL OR mitigation_action IN (" + ", ".join(
+    "'" + value + "'" for value in CONFLICT_MITIGATION_ACTIONS
+) + ")"
+
+
 class ConflictOfInterestDisclosure(Base):
     __tablename__ = "conflict_of_interest_disclosures"
+    __table_args__ = (
+        CheckConstraint(CONFLICT_MITIGATION_CHECK_SQL, name="ck_coi_mitigation_action"),
+    )
 
     id = Column(String, primary_key=True)
     mandate_id = Column(String, ForeignKey("mandates.id"), nullable=False)
@@ -254,9 +271,11 @@ class ConflictOfInterestDisclosure(Base):
     # der Router prueft, dass das Produkt fuer den Tenant sichtbar ist.
     # Alembic d4f7a9c2e1b6, SQLite-Runtime-Patch database.py.
     product_id = Column(String)
-    # L2c (H-192): Siegel ueber die versiegelten Freitexte (description,
-    # mitigation_action als pii_vault-Umschlag). NULL = Altbestand im
-    # Klartext. Alembic e2b7c4d9a1f3, SQLite-Runtime-Patch database.py.
+    # L2c (H-192): Siegel ueber die versiegelte Beschreibung (description als
+    # pii_vault-Umschlag). mitigation_action ist eine Kategorie
+    # (CONFLICT_MITIGATION_ACTIONS), kein Freitext, und bleibt offen (L2d).
+    # NULL = Altbestand im Klartext. Alembic e2b7c4d9a1f3, SQLite-Runtime-Patch
+    # database.py.
     text_seal = Column(String)
     disclosed_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)

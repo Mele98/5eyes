@@ -125,7 +125,7 @@ def test_counterprobe_without_the_rule_the_tampered_text_reaches_the_protocol(mo
     class _Stop(Exception):
         pass
 
-    def _record(row):
+    def _record(row, *_reader):
         seen.append(customer_protocol_entry(row))
         raise _Stop
 

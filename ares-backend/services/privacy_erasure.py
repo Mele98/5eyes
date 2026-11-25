@@ -1241,11 +1241,12 @@ def reveal_sealed_export_values(db: Session, client_id: str, sections: dict[str,
     (fremder Schluessel, veraendert, Tombstone ohne Loeschbeleg) sichtbar als
     «nicht lesbar». Nie ein Umschlag im Export. Rueckgabe: Zaehler je Zustand."""
     counts = {"revealed": 0, "erased": 0, "unreadable": 0}
+    reader = pii_vault.KeyReader(db)
 
     def _open(value: Any) -> Any:
         if not pii_vault.is_sealed(value):
             return value
-        plain, status = pii_vault.reveal_state(db, value, client_id=client_id)
+        plain, status = pii_vault.reveal_state(db, value, client_id=client_id, reader=reader)
         if status == pii_vault.REVEAL_OPEN:
             counts["revealed"] += 1
             return plain

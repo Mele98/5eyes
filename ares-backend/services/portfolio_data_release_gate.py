@@ -135,7 +135,8 @@ def assess_mandate_portfolio_data(
     freshness, freshness_error, snapshot_id = None, None, None
     try:
         if snapshot is None:
-            snapshot = build_depot_snapshot(db, mandate, as_of=advice_at.date())
+            # L2d: Stichtag = Kalendertag der Prozess-Zeitzone (KN7), nicht das UTC-Datum.
+            snapshot = build_depot_snapshot(db, mandate, as_of=advice_at.astimezone().date())
         snapshot_id = snapshot.get("snapshot_id")
         if policy is not None:
             components = freshness_components(db, mandate, snapshot)

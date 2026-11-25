@@ -13,7 +13,7 @@ from core.db_integrity import (
 from sqlalchemy.orm import Session, selectinload
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
-from database import get_db, new_uuid
+from database import get_db, new_uuid, validity_day
 from models.users import User
 from models.mandates import Mandate
 from models.clients import Client
@@ -120,7 +120,7 @@ def create_knowledge(
     enforce_data_classification(body.data_classification)
     client = get_client_for_user_or_404(client_id, db, current_user)
     now = _now()
-    today = date.today().isoformat()
+    today = validity_day()
 
     # Supersede previous current
     # Race-Hardening: pessimistic Lock auf den Anchor-Record. Auf Postgres
@@ -279,7 +279,7 @@ def create_risk_assessment(
     enforce_data_classification(body.data_classification)
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
-    today = date.today().isoformat()
+    today = validity_day()
     horizon_label = canonicalize_horizon_label(body.investment_horizon_label)
 
     # Compute scores from Fachlogik

@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from database import annual_returns_release_required, get_db
+from database import annual_returns_release_required, get_db, validity_day
 from core.preference_labels import preference_label
 from models.clients import Client, ClientRepresentation
 
@@ -97,6 +97,7 @@ from services.pdf.documents.advisory_report import (
     assert_shown_entries_intact,
     conflict_text_view,
     customer_protocol_entry,
+    ProtocolReader,
     render_advisory_report_pdf,
     suitability_compliance_for_mandate,
 )
@@ -2621,7 +2622,8 @@ def _build_protokoll_data(
         )
         assert_shown_entries_intact(log_rows, document=document)
         # KN9a: Kundenform (Systemeintrag der Portal-Signatur in Kundensprache).
-        entries.extend(customer_protocol_entry(row) for row in log_rows)
+        reader = ProtocolReader(db)
+        entries.extend(customer_protocol_entry(row, reader) for row in log_rows)
 
         # PDF-RUN-RESOLVER-001: "finale Empfehlung" im Protokoll/Beratungs-
         # entscheid nur aus dem Run der aktuellen Allokation.
@@ -3241,7 +3243,7 @@ def get_depotcheck_pdf(
             else:
                 if current_user.role in ("admin", "advisor"):
                     analysis, new_rows = ensure_current_depot_check_analysis(
-                        db, mandate, as_of=datetime.now(timezone.utc).date(),
+                        db, mandate, as_of=date.fromisoformat(validity_day()),  # L2d: Stichtag KN7
                         created_by=current_user.id, created_at=_now_iso(), gate=gate[1],
                     )
                     _log_depot_check_rows(db, request, mandate, current_user, new_rows)
@@ -3848,11 +3850,12 @@ def _kundeninformation_ties_and_offer(db: Session, mandate: Mandate, tenant_id: 
         ConflictOfInterestDisclosure.mandate_id == mandate.id,
         ConflictOfInterestDisclosure.deleted_at.is_(None),
     ).order_by(ConflictOfInterestDisclosure.created_at).all()
+    reader = ProtocolReader(db)
     for row in conflicts:
         provider = f" ({row.inducement_provider})" if row.inducement_provider else ""
         # L2c (H-192): versiegelte Beschreibung geoeffnet; veraendert sperrt
         # das Kunden-PDF (409 vor der Archivierung).
-        texts = conflict_text_view(db, row, client_id=getattr(mandate, "client_id", None))
+        texts = conflict_text_view(db, row, client_id=getattr(mandate, "client_id", None), reader=reader)
         if texts["text_state"] == PROTOCOL_TEXT_TAMPERED:
             raise AdvisoryLogIntegrityFailed(
                 str(row.id), document="Kundeninformation", entry_kind="conflict_disclosure",

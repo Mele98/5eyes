@@ -7,7 +7,7 @@ from core.db_integrity import raise_if_check_violation
 from core.reason_codes import DomainError, ReasonCode
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
-from database import get_db, new_uuid
+from database import get_db, new_uuid, validity_day
 from models.users import User
 from models.mandates import Mandate
 from models.clients import Client
@@ -1784,7 +1784,7 @@ def upsert_planning_assumptions(
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
-    today = date.today().isoformat()
+    today = validity_day()
     payload = body.model_dump(exclude_unset=True)
     # sec-f4 (2026-08-02): Phase-0-Gate fehlte fuer Planning-Assumptions -- analog
     # create_wealth_inflow/update_wealth_inflow nachgezogen (PlanningAssumption-
@@ -1868,7 +1868,7 @@ def create_planning_assumptions(
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
-    today = date.today().isoformat()
+    today = validity_day()
     data = body.model_dump()
     # sec-f4 (2026-08-02): Phase-0-Gate fehlte fuer Planning-Assumptions -- analog
     # create_wealth_inflow nachgezogen (PlanningAssumption-Model hat keine

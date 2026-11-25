@@ -9420,7 +9420,7 @@ export interface components {
             /** Inducement Provider */
             inducement_provider?: string | null;
             /** Mitigation Action */
-            mitigation_action?: string | null;
+            mitigation_action?: ("Weitergabe an Kunden" | "Ablehnung" | "Offenlegung ohne Mitigation" | "Strukturelle Massnahme") | null;
             /** Product Id */
             product_id?: string | null;
             /** Reimbursed To Client */
@@ -9483,9 +9483,10 @@ export interface components {
         ConflictMitigateRequest: {
             /**
              * Mitigation Action
-             * @description Was konkret getan wurde. Mindestlaenge, damit kein leerer Platzhalter als Massnahme durchgeht.
+             * @description Kategorie der getroffenen Massnahme (Liste wie die CHECK-Regel des Schemas). Kein Freitext: Details gehoeren in die versiegelte Beschreibung.
+             * @enum {string}
              */
-            mitigation_action: string;
+            mitigation_action: "Weitergabe an Kunden" | "Ablehnung" | "Offenlegung ohne Mitigation" | "Strukturelle Massnahme";
         };
         /** ContractDocumentCreate */
         ContractDocumentCreate: {

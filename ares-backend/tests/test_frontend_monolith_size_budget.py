@@ -217,6 +217,9 @@ L2b (H-190): neuer Teil ``advice-contract.js`` (Budget = Stand bei Einfuehrung):
 Beratungsvertrag in der Classic-Vertragsmaske; saveContractDocumentDraft aus dem
 Monolithen umgezogen -- der Monolith schrumpft trotz Script-Zeile auf 26282/1614959.
 owner-content.js 336/21153 (beim Erfassen: wo der Text erscheint).
+L2d (H-194, N-938-01): Massnahme eines Interessenkonflikts als Auswahlliste im neuen
+Teil ``conflict-mitigation.js`` (Budget = Stand bei Einfuehrung, 14/854); im Monolithen
+ersetzt ein leeres select das Freitextfeld -> Monolith gesenkt auf 26282/1614900.
 """
 from __future__ import annotations
 
@@ -227,7 +230,7 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 26282
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1614959
+MONOLITH_MAX_BYTES = 1614900
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -256,6 +259,7 @@ EXTRACTED_PART_BUDGETS = {
     "kn4-ui.js": (250, 14025),
     "kn5-ui.js": (105, 6960),
     "p5c-ui.js": (44, 3318),
+    "conflict-mitigation.js": (14, 854),
     "advisor-guidance.js": (728, 43963),
 }
 

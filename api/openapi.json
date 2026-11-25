@@ -8832,6 +8832,12 @@
           "mitigation_action": {
             "anyOf": [
               {
+                "enum": [
+                  "Weitergabe an Kunden",
+                  "Ablehnung",
+                  "Offenlegung ohne Mitigation",
+                  "Strukturelle Massnahme"
+                ],
                 "type": "string"
               },
               {
@@ -9064,8 +9070,13 @@
         "description": "Die getroffene Massnahme protokollieren (FIDLEG Art. 25/26).",
         "properties": {
           "mitigation_action": {
-            "description": "Was konkret getan wurde. Mindestlaenge, damit kein leerer Platzhalter als Massnahme durchgeht.",
-            "minLength": 3,
+            "description": "Kategorie der getroffenen Massnahme (Liste wie die CHECK-Regel des Schemas). Kein Freitext: Details gehoeren in die versiegelte Beschreibung.",
+            "enum": [
+              "Weitergabe an Kunden",
+              "Ablehnung",
+              "Offenlegung ohne Mitigation",
+              "Strukturelle Massnahme"
+            ],
             "title": "Mitigation Action",
             "type": "string"
           }

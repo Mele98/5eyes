@@ -338,7 +338,7 @@ def test_alembic_single_head_p5_and_upgrade_downgrade_upgrade(tmp_path):
     db_path = tmp_path / "p5.db"
     cfg = _alembic_cfg(f"sqlite:///{db_path}")
     # H-179 L2/L3: c7e1a9d3f5b2 (Vertragsschicht) haengt hinter CCX-P5b.
-    assert ScriptDirectory.from_config(cfg).get_heads() == ["e2b7c4d9a1f3"]  # L2c: neuer Kopf
+    assert ScriptDirectory.from_config(cfg).get_heads() == ["f3c8a1d6b2e4"]  # L2d: neuer Kopf (hinter L2c)
     assert ScriptDirectory.from_config(cfg).get_revision("c7e1a9d3f5b2").down_revision == CCX_P5B_REV
     command.upgrade(cfg, "head")
     command.downgrade(cfg, K1_REV)

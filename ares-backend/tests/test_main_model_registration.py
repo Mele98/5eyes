@@ -236,7 +236,9 @@ GOLDEN_SORTED_TABLES_SHA256 = "ef1bc00d02f20409bcc15254cba6b47235aab94dffe476759
 # (optional) und Beschreibung von PUT /report-notes; kein Pfad und kein
 # bestehendes Feld geaendert (Feld-Diff api/openapi.json, export_openapi.py).
 # Merge ROL-05 + L2c: beide additiv, aus dem Tree neu berechnet.
-GOLDEN_OPENAPI_SHA256 = "781cc54bbb766a26397c39b53a9d37e9f1d466e75464dfc80a5cbc2d710e97ae"
+# L2d / N-938-01: mitigation_action ist eine geschlossene Kategorie (Literal);
+# kein Pfad geaendert (Feld-Diff api/openapi.json, export_openapi.py).
+GOLDEN_OPENAPI_SHA256 = "a9bc7fe67bb06802254c39b7674c30a96ab91f82bd44410c037e418b5cdf66b3"
 
 _PROBE = """
 import hashlib, json

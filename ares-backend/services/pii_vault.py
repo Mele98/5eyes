@@ -177,7 +177,48 @@ def seal_for_client(db: Session, client_id: str | None, plaintext: Any) -> str |
     return f"{ENVELOPE_PREFIX}{row.key_id}:{token}"
 
 
-def reveal(db: Session, value: Any) -> str | None:
+class KeyReader:
+    """N-938-02: Lesekontext EINES Aufrufs (Liste, Bericht, PDF). Kundenschluessel,
+    Mandat -> Kunde und der Loeschbeleg werden je einmal gelesen statt je
+    versiegeltem Wert. Nie ueber Aufrufe hinweg aufbewahren: nach einer
+    DSG-Loeschung darf kein Schluessel im Speicher weiterleben."""
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+        self._keys: dict[str, Any] = {}
+        self._erased: dict[str, bool] = {}
+        self._clients: dict[str, str | None] = {}
+
+    def key(self, key_id: str):
+        if key_id not in self._keys:
+            self._keys[key_id] = self.db.execute(
+                text(
+                    "SELECT client_id, key_material, shredded_at FROM client_pii_keys "
+                    "WHERE key_id = :key_id"
+                ),
+                {"key_id": key_id},
+            ).first()
+        return self._keys[key_id]
+
+    def erased(self, client_id: str | None) -> bool:
+        cache_key = str(client_id or "")
+        if cache_key not in self._erased:
+            self._erased[cache_key] = erasure_executed_for_client(self.db, client_id)
+        return self._erased[cache_key]
+
+    def client_of_mandate(self, mandate_id: Any) -> str | None:
+        if not mandate_id:
+            return None
+        key = str(mandate_id)
+        if key not in self._clients:
+            value = self.db.execute(
+                text("SELECT client_id FROM mandates WHERE id = :id"), {"id": key},
+            ).scalar()
+            self._clients[key] = str(value) if value else None
+        return self._clients[key]
+
+
+def reveal(db: Session, value: Any, *, reader: KeyReader | None = None) -> str | None:
     """Klartext eines Umschlags; None, wenn der Schluessel vernichtet ist.
 
     Nicht versiegelte Werte (Altbestand vor DSG-ERASURE-APPEND-ONLY-001)
@@ -185,10 +226,7 @@ def reveal(db: Session, value: Any) -> str | None:
     if not is_sealed(value):
         return value
     key_id, _, token = value[len(ENVELOPE_PREFIX):].partition(":")
-    row = db.execute(
-        text("SELECT key_material FROM client_pii_keys WHERE key_id = :key_id"),
-        {"key_id": key_id},
-    ).first()
+    row = (reader or KeyReader(db)).key(key_id)
     if row is None or row.key_material is None:
         return None
     from cryptography.fernet import InvalidToken
@@ -257,7 +295,7 @@ def erasure_executed_for_client(db: Session, client_id: str | None) -> bool:
 
 
 def reveal_state(
-    db: Session, value: Any, *, client_id: str | None = None,
+    db: Session, value: Any, *, client_id: str | None = None, reader: KeyReader | None = None,
 ) -> tuple[str | None, str]:
     """(Klartext oder None, Status) eines gespeicherten Freitexts.
 
@@ -272,20 +310,15 @@ def reveal_state(
     if not is_sealed(value):
         return value, REVEAL_PLAIN
     key_id = value[len(ENVELOPE_PREFIX):].partition(":")[0]
-    row = db.execute(
-        text(
-            "SELECT client_id, key_material, shredded_at FROM client_pii_keys "
-            "WHERE key_id = :key_id"
-        ),
-        {"key_id": key_id},
-    ).first()
+    reader = reader or KeyReader(db)
+    row = reader.key(key_id)
     if client_id is not None and (row is None or str(row.client_id) != str(client_id)):
         return None, REVEAL_UNREADABLE
     if row is not None and row.key_material is None and row.shredded_at:
-        if client_id is not None and not erasure_executed_for_client(db, client_id):
+        if client_id is not None and not reader.erased(client_id):
             return None, REVEAL_UNREADABLE
         return None, REVEAL_SHREDDED
-    plain = reveal(db, value)
+    plain = reveal(db, value, reader=reader)
     return plain, (REVEAL_OPEN if plain is not None else REVEAL_UNREADABLE)
 
 

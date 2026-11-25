@@ -149,13 +149,6 @@ class _Ctx:
         assert r.status_code == 201, r.text
         return r.json()["id"]
 
-    def conflict_id(self) -> str:
-        r = self.c.post(f"/mandates/{self.mandate_id()}/conflicts", json={
-            "conflict_type": "Konzernverbindung", "description": "Konzernprodukt",
-        })
-        assert r.status_code == 201, r.text
-        return r.json()["id"]
-
 
 def _product(**over):
     body = {
@@ -177,14 +170,10 @@ def _send(ctx: _Ctx, key: str):
         })
     if key in ("schemas.clients.ClientUpdate.civil_status", "schemas.clients.ClientUpdate.partner_salutation"):
         return c.put(f"/clients/{ctx.client_id()}", json={key.rsplit(".", 1)[1]: BAD})
-    if key in ("schemas.review.ConflictDisclosureCreate.inducement_frequency",
-               "schemas.review.ConflictDisclosureCreate.mitigation_action"):
+    if key == "schemas.review.ConflictDisclosureCreate.inducement_frequency":
         return c.post(f"/mandates/{ctx.mandate_id()}/conflicts", json={
             "conflict_type": "Konzernverbindung", "description": "x", key.rsplit(".", 1)[1]: BAD,
         })
-    if key == "schemas.review.ConflictMitigateRequest.mitigation_action":
-        return c.post(f"/mandates/{ctx.mandate_id()}/conflicts/{ctx.conflict_id()}/mitigate",
-                      json={"mitigation_action": BAD})
     if key == "schemas.review.ProductCreate.product_type":
         return c.post("/products", json=_product(product_type=BAD))
     if key == "schemas.review.ProductUpdate.product_type":

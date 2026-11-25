@@ -172,12 +172,17 @@ def save_report_notes_version(
     edited_by: str, edited_at: str,
 ) -> Optional[dict[str, Any]]:
     """Legt eine neue Version an (None ohne Aenderung) und leert die
-    Klartextfelder der Kopfzeile (Altbestand). Fail-closed
+    Klartextfelder der Kopfzeile (Altbestand) -- nur wenn danach eine Version
+    existiert (N-938-03: sonst ginge die einzige Kopie verloren). Fail-closed
     ``ProtocolTextSealError`` nach DSG-Loeschung."""
     row = advisory_log_service.append_report_note_version(
         db, mandate_id=notes_head.mandate_id, client_id=client_id, values=values,
         edited_by=edited_by, edited_at=edited_at,
     )
+    if row is None and not advisory_log_service._report_note_versions(
+        db, notes_head.mandate_id, latest_only=True,
+    ):
+        return None
     for field in NOTES_VERSIONED_FIELDS:
         if getattr(notes_head, field, None) is not None:
             setattr(notes_head, field, None)

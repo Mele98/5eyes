@@ -3,9 +3,9 @@
     "css_selectors": 1176,
     "event_handlers": 435,
     "ids": 1011,
-    "js_functions": 1762,
+    "js_functions": 1763,
     "modal_structures": 102,
-    "script_blocks": 45,
+    "script_blocks": 46,
     "style_blocks": 2,
     "sub_sections": 42
   },
@@ -9457,6 +9457,12 @@
     },
     {
       "kind": "js",
+      "path": "ares-desktop/frontend/conflict-mitigation.js",
+      "sha256": "71e414e7153adc1703528c63cc6a8afbad4e9a9e7f031dba6477f34fa399d026",
+      "size_bytes": 854
+    },
+    {
+      "kind": "js",
       "path": "ares-desktop/frontend/sustainability-preferences.js",
       "sha256": "70126c2de2dce4a06ff32107530d33ec88f7f5d3a0312949f858ed53d275b991",
       "size_bytes": 26065
@@ -13697,7 +13703,7 @@
       "class": "fi",
       "id": "nco-mitigation",
       "line": 8481,
-      "tag": "input"
+      "tag": "select"
     },
     {
       "class": "fi",
@@ -24738,6 +24744,12 @@
     },
     {
       "declaration": "function",
+      "line": 7,
+      "name": "fillConflictMitigationSelect",
+      "source": "conflict-mitigation.js"
+    },
+    {
+      "declaration": "function",
       "line": 342,
       "name": "sustActiveExclusions",
       "source": "sustainability-preferences.js"
@@ -25646,8 +25658,8 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "7cf34d83817d60a8299ced13d16bebc433dd12692f4d1bcf73f37e9720a97b9a",
-  "source_size_bytes": 1614924,
+  "source_sha256": "4b7d3a45e206edfa4ed347273dd218146ed9b297d199d533b8967aa53b92a00e",
+  "source_size_bytes": 1614900,
   "sub_sections": [
     {
       "class": "sbb",

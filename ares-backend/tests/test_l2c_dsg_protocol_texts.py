@@ -489,7 +489,7 @@ def test_alembic_l2c_up_down_up_and_downgrade_fail_closed(tmp_path):
 
     url = f"sqlite:///{tmp_path / 'l2c.db'}"
     script = ScriptDirectory.from_config(alembic_cfg(url))
-    assert script.get_heads() == ["e2b7c4d9a1f3"]
+    assert script.get_heads() == ["f3c8a1d6b2e4"]  # L2d (N-938-01) haengt an L2c
     assert script.get_revision("e2b7c4d9a1f3").down_revision == "c7e1a9d3f5b2"
     command.upgrade(alembic_cfg(url), "e2b7c4d9a1f3")
     engine = create_engine(url)

@@ -625,6 +625,17 @@ class ContractDocumentResponse(BaseResponse):
 INDUCEMENT_AMOUNT_RAPPEN_CEILING = 1_000_000_000  # CHF 10'000'000.00
 
 
+# L2d / N-938-01: Massnahme als Kategorie. Dieselbe Liste wie die CHECK-Regel in
+# ares_schema.sql und models.review.CONFLICT_MITIGATION_ACTIONS (Gleichheit
+# prueft tests/test_l2d_conflict_mitigation_category.py).
+ConflictMitigationAction = Literal[
+    "Weitergabe an Kunden",
+    "Ablehnung",
+    "Offenlegung ohne Mitigation",
+    "Strukturelle Massnahme",
+]
+
+
 class ConflictDisclosureCreate(BaseModel):
     conflict_type: Literal[
         "Retrozession / Inducement", "Eigenhandel / Eigenbestand",
@@ -637,7 +648,7 @@ class ConflictDisclosureCreate(BaseModel):
         default=None, ge=0, le=INDUCEMENT_AMOUNT_RAPPEN_CEILING
     )
     inducement_frequency: Optional[str] = None
-    mitigation_action: Optional[str] = None
+    mitigation_action: Optional[ConflictMitigationAction] = None
     document_id: Optional[str] = None
     # 2026-07-27 (Retrozessions-Feature): explizit None = "nicht angegeben",
     # Router fuellt aus Tenant.default_retrocession_reimbursement auf --
@@ -701,11 +712,12 @@ class ConflictAttachDocumentRequest(BaseModel):
 
 class ConflictMitigateRequest(BaseModel):
     """Die getroffene Massnahme protokollieren (FIDLEG Art. 25/26)."""
-    mitigation_action: str = Field(
-        ..., min_length=3,
+    mitigation_action: ConflictMitigationAction = Field(
+        ...,
         description=(
-            "Was konkret getan wurde. Mindestlaenge, damit kein leerer "
-            "Platzhalter als Massnahme durchgeht."
+            "Kategorie der getroffenen Massnahme (Liste wie die CHECK-Regel "
+            "des Schemas). Kein Freitext: Details gehoeren in die versiegelte "
+            "Beschreibung."
         ),
     )
 

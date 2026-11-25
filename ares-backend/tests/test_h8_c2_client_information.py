@@ -355,8 +355,9 @@ def test_single_alembic_head_is_h8_revision():
     # K1 (Property-Gate): 63332bb56098 haengt an b3f1c9d2e4a7 (Integration H12+K1).
     # H-179 L2/L3: c7e1a9d3f5b2 (Vertragsschicht) haengt an 74e3e973ea09 (CCX-P5b).
     # CCX-P5 (Platz CCX_P5_REV): c2546c196134 haengt an 63332bb56098.
-    assert heads == ["e2b7c4d9a1f3"]  # L2c hinter H-179 hinter CCX-P5b hinter CCX-P5
+    assert heads == ["f3c8a1d6b2e4"]  # L2d hinter L2c hinter H-179 hinter CCX-P5b hinter CCX-P5
     chain = [
+        ("f3c8a1d6b2e4", "e2b7c4d9a1f3"),
         ("e2b7c4d9a1f3", "c7e1a9d3f5b2"),
         ("c7e1a9d3f5b2", "74e3e973ea09"),
         ("c2546c196134", "63332bb56098"),
