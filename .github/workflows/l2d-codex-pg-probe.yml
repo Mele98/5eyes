@@ -1,0 +1,65 @@
+name: L2d Codex PG Probe
+
+# Probelauf (nicht mergen): fuehrt die unveraenderten Codex-Reproducer fuer
+# C-L2D-01 gegen echtes PostgreSQL am exakten Produkt-SHA aus. Der Produktbaum
+# wird als separater Worktree am Ziel-SHA ausgecheckt; die Reproducer liegen
+# byte-identisch unter ci-probe/ und werden per SHA-256 geprueft.
+on:
+  push:
+    branches:
+      - r5/l2d-codex-pg-probe
+
+env:
+  TARGET_SHA: 965cd3c311511cb56221ec4cdcf8bffadabfa579
+
+jobs:
+  codex-pg-probe:
+    name: Codex L2d Reproducer (PostgreSQL, exakter SHA)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ares_rls
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ares_rls"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Produktbaum am Ziel-SHA
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/product" "$TARGET_SHA"
+          test "$(git -C "$RUNNER_TEMP/product" rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git -C "$RUNNER_TEMP/product" status --porcelain)"
+      - name: Reproducer-Hashes
+        run: |
+          echo "a72a930c28f0130aa2f03e339c95d8d29f46d1e8ad28a67b40081ad635a5d009  ci-probe/test_2026_11_26_l2d_keyreader_erasure.py" | sha256sum -c
+          echo "8b6f4ac613f28f4882a8bc4541ab6ffd52b797dbe3dd8c081bc895b0f3402045  ci-probe/test_2026_11_26_l2d_keyreader_postgres_rls_lock.py" | sha256sum -c
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Abhaengigkeiten
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r "$RUNNER_TEMP/product/ares-backend/requirements.txt"
+      - name: Codex-Reproducer (SQLite + PostgreSQL), keine Skips erlaubt
+        working-directory: ${{ runner.temp }}/product/ares-backend
+        env:
+          POSTGRES_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/ares_rls
+          ARES_PRODUCT_ROOT: ${{ runner.temp }}/product
+          ARES_EXPECTED_SHA: ${{ env.TARGET_SHA }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python -m pytest "$GITHUB_WORKSPACE/ci-probe/test_2026_11_26_l2d_keyreader_erasure.py" \
+            "$GITHUB_WORKSPACE/ci-probe/test_2026_11_26_l2d_keyreader_postgres_rls_lock.py" \
+            --rootdir . -p no:cacheprovider -p no:xdist -rA --tb=short | tee probe.log
+          grep -E "^3 passed" probe.log || grep -E " 3 passed" probe.log
+          ! grep -E "skipped|SKIPPED" probe.log
