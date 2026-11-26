@@ -12,24 +12,10 @@
   ],
   "positions": [
     {
-      "asset_class": "Obligationen",
-      "currency": "CHF",
-      "product_name": "Swisscanto Bond CHF",
-      "provider": "Swisscanto",
-      "rationale": "Langfristiger CHF-Kern",
-      "source_sub_asset_classes": [
-        "Obligationen CHF IG"
-      ],
-      "sub_asset_class": "Obligationen CHF IG",
-      "target_amount_rappen": 28885000,
-      "target_weight_bps": 5777,
-      "ter_bps": 32
-    },
-    {
       "asset_class": "Liquidität",
       "currency": "CHF",
-      "product_name": "UBS Geldmarktfonds CHF",
-      "provider": "UBS",
+      "product_name": "Musterprodukt Geldmarktfonds",
+      "provider": "Musteranbieter O",
       "rationale": "Liquiditaetsreserve gemaess Mandatsvorgabe",
       "source_sub_asset_classes": [
         "Geldmarktfonds"
@@ -42,8 +28,8 @@
     {
       "asset_class": "Alternative",
       "currency": "CHF",
-      "product_name": "ZKB Gold ETF",
-      "provider": "ZKB",
+      "product_name": "Musterprodukt Gold / Rohstoffe",
+      "provider": "Musteranbieter K",
       "rationale": "Standardbaustein fuer Alternative Anlagen",
       "source_sub_asset_classes": [
         "Gold / Rohstoffe"
@@ -56,8 +42,22 @@
     {
       "asset_class": "Obligationen",
       "currency": "CHF",
-      "product_name": "iShares Global Aggregate Bond CHF Hedged",
-      "provider": "BlackRock",
+      "product_name": "Musterprodukt Obligationen CHF IG",
+      "provider": "Musteranbieter I",
+      "rationale": "Langfristiger CHF-Kern",
+      "source_sub_asset_classes": [
+        "Obligationen CHF IG"
+      ],
+      "sub_asset_class": "Obligationen CHF IG",
+      "target_amount_rappen": 28885000,
+      "target_weight_bps": 5777,
+      "ter_bps": 32
+    },
+    {
+      "asset_class": "Obligationen",
+      "currency": "CHF",
+      "product_name": "Musterprodukt Obligationen Global CHF-abgesichert",
+      "provider": "Musteranbieter A",
       "rationale": "Globale Diversifikation",
       "source_sub_asset_classes": [
         "Obligationen Global Hedged"

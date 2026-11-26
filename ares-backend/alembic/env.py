@@ -93,6 +93,12 @@ elif not _already_configured or _already_configured == _PLACEHOLDER_URL:
     config.set_main_option("sqlalchemy.url", build_database_url())
 # sonst: die bereits gesetzte URL unveraendert stehen lassen.
 
+# H11 Nachtrag 1: Migrationen nie still gegen die Owner-DB (Test/CI immer, sonst nur mit Opt-in).
+from config import refuse_owner_db_file  # noqa: E402
+from core.db_location import sqlite_url_file  # noqa: E402
+
+refuse_owner_db_file(sqlite_url_file(config.get_main_option("sqlalchemy.url")), context="alembic")
+
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.

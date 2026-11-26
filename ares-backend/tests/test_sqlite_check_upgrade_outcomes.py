@@ -187,7 +187,8 @@ def test_reference_schema_is_unambiguous_and_fresh_install_is_noop(tmp_path):
 def test_legacy_cost_disclosure_document_type_becomes_writable(tmp_path):
     sql = SCHEMA_FILE.read_text(encoding="utf-8")
     start = sql.index("document_type   TEXT NOT NULL CHECK(document_type IN (")
-    end = sql.index("'Kostenausweis')),", start) + len("'Kostenausweis')),")
+    # H8 C-2: die Liste endet jetzt mit 'Kundeninformation'.
+    end = sql.index("'Kundeninformation')),", start) + len("'Kundeninformation')),")
     region = sql[start:end]
     region = region[:region.index("'Sonstiges',")] + "'Sonstiges')),"
     legacy = sql[:start] + region + sql[end:]
@@ -215,9 +216,12 @@ def test_legacy_cost_disclosure_document_type_becomes_writable(tmp_path):
             conn.execute(update, ("Kostenausweis",))
     result = _run(db_path, SCHEMA_FILE, tmp_path)
     assert result.outcome is Outcome.APPLIED_VERIFIED
-    assert result.added == {"contract_documents": {"document_type": ["'Kostenausweis'"]}}
+    assert result.added == {
+        "contract_documents": {"document_type": ["'Kostenausweis'", "'Kundeninformation'"]}
+    }
     with sqlite3.connect(db_path) as conn:
         conn.execute(update, ("Kostenausweis",))
+        conn.execute(update, ("Kundeninformation",))
         conn.execute(update, ("Beratungsvertrag",))
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(update, ("Phantasie",))

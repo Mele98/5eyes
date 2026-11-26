@@ -268,3 +268,91 @@ class SuitabilityCheckResponse(BaseResponse):
     checked_by: str
     checked_at: str
     created_at: str
+
+
+# ── E2a Nachhaltigkeitspraeferenzen im Risikoprofil-Flow (Dok. 106) ────────────
+# Werte und Texte: core/sustainability_preference.py (eine Quelle). Fachliche
+# Pruefungen (Kombinationen, Verzicht nur Anlageberatung, nur anbietbare
+# Ausschluesse) im Router mit Reason-Codes.
+
+class SustainabilityPreferenceCreate(BaseModel):
+    questionnaire_version: str
+    definition_hash: str
+    response_status: Literal["answered", "declined"]
+    esg_relevance: Optional[Literal["yes", "not_relevant"]] = None
+    esg_characteristic: Optional[Literal["sdg_alignment", "esg_factors", "no_specific"]] = None
+    exclusions: list[str] = []
+    # Dokumentierter Verzicht (nur Anlageberatung, nur bei "Ja", mit Begruendung).
+    preference_waived: bool = False
+    waiver_reason: Optional[str] = None
+    information_acknowledged: bool = False
+    client_confirmed: bool = False
+    capture_channel: Literal["in_person", "phone", "video", "written"]
+    # Optimistische Sperre: ID der Version, auf der die Erfassung beruht
+    # (None = erste Erfassung).
+    expected_current_id: Optional[str] = None
+    data_classification: Optional[str] = None
+
+
+class SustainabilityPreferenceResponse(BaseModel):
+    id: str
+    schema_version: str
+    mandate_id: str
+    sequence_no: int
+    supersedes_id: Optional[str] = None
+    questionnaire_version: str
+    definition_hash: str
+    derivation_version: str
+    response_status: str
+    esg_relevance: Optional[str] = None
+    esg_characteristic: Optional[str] = None
+    exclusions: list[str] = []
+    preference_waived: bool = False
+    profile_code: str
+    profile_text: str
+    limit_texts: list[str] = []
+    information_acknowledged: bool
+    client_confirmed: bool
+    capture_channel: str
+    mandate_type_at_capture: Optional[str] = None
+    review_policy_version: str
+    review_policy_months: int
+    review_due_on: str
+    captured_by: str
+    captured_at: str
+    decision_hash: str
+
+
+class SustainabilityExclusionOption(BaseModel):
+    key: str
+    label: str
+    available: bool
+    reason: Optional[str] = None
+    # E2b: Sub-Anlageklassen ohne belegtes Produkt und die Belege (Nachweis-ID).
+    missing_sub_asset_classes: list[str] = []
+    evidence: list[dict] = []
+
+
+class SustainabilityPreferenceState(BaseModel):
+    current: Optional[SustainabilityPreferenceResponse] = None
+    history: list[SustainabilityPreferenceResponse] = []
+    # Pflichtzustand (unanswered | no_preference | declined |
+    # preference_stated | waiver_documented | stale | unreadable).
+    state: str
+    state_label: str
+    answer_state: str
+    stale_reasons: list[str] = []
+    state_notice: Optional[str] = None
+    review_status: Literal["current", "due", "missing"]
+    review_notice: Optional[str] = None
+    review_policy_months: int
+    review_policy_label: str
+    waiver_allowed: bool
+    exclusion_options: list[SustainabilityExclusionOption] = []
+    document_binding: str
+    # E2b / N-888-01: Untergrenze gegen die aktuelle Soll-Allokation
+    # (none | ok | violated | unreadable | no_strategy); violated/unreadable =
+    # Strategie veraltet, Empfehlung/Finalize/Freigabe gesperrt.
+    allocation_floor_status: str = "none"
+    allocation_floor_themes: list[str] = []
+    allocation_stale_notice: Optional[str] = None

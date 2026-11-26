@@ -1,7 +1,23 @@
 from datetime import date as _date
 from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 from typing import Optional, Literal
 from schemas.common import BaseResponse, PERSISTABLE_INT_MAX, PERSISTABLE_INT_MIN
+# RC-CH-1-F1 (N-903-03): Vokabular und Kanonisierung liegen in genau einer
+# Funktion (core.goal_vocabulary), die GoalCreate UND GoalUpdate vor der
+# Pruefung aufrufen. Die Tabelle ``goals`` erlaubt per CHECK nur die
+# GOAL_*_DB_VALUES; gespeichert wird nur die DB-Form (Befund: "Umbau
+# Wohneigentum" mit goal_type="Vermoegensziel" -> 500).
+from core.goal_vocabulary import (
+    GOAL_FAMILY_DB_VALUES,
+    GOAL_HARDNESS_DB_VALUES,
+    GOAL_SCOPE_DB_VALUES,
+    GOAL_TYPE_DB_VALUES,
+    GOAL_VALUE_MODE_DB_VALUES,
+    canonicalize_goal_payload,
+    goal_hardness_key as _goal_hardness_key,
+    goal_type_key as _goal_type_key,
+)
 from services.wealth_position_semantics import (
     require_supported_mortgage_amortization,
     require_supported_position_assignment,
@@ -236,8 +252,10 @@ class WealthPositionCreate(BaseModel):
                 + self.alloc_real_estate_bps + self.alloc_liquidity_bps
                 + self.alloc_alternatives_bps
             )
-            if total != 10000:
-                raise ValueError(f"Depot Allokation muss 10000 BP ergeben (aktuell: {total})")
+            if not allocation_total_is_100(total):
+                raise depot_allocation_error(total)
+            for field, value in normalized_allocation(self.__dict__).items():
+                object.__setattr__(self, field, value)
         elif self.position_type == "Vorsorge":
             # VORSORGE-EXPOSURE-001 (2026-10-18): Vorsorge darf eine
             # Aufteilung tragen (z.B. 3a-Wertschriftenloesung) -- entweder
@@ -247,11 +265,15 @@ class WealthPositionCreate(BaseModel):
                 + self.alloc_real_estate_bps + self.alloc_liquidity_bps
                 + self.alloc_alternatives_bps
             )
-            if total not in (0, 10000):
-                raise ValueError(
-                    "Vorsorge-Aufteilung muss 10000 BP oder alle 0 ergeben "
-                    f"(aktuell: {total})"
+            if total != 0 and not allocation_total_is_100(total):
+                raise PydanticCustomError(
+                    "pension_allocation_incomplete",
+                    "Die Aufteilung der Vorsorge muss zusammen 100 % ergeben oder ganz leer "
+                    f"bleiben (erfasst: {total / 100:g} %).",
                 )
+            if total:
+                for field, value in normalized_allocation(self.__dict__).items():
+                    object.__setattr__(self, field, value)
         elif any(
             (
                 self.alloc_equities_bps,
@@ -271,6 +293,49 @@ class WealthPositionCreate(BaseModel):
             self.position_type, self.asset_expected_return_bps,
         )
         return self
+
+
+# KN3-B / E2E3-08 (CTO-Entscheid): ein Depot ohne Aufteilung wird abgelehnt,
+# nie mit einer angenommenen Aufteilung gespeichert (keine erfundenen Zahlen im
+# IST-Bild). Die Meldung ist fuer den Berater bestimmt: Deutsch, in Prozent,
+# ohne technisches Praefix ("Value error, ...") und ohne Basispunkte.
+DEPOT_ALLOCATION_MISSING_MESSAGE = "Bitte die Aufteilung des Depots erfassen (Summe 100 %)."
+
+
+ALLOC_FIELD_ORDER = ("alloc_equities_bps", "alloc_bonds_bps", "alloc_real_estate_bps",
+                     "alloc_liquidity_bps", "alloc_alternatives_bps")
+
+
+def allocation_total_is_100(total_bps: int) -> bool:
+    """KN4-B / N-917R3-08 (CTO-Entscheid): dieselbe Toleranz wie die Oberflaeche --
+    die Summe muss nach Rundung auf 0.1 % (kaufmaennisch) genau 100.0 % sein,
+    also 9'995-10'004 bps (z. B. 3 x 33.33 % = 99.99 % ist gueltig)."""
+    return (int(total_bps) + 5) // 10 == 1000
+
+
+def normalized_allocation(values: dict) -> dict:
+    """Aufteilung mit Rundungsrest: auf exakt 10'000 bps normiert, der Rest
+    (hoechstens 0.05 Prozentpunkte) geht an die groesste Anlageklasse. Nur fuer
+    Summen, die ``allocation_total_is_100`` erfuellen -- keine erfundene
+    Aufteilung, nur der Rundungsrest der Eingabe."""
+    out = {field: int(values.get(field) or 0) for field in ALLOC_FIELD_ORDER}
+    rest = 10000 - sum(out.values())
+    if rest:
+        largest = max(ALLOC_FIELD_ORDER, key=lambda field: out[field])
+        out[largest] += rest
+    return out
+
+
+def depot_allocation_message(total_bps: int) -> str:
+    if int(total_bps or 0) == 0:
+        return DEPOT_ALLOCATION_MISSING_MESSAGE
+    pct = f"{int(total_bps) / 100:.2f}".rstrip("0").rstrip(".")
+    return f"Die Aufteilung des Depots muss zusammen 100 % ergeben (erfasst: {pct} %)."
+
+
+def depot_allocation_error(total_bps: int) -> PydanticCustomError:
+    """422-Fehler mit genau dieser Meldung (``msg`` ohne "Value error, ")."""
+    return PydanticCustomError("depot_allocation_incomplete", depot_allocation_message(total_bps))
 
 
 class WealthPositionUpdate(BaseModel):
@@ -457,6 +522,9 @@ class WealthPositionResponse(BaseResponse):
     liquidity_available_from: Optional[str] = None
     is_available_for_goal_funding: int
     goal_funding_method: Optional[str]
+    # K1 Property-Gate: Owner-Review-Fall (JSON) nach Neutralisierung von
+    # Altwerten deaktivierter Funktionen; None = kein Fall.
+    property_gate_review_json: Optional[str] = None
     notes: Optional[str]
     is_active: int
     created_at: str
@@ -633,6 +701,9 @@ class WealthInflowCreate(BaseModel):
     source_type: Literal["Erbschaft", "Bonus", "Saeule3b", "Verkaufserloes", "Andere"]
     amount_rappen: int = Field(..., gt=0, le=PERSISTABLE_INT_MAX)
     expected_year: int = Field(..., ge=1900, le=2200)
+    # CCX-P3-FX: Betrag und Waehrung sind untrennbar -- Pflichtfeld ohne
+    # Default (ISO 4217); die Waehrung eines Zuflusses wird nie geraten.
+    currency: str = Field(..., pattern=r"^[A-Z]{3}$")
     is_recurring: int = Field(0, ge=0, le=1)
     frequency: Optional[Literal["einmalig", "jaehrlich", "monatlich"]] = None
     duration_years: Optional[int] = Field(None, ge=1, le=99)
@@ -697,6 +768,7 @@ class WealthInflowUpdate(BaseModel):
     source_type: Optional[Literal["Erbschaft", "Bonus", "Saeule3b", "Verkaufserloes", "Andere"]] = None
     amount_rappen: Optional[int] = Field(None, gt=0, le=PERSISTABLE_INT_MAX)
     expected_year: Optional[int] = Field(None, ge=1900, le=2200)
+    currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
     is_recurring: Optional[int] = Field(None, ge=0, le=1)
     frequency: Optional[Literal["einmalig", "jaehrlich", "monatlich"]] = None
     duration_years: Optional[int] = Field(None, ge=1, le=99)
@@ -717,6 +789,8 @@ class WealthInflowResponse(BaseResponse):
     source_type: str
     amount_rappen: int
     expected_year: int
+    # CCX-P3-FX: NULL = Bestand ohne erfasste Waehrung (unbekannt, blockiert).
+    currency: Optional[str] = None
     is_recurring: int
     frequency: Optional[str]
     duration_years: Optional[int]
@@ -745,28 +819,9 @@ GOAL_FAMILY_TYPE_MAP = {
 }
 
 
-def _goal_type_key(value: str | None) -> str:
-    raw = str(value or "").strip().lower().replace(" ", "_")
-    return (
-        raw.replace("ä", "ae")
-        .replace("ö", "oe")
-        .replace("ü", "ue")
-        .replace("Ã¤", "ae")
-        .replace("Ã¶", "oe")
-        .replace("Ã¼", "ue")
-    )
-
-
-def _goal_hardness_key(value: str | None) -> str:
-    raw = str(value or "").strip().lower()
-    return (
-        raw.replace("ä", "ae")
-        .replace("ö", "oe")
-        .replace("ü", "ue")
-        .replace("Ã¤", "ae")
-        .replace("Ã¶", "oe")
-        .replace("Ã¼", "ue")
-    )
+def _require_db_value(field: str, value, allowed: tuple[str, ...]) -> None:
+    if value is not None and value not in allowed:
+        raise ValueError(f"{field} '{value}' ist nicht erlaubt. Erlaubt: {list(allowed)}")
 
 
 def _has_value(value) -> bool:
@@ -876,6 +931,11 @@ class GoalCreate(BaseModel):
     notes: Optional[str] = None
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
+    @model_validator(mode="before")
+    @classmethod
+    def _canonicalize(cls, data):
+        return canonicalize_goal_payload(data)
+
     @model_validator(mode="after")
     def validate_family_type(self):
         allowed = GOAL_FAMILY_TYPE_MAP.get(self.goal_family, [])
@@ -927,8 +987,27 @@ class GoalUpdate(BaseModel):
     is_included: Optional[bool] = None
     data_classification: Optional[Literal["synthetic", "real"]] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _canonicalize(cls, data):
+        return canonicalize_goal_payload(data)
+
     @model_validator(mode="after")
     def validate_goal_update_fields(self):
+        # RC-CH-1-F1: Teil-Updates schrieben bisher freie Strings direkt in
+        # CHECK-Spalten (500 beim Commit). Jetzt: nur DB-Werte, sonst 422.
+        _require_db_value("goal_family", self.goal_family, GOAL_FAMILY_DB_VALUES)
+        _require_db_value("goal_type", self.goal_type, GOAL_TYPE_DB_VALUES)
+        _require_db_value("goal_scope", self.goal_scope, GOAL_SCOPE_DB_VALUES)
+        _require_db_value("value_mode", self.value_mode, GOAL_VALUE_MODE_DB_VALUES)
+        _require_db_value("hardness", self.hardness, GOAL_HARDNESS_DB_VALUES)
+        if self.goal_family is not None and self.goal_type is not None:
+            allowed = GOAL_FAMILY_TYPE_MAP.get(self.goal_family, [])
+            if self.goal_type not in allowed:
+                raise ValueError(
+                    f"goal_type '{self.goal_type}' ist nicht erlaubt für goal_family "
+                    f"'{self.goal_family}'. Erlaubt: {allowed}"
+                )
         if self.goal_type is not None:
             _validate_goal_field_isolation(self, require_targets=False)
         return self
@@ -965,6 +1044,13 @@ class GoalResponse(BaseResponse):
     last_scored_at: Optional[str]
     created_at: str
     updated_at: str
+    # N-868-3: nur gesetzt, wenn eine Reaktivierung den frueheren Rang nicht
+    # zurueckgeben konnte (belegt) und das Ziel ans Ende gesetzt wurde. Der
+    # Rang ist die Prioritaet (Gewicht, Hauptziel) -- der Client muss das
+    # sichtbar machen, statt es still hinzunehmen.
+    rank_adjusted_from: Optional[int] = None
+    rank_adjusted_to: Optional[int] = None
+    rank_adjustment_notice: Optional[str] = None
 
 
 class GoalRevisionDecisionCreate(BaseModel):

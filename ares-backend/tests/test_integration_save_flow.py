@@ -409,14 +409,19 @@ def test_put_report_notes_persists_through_session_boundaries(
         "aa_anmerkungen": "PERSISTED-VALUE",
     })
 
+    # L2c (H-192): die Notiz steht versiegelt als append-only Version; die
+    # frische Session liest sie ueber die zentrale Sicht.
+    from services.advisory_log_service import report_notes_view
+
     with session_factory() as s:
         notes = (
             s.query(MandateReportNotes)
             .filter(MandateReportNotes.mandate_id == mid)
             .first()
         )
-    assert notes is not None
-    assert notes.aa_anmerkungen == "PERSISTED-VALUE"
+        view = report_notes_view(s, mid)
+    assert notes is not None and notes.aa_anmerkungen is None
+    assert view.aa_anmerkungen == "PERSISTED-VALUE"
 
 
 def test_advisory_report_endpoint_stays_alive_after_writes(

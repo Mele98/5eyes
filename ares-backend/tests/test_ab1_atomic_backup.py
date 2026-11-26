@@ -2,7 +2,7 @@
 
 Deckt die Akzeptanzkriterien ab:
   (1) Abbruch zwischen Temp-Schreiben und Rename -> KEINE finale
-      5eyes-backup-*.db; list_backups unveraendert.
+      ares-backup-*.db; list_backups unveraendert.
   (2) Normaler Lauf -> Backup + Sidecar existieren, SHA256 match,
       PRAGMA integrity_check == "ok".
   (3) Korruptes Backup -> restore(..., verify_hash=True) wirft ValueError,
@@ -63,7 +63,7 @@ def _integrity_ok(path: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 def test_aborted_replace_leaves_no_final_backup(tmp_path: Path, monkeypatch):
-    """os.replace wirft -> kein 5eyes-backup-*.db, kein Temp-Ruine,
+    """os.replace wirft -> kein ares-backup-*.db, kein Temp-Ruine,
     list_backups unveraendert."""
     src = tmp_path / "src.db"
     _seed_db(src)
@@ -232,8 +232,8 @@ def test_orphaned_partials_removed_and_never_listed(tmp_path: Path):
     target_dir.mkdir()
 
     # Ruinen frueherer Laeufe.
-    orphan1 = target_dir / "5eyes-backup-20260101-000000.db.abc.partial"
-    orphan2 = target_dir / "5eyes-backup-20260102-000000.db.xyz.partial"
+    orphan1 = target_dir / "ares-backup-20260101-000000.db.abc.partial"
+    orphan2 = target_dir / "ares-backup-20260102-000000.db.xyz.partial"
     orphan1.write_bytes(b"RUIN")
     orphan2.write_bytes(b"RUIN")
 
@@ -264,7 +264,7 @@ def test_partial_excluded_from_pruning_and_count(tmp_path: Path):
 
     # partial, das ein _remove_orphaned_partials NICHT trifft (anderer Name),
     # um den Glob-Ausschluss in _list_backup_files direkt zu pruefen.
-    stray = target_dir / "5eyes-backup-20260103-000000.db.keep.partial"
+    stray = target_dir / "ares-backup-20260103-000000.db.keep.partial"
     stray.write_bytes(b"STRAY")
 
     assert backup_mod._count_backups(target_dir) == 0

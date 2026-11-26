@@ -42,8 +42,8 @@ import {
   fanSpreadLabelYs,
   type FanEndKey,
 } from '@/lib/fanAnnotations';
-import { formatChfRappen } from '@/lib/format';
-import { classifyGoals, type GoalAchievabilityStatus } from '@/lib/goalClassification';
+import { formatChfRappen, formatEndOfYear } from '@/lib/format';
+import { classifyGoals } from '@/lib/goalClassification';
 
 interface MonteCarloPathsChartProps {
   paths: MonteCarloPaths;
@@ -79,9 +79,6 @@ const COLOR_RULE = '#d8dde6';
 const COLOR_BAND_OUTER_FILL = 'rgba(46, 84, 119, 0.12)'; // Petrol-Akzent
 const COLOR_BAND_INNER_FILL = 'rgba(46, 84, 119, 0.22)';
 const COLOR_P50 = '#2e5477';
-const COLOR_STATUS_GRUEN = '#4E6F58';
-const COLOR_STATUS_GELB = '#B59243';
-const COLOR_STATUS_ROT = '#9E4747';
 const COLOR_STATUS_NEUTRAL = '#5a6577';
 
 /**
@@ -96,20 +93,28 @@ const MAX_Y_INTERVALS = 4;
 
 const TABULAR_NUMS = { fontVariantNumeric: 'tabular-nums' } as const;
 
-const STATUS_COLOR: Record<GoalAchievabilityStatus, string> = {
-  erreichbar: COLOR_STATUS_GRUEN,
-  knapp: COLOR_STATUS_GELB,
-  nicht_erreichbar: COLOR_STATUS_ROT,
-  past: COLOR_STATUS_NEUTRAL,
-  beyond_horizon: COLOR_STATUS_NEUTRAL,
-  unknown: COLOR_STATUS_NEUTRAL,
-};
+/**
+ * P5c / N-930-01 (CTO 2026-11-21): Status und Farbe eines Ziel-Markers kommen
+ * nur aus dem M-3-Status des Ziels (Server: status, status_label, status_color
+ * aus core/goal_metric_contract.GOAL_STATUS_DISPLAY). Die Faecherquantile
+ * bestimmen nur die Lage des Markers, nie einen eigenen Status. Fehlt der
+ * M-3-Status: "nicht bewertbar", neutral.
+ */
+export function goalMarkerStatus(goal: GoalEntry): { status: string; label: string; color: string } {
+  if (goal.status && goal.status_label && goal.status_color) {
+    return { status: goal.status, label: goal.status_label, color: goal.status_color };
+  }
+  return { status: 'nicht_bewertbar', label: 'nicht bewertbar', color: COLOR_STATUS_NEUTRAL };
+}
 
 export function MonteCarloPathsChart({
   paths,
   goals,
   projectionsHidden = false,
 }: MonteCarloPathsChartProps) {
+  // G7 N4 (Grundregel): Waehrung, in der der Server die Pfade liefert (Rohsumme ohne FX),
+  // NICHT die Mandatswaehrung des Berichts. Unbekannt (gemischt) -> null.
+  const currency = paths.amount_currency ?? null;
   // AA-UX-HONEST-FAN-001: Gate fail-closed -- bei ausgeblendeten Projektionen
   // bzw. veralteter/blockierter Allokation weder Faecher noch Beschriftung.
   if (
@@ -143,6 +148,13 @@ export function MonteCarloPathsChart({
   if (fan === null) return null;
 
   const classifications = classifyGoals(goals, paths);
+  // Legende nur fuer die tatsaechlich gezeigten M-3-Status (Wort/Farbe vom Server).
+  const markerLegend = classifications
+    .filter((c) => c.t_index !== null)
+    .map((c) => goals.find((g) => g.goal_id === c.goal_id))
+    .filter((g): g is GoalEntry => g !== undefined)
+    .map(goalMarkerStatus)
+    .filter((entry, i, all) => all.findIndex((e) => e.status === entry.status) === i);
 
   // y-Range = [0, runde Obergrenze]. 0 als Untergrenze macht die Wachstums-
   // Geschichte anschaulich (vs. min(p5) das die Bandbreite klein wirken laesst).
@@ -172,7 +184,7 @@ export function MonteCarloPathsChart({
     { length: Math.round(maxValue / yStep) + 1 },
     (_, k) => k * yStep,
   );
-  const formatYTick = makeYTickFormatter(maxValue, yStep);
+  const formatYTick = makeYTickFormatter(maxValue, yStep, currency);
   // X-Achse Ticks: maximal 6 Beschriftungen (sonst ueberfuellt)
   const xTickIndices = _spacedIndices(n, 6);
   const anyGoalAboveScale = goalTargetsInHorizon.some((v) => v > maxValue);
@@ -194,7 +206,7 @@ export function MonteCarloPathsChart({
     HEIGHT - PADDING_BOTTOM,
   );
   const rangeSentence = fan.symmetric
-    ? fanRangeSentence(time_axis[last], fan.outerLo[last] / 100, fan.outerHi[last] / 100)
+    ? fanRangeSentence(formatEndOfYear(time_axis[last]), fan.outerLo[last] / 100, fan.outerHi[last] / 100, currency)
     : '';
 
   return (
@@ -300,8 +312,7 @@ export function MonteCarloPathsChart({
           const x = xFor(c.t_index);
           const aboveScale = goal.target_amount_rappen > maxValue;
           const yTarget = yFor(Math.min(goal.target_amount_rappen, maxValue));
-          const status = c.status;
-          const color = STATUS_COLOR[status];
+          const { status, color } = goalMarkerStatus(goal);
           // Labels am rechten Rand nach links ausrichten (sonst abgeschnitten)
           const nearRightEdge = x > WIDTH - PADDING_RIGHT - 160;
           const labelAnchor = nearRightEdge ? 'end' : 'start';
@@ -385,7 +396,7 @@ export function MonteCarloPathsChart({
                   fill={COLOR_INK_MUTED}
                   style={TABULAR_NUMS}
                 >
-                  {fanAboveScaleText(goal.target_amount_rappen / 100)}
+                  {fanAboveScaleText(goal.target_amount_rappen / 100, currency)}
                 </text>
               ) : null}
             </g>
@@ -468,18 +479,12 @@ export function MonteCarloPathsChart({
           />
           Median (P50)
         </span>
-        <span className="inline-flex items-center gap-2">
-          <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full" style={{ background: COLOR_STATUS_GRUEN }} />
-          Ziel erreichbar
-        </span>
-        <span className="inline-flex items-center gap-2">
-          <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full" style={{ background: COLOR_STATUS_GELB }} />
-          Knapp
-        </span>
-        <span className="inline-flex items-center gap-2">
-          <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full" style={{ background: COLOR_STATUS_ROT }} />
-          Schwierig
-        </span>
+        {markerLegend.map((entry) => (
+          <span key={entry.status} className="inline-flex items-center gap-2" data-testid={`mc-paths-legend-${entry.status}`}>
+            <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full" style={{ background: entry.color }} />
+            Ziel {entry.label}
+          </span>
+        ))}
         {anyGoalAboveScale ? (
           <span className="inline-flex items-center gap-2" data-testid="mc-paths-legend-above-scale">
             <span aria-hidden="true">▲</span>
@@ -622,10 +627,11 @@ export function computeYScale(
 export function makeYTickFormatter(
   maxValueRappen: number,
   stepRappen: number,
+  currency: string | null,
 ): (rappen: number) => string {
   const MIO_RAPPEN = 1_000_000 * 100;
   if (maxValueRappen < MIO_RAPPEN) {
-    return (rappen) => formatChfRappen(rappen);
+    return (rappen) => formatChfRappen(rappen, { currency });
   }
   const stepMio = stepRappen / MIO_RAPPEN;
   let decimals = 0;
@@ -636,8 +642,9 @@ export function makeYTickFormatter(
     decimals += 1;
   }
   return (rappen) => {
-    if (rappen === 0) return 'CHF 0';
-    return `CHF ${(rappen / MIO_RAPPEN).toFixed(decimals)} Mio.`;
+    const unit = currency ? `${currency} ` : '';
+    if (rappen === 0) return `${unit}0`;
+    return `${unit}${(rappen / MIO_RAPPEN).toFixed(decimals)} Mio.`;
   };
 }
 

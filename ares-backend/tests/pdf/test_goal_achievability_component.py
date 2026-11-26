@@ -169,11 +169,11 @@ def test_norm_hardness_normalizes_aliases():
 
 
 @pytest.mark.parametrize("prob,expected", [
-    (0.92, "92%"),
-    (0.715, "71.5%"),  # genauer als 0.05% von round → 1 decimal
-    (0.5, "50%"),
-    (0.0, "0%"),
-    (1.0, "100%"),
+    (0.92, "92 %"),
+    (0.715, "71.5 %"),  # genauer als 0.05% von round → 1 decimal
+    (0.5, "50 %"),
+    (0.0, "0 %"),
+    (1.0, "100 %"),
     (None, "—"),
 ])
 def test_prob_cell_format(prob, expected):
@@ -182,8 +182,8 @@ def test_prob_cell_format(prob, expected):
 
 def test_prob_cell_clamps_overflow():
     """Defensive: Werte >1 oder <0 werden geclamped."""
-    assert _prob_cell(1.5) == "100%"
-    assert _prob_cell(-0.2) == "0%"
+    assert _prob_cell(1.5) == "100 %"
+    assert _prob_cell(-0.2) == "0 %"
 
 
 # --------------------------------------------------------------------------

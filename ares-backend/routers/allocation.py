@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import raise_if_check_violation
+import logging
 from datetime import date, datetime, timezone
 from typing import Optional
 import json
@@ -12,10 +14,14 @@ from database import get_db, new_uuid
 from models.users import User
 from models.mandates import Mandate
 from models.allocation import TargetAllocation, OptimizerPolicy, OptimizerRun, CapitalMarketAssumption, HouseMatrix, BuildingBlock
-from models.profiling import RiskAssessment
+from models.profiling import RiskAssessment, current_investment_preference
 from models.review import MandateReportNotes
+from services import notes_versioning as _notes_versioning
 from schemas.allocation import (
     TargetAllocationCreate, TargetAllocationResponse,
+    AllocationPublicationOverviewResponse, AllocationPublicationResponse, AllocationPublishRequest,
+    PublicationInboxApproveRequest, PublicationInboxItem,
+    IstProjectionBasisResponse,
     HouseMatrixResponse,
     CapitalMarketAssumptionCreate, CapitalMarketAssumptionResponse,
     TargetAllocationGenerateRequest, TargetAllocationGenerateResponse,
@@ -26,12 +32,20 @@ from schemas.allocation import (
     OptimizerPolicyDetailResponse, HouseMatrixRowsReplace,
 )
 from schemas.review import ReportNotesResponse, ReportNotesUpdate
+from core import sustainability_preference as sustainability
+from core.reason_codes import DomainError, ReasonCode
+from core.risk_parameter_set import stored_risk_parameter_set
 from services.auth import (
     get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin,
     require_portfolio_management, require_reference_data_reader,
-    enforce_cma_cross_tenant_read_scope,
+    enforce_cma_cross_tenant_read_scope, set_tenant_context,
+    COMPLIANCE_REVIEWER_ROLE, assert_compliance_reviewer_ready, require_compliance_approver,
+    same_person, tenant_id_for_new_record,
 )
-from services.audit import log
+from services.audit import gate_block_audit, log, release_block_audit
+from services.recommendation_release_gate import (
+    CHANNEL_CLIENT_PDF, KYC_DRAFT_NOTICE, assert_kyc_review_release_eligible, kyc_release_is_draft,
+)
 from services.optimizer_policy_lifecycle import (
     REASON_CODE_HOUSE_MATRIX_INCOMPLETE,
     copy_policy_children,
@@ -47,13 +61,29 @@ from services.allocation_concurrency import (
 )
 from services.data_classification import enforce_data_classification
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer CMA-/Policy-/Allokations-
-# Aenderungen im Audit-Log.
-from routers.auth import _extract_client_ip
-from services.jurisdiction.exceptions import (
+# Aenderungen im Audit-Log. CCX-P4: direkt aus services.auth (derselbe Helfer,
+# den routers.auth nur weiterreicht) -- Router importieren keine Router.
+from services.auth import extract_client_ip as _extract_client_ip
+# CCX-P4: die eine Publish-Gatefunktion (nur sie macht eine Allocation aktiv).
+from services.allocation_publication_gate import (  # load_fx_basis: Re-Export von services.fx_basis
+    STATUS_DRAFT as PUBLICATION_STATUS_DRAFT,
+    load_fx_basis,
+    active_publication_state,
+    decision_envelope_reference,
+    allocation_publication_status,
+    approval_mode_label,
+    publication_inbox_envelopes,
+    publication_overview,
+    publish_allocation,
+    require_published_allocation,
+)
+# C-890-01 Nachtrag 3: die Ausnahmen kommen ueber die Fassade
+# services.jurisdiction.resolve (bereits Abhaengigkeit, importiert sie selbst) --
+# so bleibt der Fan-out konstant, obwohl der React-Bericht das zentrale
+# Wiedervorlage-Gate braucht.
+from services.jurisdiction.resolve import (
     CMAValidityWindowError,
     JurisdictionReferenceDataMissingError,
-)
-from services.jurisdiction.resolve import (
     assert_cma_activatable_on,
     resolve_cma_for_jurisdiction,
 )
@@ -61,6 +91,10 @@ from jurisdictions.resolve import resolve_pack
 from services.cma_currency_guard import attach_to_strategy_payload as attach_cma_currency_guard
 from services.portfolio_engine import (
     BUCKET_FIELDS,
+    _allocation_snapshot_preferences,
+    _asset_class_expected_metrics,
+    _build_total_wealth_allocation,
+    _load_allocation_inputs,
     _current_risk_assessment_or_none,
     _current_target_allocation_or_none,
     build_target_payload_from_allocation,
@@ -70,6 +104,7 @@ from services.portfolio_engine import (
     require_strategy_ready_assessment,
 )
 from services.portfolio_engine_house_matrix import (
+    AllocationInputError,
     _building_block_rows_for_policy,
 )
 from services.manual_target_allocation import (
@@ -89,7 +124,11 @@ from services.depot_check import compute_depot_check
 from services.backtest_stress import gated_stress_replays
 from services.backtest_ab import run_ab_backtest
 from services.backtest_strategy import run_strategy_backtest
-from services.report_projection_gate import resolve_current_allocation_projection_gate
+from services.report_projection_gate import (
+    apply_publication_freshness,
+    publication_freshness,
+    resolve_current_allocation_projection_gate,
+)
 from services.review_engine import ReviewAnchorDataError, refresh_system_review_triggers
 from services.suitability_audit import audit_mandate_suitability, suitability_gate_blocks
 from services.knowledge_asset_class_gap import (
@@ -107,6 +146,7 @@ from services.risk_capacity_evaluation_snapshot import (
 from services.solver_admission import admit as _admit_solver_slot
 
 router = APIRouter(tags=["Allokation"])
+_bootstrap_logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -117,6 +157,32 @@ def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Man
     return get_mandate_for_user_or_404(mandate_id, db, current_user)
 
 
+def seed_reference_data_at_bootstrap(db: Session, user_id: str) -> bool:
+    """H11: CH-Referenzdaten (Policy, House-Matrix, Bausteine, CMA) einmalig im
+    Bootstrap anlegen statt als Seiteneffekt der GET-Pfade (die lesen jetzt mit
+    ``seed=False`` und antworten ohne Daten mit 409). Idempotent; in Produktion
+    ist Autoseeding unzulaessig -- dann bleibt es beim fail-closed 409, bis
+    freigegebene Daten importiert sind. Die Ersteinrichtung scheitert nie daran.
+    Registriert als ``app.state.post_bootstrap_hooks`` (main.py), damit
+    routers.auth keine Engine-Abhaengigkeit bekommt."""
+    try:
+        ensure_runtime_reference_data(db, user_id, jurisdiction="CH")
+        db.commit()
+        return True
+    except Exception as exc:  # noqa: BLE001 -- N-907-04: die Ersteinrichtung scheitert nie
+        db.rollback()
+        # Nur der Fehlertyp, keine Personen- oder Kontodaten.
+        _bootstrap_logger.warning("Bootstrap: CH-Referenzdaten nicht angelegt (%s)", type(exc).__name__)
+        return False
+
+
+def _attach_decision_envelope(db: Session, mandate, ta) -> None:
+    """P5b / N-925-04 (Tier 1): Envelope-Bezug (Pruefnummer, Fassung,
+    Kanalzeilen) und der gespeicherte Risikoparametersatz in der Antwort."""
+    ta.decision_envelope = decision_envelope_reference(db, mandate)
+    ta.risk_parameter_set = stored_risk_parameter_set(ta)
+
+
 @router.get("/mandates/{mandate_id}/target-allocation/current",
             response_model=TargetAllocationResponse)
 def get_current_allocation(
@@ -124,13 +190,19 @@ def get_current_allocation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    _get_mandate_or_404(mandate_id, db, current_user)
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
     try:
         ta = _current_target_allocation_or_none(db, mandate_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not ta:
         raise HTTPException(status_code=404, detail="Keine Soll-Allokation gefunden")
+    # CCX-P4: Arbeitsstand -- als Entwurf ausgewiesen, solange er nicht genau
+    # die gueltig publizierte Allokation ist (Serverstatus, Anzeige).
+    ta.publication_status = allocation_publication_status(
+        active_publication_state(db, mandate, deep=False), ta.id,
+    )
+    _attach_decision_envelope(db, mandate, ta)
     return ta
 
 
@@ -220,14 +292,21 @@ def get_current_allocation_payload(
     if not assessment:
         raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
     try:
+        # H11: Lesepfad ohne Seeding (Referenzdaten legt der Bootstrap an).
         policy, current_cma = ensure_runtime_reference_data(
             db,
             current_user.id,
             jurisdiction=resolve_pack(mandate).code,
             tenant_id=getattr(mandate, "tenant_id", None),
+            seed=False,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # CCX-P4: Publikationsstatus der Strategie (Entwurf, solange nicht publiziert).
+    ta.publication_status = allocation_publication_status(
+        active_publication_state(db, mandate, deep=False), ta.id,
+    )
+    _attach_decision_envelope(db, mandate, ta)
     # Sprint U-P6 Fix H6: CMA-Reload-Asymmetrie behoben — Metrics/MC werden
     # mit der zum Generate-Zeitpunkt persistierten CMA berechnet, nicht mit
     # der aktuellen. Vorher: Bands aus Snapshot, Returns/Vola aus aktueller CMA
@@ -396,6 +475,12 @@ def create_target_allocation(
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     ta = candidate.allocation
+    # N-888-01: der manuelle Datensatz uebernimmt die Praeferenzen der
+    # bisherigen Allokation -- dieselbe Untergrenze wie Generate.
+    assert_sustainability_preference_floor(
+        db, mandate, json.loads(ta.preferences_json or "{}"), channel="manual_allocation",
+        audit=_floor_audit(db, current_user, mandate, request),
+    )
     if prev:
         prev.is_current = 0
         # Release the existing partial-unique anchor before inserting the new
@@ -422,8 +507,10 @@ def create_target_allocation(
             mandate_id=mandate_id, client_id=mandate.client_id,
             ip_address=_extract_client_ip(request))
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail="Eine andere Soll-Allokation wurde gleichzeitig gespeichert -- bitte Seite neu laden und erneut versuchen.",
@@ -434,6 +521,9 @@ def create_target_allocation(
     # Editor anzeigen (persistiert sind sie in effective_constraints_json
     # und optimizer_reasoning_json).
     ta.manual_override_warnings = list(candidate.warnings)
+    # CCX-P4: eine manuelle Allokation ist ein Entwurf; kundenwirksam wird sie
+    # nur ueber denselben Publish-Gate (POST /allocation-publication).
+    ta.publication_status = PUBLICATION_STATUS_DRAFT
     return ta
 
 
@@ -516,6 +606,113 @@ def get_current_building_blocks(
     except JurisdictionReferenceDataMissingError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return sorted(rows, key=lambda row: (row.asset_class, row.sub_asset_class))
+
+
+# H9 Nachtrag 2 (2026-11-12, Entscheid Owner-Vertretung): EINE CMA-Quelle fuer
+# die IST-Vermoegensprojektion. Der Browser rechnete ohne Strategie mit Client-
+# Konstanten, mit Strategie mit der Soll-gewichteten Server-CMA und dem Snapshot
+# der Strategie -- derselbe Kunde hatte je nach Zustand eine andere IST-Kurve.
+# Dieser Lesepfad liefert die Basis unabhaengig vom Strategie-Zustand mit der
+# wirksamen CMA des Allokationspfads; fehlt sie, gibt es keine Projektion
+# (fail-closed, Reason-Code IST_PROJECTION_BASIS_UNAVAILABLE).
+
+
+def _require_ist_projection_fx(db: Session, mandate) -> None:
+    """KN4-B / E2E4-07: alle Waehrungen der aktiven Positionen und Cashflows des
+    Kunden gegen die strikte FX-Basis der Mandatswaehrung pruefen."""
+    params = {"cid": str(getattr(mandate, "client_id", "") or "")}
+    currencies = {
+        str(row[0] or "").upper().strip()
+        for sql in (
+            "SELECT DISTINCT currency FROM wealth_positions WHERE client_id = :cid "
+            "AND is_active = 1 AND deleted_at IS NULL",
+            "SELECT DISTINCT currency FROM cashflows WHERE client_id = :cid AND is_active = 1 AND deleted_at IS NULL",
+        )
+        for row in db.execute(text(sql), params).all()
+    }
+    if not currencies:
+        return
+    basis = load_fx_basis(db, getattr(mandate, "base_currency", None) or "CHF", currencies - {""},
+                          tenant_id=getattr(mandate, "tenant_id", None))
+    basis.require_convertible(currencies)
+
+
+@router.get("/mandates/{mandate_id}/ist-projection-basis",
+            response_model=IstProjectionBasisResponse)
+def get_ist_projection_basis(
+    mandate_id: str,
+    horizon_years: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Tenant-/Besitz-Pruefung (IDOR): fremdes Mandat -> 404.
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    if horizon_years is not None and not 1 <= int(horizon_years) <= 80:
+        raise HTTPException(status_code=422, detail="horizon_years muss zwischen 1 und 80 liegen.")
+    try:
+        # Dieselbe Aufloesung wie der Allokationspfad (Jurisdiktion + Tenant),
+        # H11: rein lesend -- ohne Referenzdaten 409 statt Seeding.
+        _policy, cma = ensure_runtime_reference_data(
+            db,
+            current_user.id,
+            jurisdiction=resolve_pack(mandate).code,
+            tenant_id=getattr(mandate, "tenant_id", None) or None,
+            seed=False,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
+            "message": "Keine wirksamen Kapitalmarktannahmen fuer dieses Mandat; "
+                       "die Ist-Projektion wird nicht berechnet.",
+        }) from exc
+    # KN4-B / E2E4-07: fehlende Kurse vorab gesammelt pruefen -- die Sperre nennt
+    # alle betroffenen Waehrungen (Positionen und Cashflows), nicht nur die erste.
+    _require_ist_projection_fx(db, mandate)
+    try:
+        inputs = _load_allocation_inputs(
+            db, mandate, simulation_prefs={}, cma=cma,
+            horizon_years_override=int(horizon_years) if horizon_years else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
+            "message": "Die erfassten Vermoegensdaten sind fuer die Ist-Projektion "
+                       "nicht lesbar: " + str(exc),
+        }) from exc
+    try:
+        returns, _vols = _asset_class_expected_metrics(cma)
+        total = _build_total_wealth_allocation(
+            inputs["total_summary"],
+            inputs["mortgage_liabilities_rappen"],
+            inputs["total_wealth_rappen"],
+            {key: 0 for key in BUCKET_FIELDS},
+            foundation_projection=inputs["external_foundation_projection"],
+            other_liabilities_rappen=max(
+                0, int(inputs["total_liabilities_rappen"]) - int(inputs["mortgage_liabilities_rappen"])
+            ),
+        )
+    except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+        # N-892-08: auch die Basis-Berechnung ist fail-closed (409 statt 500).
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
+            "message": "Die Gesamtvermoegens-Basis der Ist-Projektion ist nicht "
+                       "berechenbar: " + str(exc),
+        }) from exc
+    return {
+        "mandate_id": mandate.id,
+        "cma": {
+            "id": cma.id,
+            "assumption_set_name": cma.assumption_set_name,
+            "version": int(cma.version or 1),
+            "valid_from": cma.valid_from,
+            "valid_until": cma.valid_until,
+            "jurisdiction": getattr(cma, "jurisdiction", None),
+        },
+        "expected_return_bps": {key: int(returns.get(key, 0) or 0) for key in BUCKET_FIELDS},
+        "total_base_rappen": int(total.get("total_base_rappen") or 0),
+        "foundation_in_net_wealth_rappen": int(total.get("foundation_in_net_wealth_rappen") or 0),
+        "projection_basis": dict(total.get("projection_basis") or {}),
+    }
 
 
 @router.get("/capital-market-assumptions/current",
@@ -685,6 +882,66 @@ def update_cma(
     return cma
 
 
+_FLOOR_UNSET = object()
+
+
+def assert_sustainability_preference_floor(
+    db: Session,
+    mandate,
+    preferences=_FLOOR_UNSET,
+    *,
+    channel: str = "generate",
+    audit=None,
+) -> dict:
+    """E2b / N-888-01 (Dok. 106): Ausschlusswuensche der aktuellen
+    Nachhaltigkeitspraeferenz sind die Untergrenze der Strategiebausteine.
+
+    Gleiche Entscheidung wie services/recommendation_release_gate.py::
+    assert_sustainability_preference_floor (Produktlauf, Finalize, Signatur,
+    PDF, Handoff): ausschliesslich core/sustainability_preference.py::
+    evaluate_floor. ``preferences``: wirksame Praeferenzen (dict/JSON);
+    ``None`` = die der aktuellen Soll-Allokation (wie Generate). Gelockert ->
+    422 SUSTAINABILITY_PREFERENCE_FLOOR_VIOLATED (kurze Meldung, Detail),
+    unlesbar -> 409, beides mit Audit-Eintrag (``audit``). Wirkung nur ueber
+    den bestehenden Restriktionsmechanismus (Validierung, keine neue
+    Engine-Logik)."""
+    row = current_investment_preference(db, mandate.id)
+    decision = None if row is None else {"id": row.id, "exclusions_json": row.exclusions_json}
+    if preferences is None or preferences is _FLOOR_UNSET:
+        preferences = _allocation_snapshot_preferences(
+            _current_target_allocation_or_none(db, mandate.id)
+        ) or {}
+    result = sustainability.evaluate_floor(decision, preferences)
+    if not sustainability.floor_blocks(result):
+        return result
+    if audit is not None:
+        audit(sustainability.floor_audit_payload(result, channel), result)
+    unreadable = result["status"] == sustainability.FLOOR_UNREADABLE
+    extra = {"channel": channel, "themes": list(result.get("themes") or ())}
+    if not unreadable:
+        extra["detail"] = sustainability.floor_detail(result)
+    raise DomainError(
+        ReasonCode.SUSTAINABILITY_PREFERENCE_UNREADABLE if unreadable
+        else ReasonCode.SUSTAINABILITY_PREFERENCE_FLOOR_VIOLATED,
+        sustainability.floor_message(result, channel),
+        http_status=409 if unreadable else 422,
+        extra=extra,
+    )
+
+
+def _floor_audit(db: Session, current_user, mandate, request):
+    """Audit-Callback; Request/IP werden erst beim Block gelesen."""
+    def _audit(payload: str, result: dict) -> None:
+        gate_block_audit(
+            db, user=current_user, mandate=mandate,
+            ip_address=_extract_client_ip(request) if request is not None else None,
+            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+            set_tenant_context=set_tenant_context,
+        )(payload, result)
+
+    return _audit
+
+
 @router.post("/mandates/{mandate_id}/target-allocation/generate",
              response_model=TargetAllocationGenerateResponse)
 def generate_target_allocation_endpoint(
@@ -717,15 +974,30 @@ def generate_target_allocation_endpoint(
                         "(require_suitability_before_recommendation=True)."
                     ),
                 )
+        preferences = body.preferences.model_dump() if body.preferences else None
         try:
+            # E2b: Kunden-Ausschluesse als Untergrenze (vor jeder Berechnung).
+            assert_sustainability_preference_floor(
+                db, mandate, preferences, channel="generate",
+                audit=_floor_audit(db, current_user, mandate, request),
+            )
             result = generate_target_allocation(
                 db=db,
                 mandate=mandate,
                 user_id=current_user.id,
-                preferences=body.preferences.model_dump() if body.preferences else None,
+                preferences=preferences,
             )
+        except AllocationInputError as exc:
+            # AUDIT-2026-11 A5 / H-859-5: unerfuellbare oder widerspruechliche
+            # Bandbreiten/Ziele sind ein Eingabefehler (422) mit deutscher
+            # Meldung, kein Zustandskonflikt -- einheitlich fuer Ziel ausserhalb
+            # der Bandbreite, Min > Max, Minima ueber 100 % und Maxima unter 100 %.
+            raise HTTPException(status_code=422, detail=str(exc))
         except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
+            # EXE-P (H-187): ``from exc`` -- typisierte Ablehnungen (z. B.
+            # REFERENCE_DATA_PACKAGE_MISSING, CCX_PARAMETER_SET_MISSING) behalten
+            # ihren Reason-Code (core.middleware, nur __cause__).
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         # CON-001 (Codex-Audit 2026-08-25): siehe create_target_allocation oben --
         # derselbe Partial-Unique-Index-Race, mit demselben SQLite-Luecken-Risiko.
         # refresh_system_review_triggers()/log() fuehren eigene Queries aus, die
@@ -737,8 +1009,9 @@ def generate_target_allocation_endpoint(
                 table_name="target_allocations", record_id=result["target_allocation"].id, action="CREATE",
                 mandate_id=mandate_id, client_id=mandate.client_id,
                 ip_address=_extract_client_ip(request))
-            # RISK-CAPACITY-PLAUSIBILITY-001: Hinweis im Reasoning + Audit,
-            # keine Profilaenderung, kein Blockieren.
+            # RISK-CAPACITY-PLAUSIBILITY-001: Datenfeld + Evidenz + Audit,
+            # keine Profilaenderung, kein Blockieren. H9 (Owner 2026-11-08):
+            # kein Hinweis mehr im Reasoning (attach_to_strategy_payload).
             # KNOWLEDGE-GAP-ASSET-CLASS-001: Hinweis, keine Allokationsaenderung.
             attach_knowledge_gap_check(result, mandate, result.get("risk_assessment"))
             captured: dict = {}
@@ -754,7 +1027,7 @@ def generate_target_allocation_endpoint(
             )
             attach_to_strategy_payload(result, plausibility)
             # CMA-CURRENCY-GUARD-001: berechenbar, aber "nicht freigegeben"
-            # (nach der Plausibilitaet = zuoberst im Reasoning).
+            # (zuoberst im Reasoning).
             attach_cma_currency_guard(db, mandate, result)
             audit_if_inconsistent(
                 db, plausibility, user=current_user, table_name="target_allocations",
@@ -762,8 +1035,10 @@ def generate_target_allocation_endpoint(
                 ip_address=_extract_client_ip(request),
             )
             db.commit()
-        except IntegrityError:
+        except IntegrityError as exc:
             db.rollback()
+            # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+            raise_if_check_violation(exc)
             raise HTTPException(
                 status_code=409,
                 detail="Eine andere Soll-Allokation wurde gleichzeitig generiert -- bitte Seite neu laden und erneut versuchen.",
@@ -776,7 +1051,214 @@ def generate_target_allocation_endpoint(
             raise HTTPException(status_code=409, detail=str(exc))
         db.refresh(result["target_allocation"])
         invalidate_advisory_cache(mandate_id)
+        # CCX-P4: eine neu generierte Allokation ist ein Entwurf (nie aktiv).
+        result["target_allocation"].publication_status = PUBLICATION_STATUS_DRAFT
         return result
+
+
+# ---------------------------------------------------------------------------
+# CCX-P4 Allocation-Publish (Vertrag 2026-11-13 §7)
+# ---------------------------------------------------------------------------
+
+ALLOCATION_DRAFT_NOTICE = "Entwurf – Soll-Allokation nicht publiziert"
+
+
+@router.get("/mandates/{mandate_id}/allocation-publication",
+            response_model=AllocationPublicationOverviewResponse)
+def get_allocation_publication(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """CCX-P4: Publikationsstatus der aktuellen Soll-Allokation (Pruefung ohne
+    Schreibwirkung). ``can_publish`` nur, wenn alle Gates gruen sind; sonst
+    katalogisierte ``blocker_codes``.
+
+    KN-B / E2E2-05: ``freshness`` (abgeleitet, Datensatz append-only): eine
+    publizierte, aber nicht mehr FRESHe Allokation erscheint als
+    ``PUBLICATION_INVALID`` mit konkreter Ursache (z. B. "Wechselkurs USD
+    geändert")."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    overview = publication_overview(db, mandate)
+    state = active_publication_state(db, mandate)
+    out = apply_publication_freshness(overview, publication_freshness(db, mandate, state))
+    # P5b / N-925-04: Envelope-Bezug (Pruefnummer, Fassung) fuer Classic.
+    return {**out, "decision_envelope": decision_envelope_reference(db, mandate)}
+
+
+@router.post("/mandates/{mandate_id}/allocation-publication",
+             response_model=AllocationPublicationResponse, status_code=201)
+def post_allocation_publication(
+    mandate_id: str,
+    body: AllocationPublishRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """CCX-P4: publiziert genau den geprueften Stand (``validation_hash``) der
+    aktuellen Soll-Allokation -- generiert oder manuell, derselbe Gate.
+    Ablehnung: ``CCX_ALLOCATION_NOT_PUBLISHABLE`` (Blocker-Codes),
+    ``CCX_VALIDATION_HASH_MISMATCH`` (Mutation nach Pruefung),
+    ``CCX_APPROVAL_BINDING_MISSING`` (Vier Augen), ``CCX_PUBLICATION_RACE``
+    (paralleler Publisher); jeweils mit Audit, ohne Fallback."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    decision = publish_allocation(
+        db, mandate, user=current_user,
+        expected_validation_hash=body.validation_hash,
+        expected_target_allocation_id=body.target_allocation_id,
+        single_approver_attestation=body.single_approver_attestation,
+        attestation_reason=body.attestation_reason,
+        ip_address=_extract_client_ip(request),
+    )
+    invalidate_advisory_cache(mandate_id)
+    return AllocationPublicationResponse(
+        publication_id=decision.id, mandate_id=decision.mandate_id,
+        target_allocation_id=decision.target_allocation_id, envelope_id=decision.envelope_id,
+        publication_sequence=decision.publication_sequence, validation_hash=decision.validation_hash,
+        approval_hash=decision.approval_hash, approval_mode=decision.approval_mode,
+        approval_mode_label=approval_mode_label(decision.approval_mode),
+        approved_at=decision.approved_at, approved_by=decision.approved_by,
+        published_envelope_hash=decision.published_envelope_hash,
+        eligible_approver_count=decision.eligible_approver_count,
+        single_person_firm=decision.single_person_firm,
+    )
+
+
+# ---------------------------------------------------------------------------
+# ROL-05 (CTO-Entscheid H-180): Freigabe-Inbox fuer die Vier-Augen-Publikation
+# ---------------------------------------------------------------------------
+# Die Zweitperson (Firmen-Admin oder die benannte externe Pruefperson) sieht
+# hier NUR die zur Freigabe vorgelegten Akten ihrer Firma (versiegelter
+# Beratungsentscheid ohne aktive Publikation), datenminimiert, und gibt genau
+# den geprueften Stand frei -- ohne volle Kundensicht. Eigene Vorbereitungen
+# erscheinen nicht (Vier Augen); Berater publizieren nicht allein, die
+# Einzelfreigabe der Ein-Personen-Firma bleibt im Mandat (POST oben).
+PUBLICATION_INBOX_ROLES: tuple[str, ...] = ("admin", COMPLIANCE_REVIEWER_ROLE)
+_INBOX_BUCKETS = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
+
+
+def _publication_inbox_user(current_user: User = Depends(require_compliance_approver)) -> User:
+    if current_user.role not in PUBLICATION_INBOX_ROLES:
+        raise HTTPException(status_code=403, detail="Nur fuer die Zweitperson der Firma (Admin oder Pruefperson)")
+    return current_user
+
+
+def _inbox_allocation_fields(db: Session, target_allocation_id: str | None) -> dict:
+    ta = (db.query(TargetAllocation).filter(TargetAllocation.id == target_allocation_id).first()
+          if target_allocation_id else None)
+    if ta is None:
+        return {}
+    return {
+        "targets_bps": {b: int(getattr(ta, f"target_{b}_bps") or 0) for b in _INBOX_BUCKETS},
+        "bands_bps": {b: [int(getattr(ta, f"band_{b}_min_bps") or 0), int(getattr(ta, f"band_{b}_max_bps") or 0)]
+                      for b in _INBOX_BUCKETS},
+    }
+
+
+def _publication_inbox(db: Session, user: User) -> list[tuple[Mandate, dict]]:
+    tenant_id = tenant_id_for_new_record(user)
+    items: list[tuple[Mandate, dict]] = []
+    for envelope in publication_inbox_envelopes(db, tenant_id):
+        if envelope.sealed_by and same_person(db, user.id, envelope.sealed_by):
+            continue
+        mandate = db.query(Mandate).filter(
+            Mandate.id == envelope.mandate_id, Mandate.tenant_id == tenant_id, Mandate.deleted_at.is_(None),
+        ).first()
+        if mandate is None:
+            continue
+        overview = publication_overview(db, mandate)
+        if overview.get("already_published") or overview.get("envelope_id") != envelope.id:
+            continue
+        preparer = db.query(User).filter(User.id == envelope.sealed_by).first() if envelope.sealed_by else None
+        items.append((mandate, {
+            "mandate_id": str(mandate.id),
+            "mandate_number": mandate.mandate_number,
+            "mandate_type": getattr(mandate, "mandate_type", None),
+            "prepared_by": envelope.sealed_by,
+            "prepared_by_name": getattr(preparer, "full_name", None),
+            "sealed_at": envelope.sealed_at,
+            "target_allocation_id": overview.get("target_allocation_id"),
+            "validation_hash": overview["validation_hash"],
+            "can_publish": bool(overview.get("can_publish")),
+            "blocker_codes": list(overview.get("blocker_codes") or []),
+            **_inbox_allocation_fields(db, overview.get("target_allocation_id")),
+        }))
+    return items
+
+
+@router.get("/publication-inbox", response_model=list[PublicationInboxItem])
+def get_publication_inbox(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_publication_inbox_user),
+):
+    """ROL-05: zur Freigabe vorgelegte Akten der eigenen Firma (datenminimiert)."""
+    return [item for _mandate, item in _publication_inbox(db, current_user)]
+
+
+@router.post("/publication-inbox/{mandate_id}/approve",
+             response_model=AllocationPublicationResponse, status_code=201)
+def approve_from_publication_inbox(
+    mandate_id: str,
+    body: PublicationInboxApproveRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_publication_inbox_user),
+):
+    """ROL-05: Vier-Augen-Freigabe einer vorgelegten Akte. Nicht vorgelegt,
+    fremde Firma oder eigene Vorbereitung -> 404 (keine Auskunft)."""
+    if current_user.role == COMPLIANCE_REVIEWER_ROLE:
+        assert_compliance_reviewer_ready(current_user)
+    match = next((m for m, item in _publication_inbox(db, current_user) if item["mandate_id"] == mandate_id), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail="Keine zur Freigabe vorgelegte Akte gefunden")
+    decision = publish_allocation(
+        db, match, user=current_user,
+        expected_validation_hash=body.validation_hash,
+        expected_target_allocation_id=body.target_allocation_id,
+        single_approver_attestation=False,
+        attestation_reason=None,
+        ip_address=_extract_client_ip(request),
+    )
+    invalidate_advisory_cache(mandate_id)
+    return AllocationPublicationResponse(
+        publication_id=decision.id, mandate_id=decision.mandate_id,
+        target_allocation_id=decision.target_allocation_id, envelope_id=decision.envelope_id,
+        publication_sequence=decision.publication_sequence, validation_hash=decision.validation_hash,
+        approval_hash=decision.approval_hash, approval_mode=decision.approval_mode,
+        approval_mode_label=approval_mode_label(decision.approval_mode),
+        approved_at=decision.approved_at, approved_by=decision.approved_by,
+        published_envelope_hash=decision.published_envelope_hash,
+        eligible_approver_count=decision.eligible_approver_count,
+        single_person_firm=decision.single_person_firm,
+    )
+
+
+@router.get("/mandates/{mandate_id}/target-allocation/published",
+            response_model=TargetAllocationResponse)
+def get_published_allocation(
+    mandate_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """CCX-P4: die aktive, gueltig publizierte Soll-Allokation -- der einzige
+    Lesepfad, der eine Allocation als aktiv liefert. Ohne gueltige
+    Publikation ``CCX_ALLOCATION_NOT_PUBLISHABLE`` (409, Audit), nie ein
+    Entwurf und nie eine aeltere Publikation."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    state = require_published_allocation(
+        db, mandate, channel="api_published_allocation", user=current_user,
+        ip_address=_extract_client_ip(request),
+    )
+    ta = db.query(TargetAllocation).filter(
+        TargetAllocation.id == state.target_allocation_id,
+        TargetAllocation.mandate_id == mandate_id,
+    ).first()
+    if ta is None:
+        raise DomainError(ReasonCode.CCX_ALLOCATION_NOT_PUBLISHABLE,
+                          "Die publizierte Soll-Allokation ist nicht mehr vorhanden.", http_status=409)
+    ta.publication_status = state.status
+    return ta
 
 
 @router.post("/mandates/{mandate_id}/target-allocation/sensitivity",
@@ -803,6 +1285,12 @@ def goal_target_sensitivity(
     # Solver sogar zweimal (Baseline + Counterfactual) auf.
     with _admit_solver_slot():
         mandate = _get_mandate_or_404(mandate_id, db, current_user)
+        # N-888-01: Sensitivity rechnet auf der aktuellen Allokation; deren
+        # Praeferenzen muessen die Kundenausschluesse einhalten.
+        assert_sustainability_preference_floor(
+            db, mandate, None, channel="sensitivity",
+            audit=_floor_audit(db, current_user, mandate, request),
+        )
         try:
             result = evaluate_goal_sensitivity(
                 db=db,
@@ -886,7 +1374,39 @@ def get_advisory_report(
     get_current_user, gleiche Pattern wie Depot-Check-Endpoint.
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    return cached_compute_advisory_report(db, mandate, advisor=current_user)
+    # C-890-01 N-897-01: kundenwirksamer Bericht -> zentrales Wiedervorlage-Gate.
+    assert_kyc_review_release_eligible(
+        db, mandate, channel=CHANNEL_CLIENT_PDF,
+        on_block=release_block_audit(
+            db, user=current_user, ip_address=None, mandate_id=mandate.id,
+            field_name="client_report_blocked", set_tenant_context=set_tenant_context,
+        ),
+    )
+    report = cached_compute_advisory_report(db, mandate, advisor=current_user)
+    # N-897-12: ohne jede KYC-Bestaetigung als Entwurf vor Vertragsabschluss.
+    if isinstance(report, dict):
+        report = {**report, "kyc_draft_notice": KYC_DRAFT_NOTICE if kyc_release_is_draft(db, mandate) else None}
+        # CCX-P4: der Bericht zeigt die Strategie nur als publiziert, wenn sie
+        # gueltig publiziert ist (tiefe Pruefung); sonst als Entwurf.
+        state = active_publication_state(db, mandate)
+        # KN-B / E2E2-05: abgeleitete Frische (veraltet mit Ursache).
+        freshness = publication_freshness(db, mandate, state)
+        published = state.published and freshness.get("status") != "STALE"
+        publication = {"status": state.status, "reason_code": state.reason_code,
+                       "approval_mode_label": approval_mode_label(state.approval_mode) if published else None,
+                       "freshness": freshness}
+        if state.published and not published:
+            publication.update(status="PUBLICATION_INVALID", reason_code=ReasonCode.CCX_INPUT_STALE.value)
+        # P5b / N-925-04: Envelope-Bezug (Pruefnummer, Fassung) fuer React.
+        publication["decision_envelope"] = decision_envelope_reference(db, mandate)
+        report = {
+            **report,
+            # N-910-02: Kennzeichnung der Freigabeart in der Berater-Ansicht
+            # (nicht in Kunden-PDFs -- interne Governance).
+            "allocation_publication": publication,
+            "allocation_draft_notice": None if published else ALLOCATION_DRAFT_NOTICE,
+        }
+    return report
 
 
 # ---------------------------------------------------------------------------
@@ -910,14 +1430,12 @@ def _parse_json_list(raw: Optional[str]) -> list[str]:
 
 
 def _serialize_notes(
-    notes: "MandateReportNotes", *, history_limit: int = 20, history_offset: int = 0
+    notes, *, history_limit: int = 20, history_offset: int = 0
 ) -> dict:
-    # Sprint U-37b (2026-06-04): History aus previous_versions_json
-    # exponieren — schliesst U-37 Review-Lücke aus PR #140.
-    # RESOURCE-002 Teil 2 (Codex-Audit 2026-08-27): paginiert statt komplett
-    # -- die Historie waechst append-only unbegrenzt (services/notes_versioning.py).
-    from services.notes_versioning import load_history_page as _u37_load_history_page
-    page, total = _u37_load_history_page(
+    # L2c (H-192): ``notes`` ist die geoeffnete Sicht aus
+    # services.notes_versioning.report_notes_current (versiegelte, append-only
+    # Versionen); die Historie wird paginiert (RESOURCE-002 Teil 2).
+    page, total = _notes_versioning.history_page(
         notes, limit=history_limit, offset=history_offset
     )
     return {
@@ -941,6 +1459,18 @@ def _serialize_notes(
     }
 
 
+_REPORT_NOTES_TAMPERED_DETAIL = {
+    "reason_code": "ADVISORY_LOG_INTEGRITY_FAILED",
+    "entry_kind": "report_notes",
+    "message": (
+        "Die Prüfsumme der Berichtsnotizen passt nicht zu ihrem Inhalt. Eine "
+        "gespeicherte Fassung wurde nach dem Speichern verändert oder ist "
+        "beschädigt. Bitte die Datenbank prüfen lassen (Sicherung); neue "
+        "Notizen werden bis dahin nicht gespeichert."
+    ),
+}
+
+
 @router.get("/mandates/{mandate_id}/report-notes", response_model=ReportNotesResponse)
 def get_report_notes(
     mandate_id: str,
@@ -962,11 +1492,7 @@ def get_report_notes(
     fallen pro Feld auf den Auto-Default-Text zurueck.
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    notes = (
-        db.query(MandateReportNotes)
-        .filter(MandateReportNotes.mandate_id == mandate.id)
-        .first()
-    )
+    notes = _notes_versioning.report_notes_current(db, mandate.id, client_id=mandate.client_id)
     if notes is None:
         return ReportNotesResponse(mandate_id=mandate.id)
     return ReportNotesResponse(
@@ -984,12 +1510,17 @@ def put_report_notes(
 ):
     """U-P28: Upsert der Berater-Overrides.
 
-    Auth: nur Berater (require_advisor) — Kunden sehen den Report
-    read-only. Audit-Anchor (`last_edited_by` + `last_edited_at`) wird bei
-    jedem PUT aktualisiert; das `created_at` bleibt beim ersten Insert.
+    L2c (H-192): Versionierung statt Ueberschreiben -- jede Aenderung legt
+    eine append-only Version mit versiegelten Freitexten an (DSG-Loeschung
+    per Crypto-Shred). Die Kopfzeile traegt nur Metadaten (Audit-Anchor
+    `last_edited_by` + `last_edited_at`, `created_at` beim ersten Insert).
     """
+    report_notes_current = _notes_versioning.report_notes_current
     enforce_data_classification(body.data_classification)
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    current = report_notes_current(db, mandate.id, client_id=mandate.client_id)
+    if current is not None and current.text_state == "veraendert":
+        raise HTTPException(status_code=409, detail=_REPORT_NOTES_TAMPERED_DETAIL)
     notes = (
         db.query(MandateReportNotes)
         .filter(MandateReportNotes.mandate_id == mandate.id)
@@ -1008,63 +1539,31 @@ def put_report_notes(
         )
         db.add(notes)
 
-    # Sprint U-37: ALT-Werte snapshotten VOR Update fuer
-    # previous_versions_json History.
-    from services.notes_versioning import (
-        NOTES_VERSIONED_FIELDS as _u37_fields,
-        compute_changes as _u37_compute_changes,
-        _parse_history as _u37_parse_history,
-        _now_iso as _u37_now_iso,
-    )
-    _u37_old_values = {f: getattr(notes, f, None) for f in _u37_fields}
-    _u37_new_values: dict[str, Any] = {}
-
-    # Felder updaten — None laesst das bestehende Feld unangetastet
+    # Felder — None laesst das bestehende Feld unangetastet
     # (Schritt-fuer-Schritt-Bearbeitung in der Sub-App), `""` setzt explizit
     # auf leer und triggert damit den Auto-Default-Fallback im Aggregator.
-    if body.aa_anmerkungen is not None:
-        _u37_new_values["aa_anmerkungen"] = body.aa_anmerkungen or None
-        notes.aa_anmerkungen = body.aa_anmerkungen or None
-    if body.waehrungen_erklaerung is not None:
-        _u37_new_values["waehrungen_erklaerung"] = body.waehrungen_erklaerung or None
-        notes.waehrungen_erklaerung = body.waehrungen_erklaerung or None
-    if body.branchen_analyse is not None:
-        _u37_new_values["branchen_analyse"] = body.branchen_analyse or None
-        notes.branchen_analyse = body.branchen_analyse or None
-    if body.vorgehen_block_optimierungen is not None:
-        _u37_new_values["vorgehen_block_optimierungen"] = body.vorgehen_block_optimierungen or None
-        notes.vorgehen_block_optimierungen = body.vorgehen_block_optimierungen or None
-    if body.vorgehen_block_zielstrategie is not None:
-        _u37_new_values["vorgehen_block_zielstrategie"] = body.vorgehen_block_zielstrategie or None
-        notes.vorgehen_block_zielstrategie = body.vorgehen_block_zielstrategie or None
-    if body.vorgehen_offene_fragen is not None:
-        _val = json.dumps([str(item) for item in body.vorgehen_offene_fragen])
-        _u37_new_values["vorgehen_offene_fragen_json"] = _val
-        notes.vorgehen_offene_fragen_json = _val
-    if body.vorgehen_naechster_termin is not None:
-        _u37_new_values["vorgehen_naechster_termin"] = body.vorgehen_naechster_termin or None
-        notes.vorgehen_naechster_termin = body.vorgehen_naechster_termin or None
-    if body.vorgehen_todos is not None:
-        _val = json.dumps([str(item) for item in body.vorgehen_todos])
-        _u37_new_values["vorgehen_todos_json"] = _val
-        notes.vorgehen_todos_json = _val
-    if body.vorgehen_dokumente is not None:
-        _val = json.dumps([str(item) for item in body.vorgehen_dokumente])
-        _u37_new_values["vorgehen_dokumente_json"] = _val
-        notes.vorgehen_dokumente_json = _val
+    values: dict[str, Any] = {}
+    for field in (
+        "aa_anmerkungen", "waehrungen_erklaerung", "branchen_analyse",
+        "vorgehen_block_optimierungen", "vorgehen_block_zielstrategie",
+        "vorgehen_naechster_termin",
+    ):
+        raw = getattr(body, field)
+        if raw is not None:
+            values[field] = raw or None
+    for field in ("vorgehen_offene_fragen", "vorgehen_todos", "vorgehen_dokumente"):
+        raw = getattr(body, field)
+        if raw is not None:
+            values[f"{field}_json"] = json.dumps([str(item) for item in raw])
 
-    # U-37: bei tatsaechlichen Aenderungen Snapshot in History prependen.
-    _u37_changes = _u37_compute_changes(_u37_old_values, _u37_new_values)
-    if _u37_changes:
-        _u37_history = _u37_parse_history(
-            getattr(notes, "previous_versions_json", None)
+    try:
+        _notes_versioning.save_report_notes_version(
+            db, notes, client_id=mandate.client_id, values=values,
+            edited_by=current_user.id, edited_at=now,
         )
-        _u37_history.insert(0, {
-            "edited_at": _u37_now_iso(),
-            "edited_by": current_user.id,
-            "changes": _u37_changes,
-        })
-        notes.previous_versions_json = json.dumps(_u37_history)
+    except _notes_versioning.ProtocolTextSealError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     notes.last_edited_by = current_user.id
     notes.last_edited_at = now
@@ -1085,12 +1584,13 @@ def put_report_notes(
         ip_address=_extract_client_ip(request),
     )
     db.commit()
-    db.refresh(notes)
     # U-19: Cache invalidieren, damit die naechste GET /advisory-report den
     # frisch gespeicherten Override sofort sieht (statt bis zu TTL-Sekunden
     # auf Auto-Default-Cache zu zeigen).
     invalidate_advisory_cache(mandate.id)
-    return ReportNotesResponse(**_serialize_notes(notes))
+    return ReportNotesResponse(
+        **_serialize_notes(report_notes_current(db, mandate.id, client_id=mandate.client_id))
+    )
 
 
 @router.get("/mandates/{mandate_id}/backtest/stress-replays")
@@ -1118,7 +1618,7 @@ def get_backtest_stress_replays(
 def list_optimizer_policies_read(
     include_historic: bool = True,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_reference_data_reader),
 ):
     """Sprint U-P15: Read-only Policy-Liste für Advisor-UI (A/B-Backtest-
     Selektoren). Im Gegensatz zu /admin/optimizer-policies erfordert dieser
@@ -1266,6 +1766,7 @@ def get_strategy_backtest(
         benchmark_fee_bps=benchmark_fee_bps,
         benchmark_sub_weights_bps=sub_benchmark,
         projection_gate=resolve_current_allocation_projection_gate(db, mandate),
+        production_mode=settings.production_mode,
     )
 
 
@@ -1462,8 +1963,10 @@ def create_optimizer_policy(
             table_name="optimizer_policies", record_id=policy.id, action="CREATE",
             new_value=body.policy_name, ip_address=_extract_client_ip(request))
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail="Eine andere Policy wurde gleichzeitig aktiviert -- bitte Seite neu laden und erneut versuchen.",
@@ -1613,8 +2116,10 @@ def activate_optimizer_policy(
             table_name="optimizer_policies", record_id=policy_id, action="ACTIVATE",
             ip_address=_extract_client_ip(request))
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail="Eine andere Policy wurde gleichzeitig aktiviert -- bitte Seite neu laden und erneut versuchen.",
