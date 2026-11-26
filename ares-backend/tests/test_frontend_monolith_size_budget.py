@@ -227,6 +227,8 @@ gesenkt auf 26252/1612569 trotz Script-Einbindung; intro-sequence.js 761/36764 (
 ohne Behauptungen wie "synchronized", "validated", "ready").
 RC-Kopf (27.11.2026): L2d und UX-L0 zusammengefuehrt (beide Script-Einbindungen in einer
 Zeile) -> Monolith 26252/1612542.
+UX-L1a (UX-CH-05, Sie-Ansprache): reine Textaenderung in bestehenden Zeilen, Sie-Formen
+sind laenger -> Monolith 26252/1612646 auf dem UX-Strang, im RC-Kopf 26252/1612619 (+77 B, keine neue Logik, keine neue Zeile).
 """
 from __future__ import annotations
 
@@ -237,7 +239,7 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 26252
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1612542
+MONOLITH_MAX_BYTES = 1612619
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).

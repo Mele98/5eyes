@@ -181,7 +181,7 @@ body{font-family:var(--f-s);}</style>
       </div>
     </div>
     <div id="login-panel">
-      <div style="font-size:12px;color:var(--text-body);line-height:1.6;margin-bottom:16px;">Melde dich mit deinem lokalen Benutzerkonto an. Tokens bleiben nur lokal auf diesem Gerät gespeichert.</div>
+      <div style="font-size:12px;color:var(--text-body);line-height:1.6;margin-bottom:16px;">Melden Sie sich mit Ihrem lokalen Benutzerkonto an. Tokens bleiben nur lokal auf diesem Gerät gespeichert.</div>
       <div style="margin-bottom:14px;">
         <label style="font-size:11px;color:var(--text-body);display:block;margin-bottom:4px;">Benutzername</label>
         <input id="login-username" type="text" autocomplete="username"
@@ -214,7 +214,7 @@ body{font-family:var(--f-s);}</style>
     </div>
 
     <div id="bootstrap-panel" style="display:none;">
-      <div style="font-size:12px;color:var(--text-body);line-height:1.6;margin-bottom:16px;">Ersteinrichtung: Lege den ersten lokalen Admin-Benutzer an. Dieser Schritt ist nur verfügbar, solange noch kein Benutzer existiert.</div>
+      <div style="font-size:12px;color:var(--text-body);line-height:1.6;margin-bottom:16px;">Ersteinrichtung: Legen Sie den ersten lokalen Admin-Benutzer an. Dieser Schritt ist nur verfügbar, solange noch kein Benutzer existiert.</div>
       <div style="display:grid;gap:12px;">
         <div>
           <label style="font-size:11px;color:var(--text-body);display:block;margin-bottom:4px;">Firmenname</label>
@@ -363,7 +363,7 @@ async function openCalendarFeedSetup(){
 function renderCalendarFeedIntro(){
   var body=document.getElementById('m-cal-feed-body'); if(!body)return;
   body.innerHTML=''
-   +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:12px">Erzeugt eine persönliche Kalender-Adresse mit deinen fälligen/ausgelösten Review-Terminen (Jahresreview, Bandbreiten-/Ereignis-Trigger). Outlook ruft diese Adresse danach selbstständig alle paar Stunden ab und zeigt neue/verschobene Termine automatisch an — inkl. Erinnerung 14 Tage vor Fälligkeit. Kostenlos, keine Microsoft-Kontoregistrierung nötig.</div>'
+   +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:12px">Erzeugt eine persönliche Kalender-Adresse mit Ihren fälligen/ausgelösten Review-Terminen (Jahresreview, Bandbreiten-/Ereignis-Trigger). Outlook ruft diese Adresse danach selbstständig alle paar Stunden ab und zeigt neue/verschobene Termine automatisch an — inkl. Erinnerung 14 Tage vor Fälligkeit. Kostenlos, keine Microsoft-Kontoregistrierung nötig.</div>'
    +'<button class="btn-p" style="width:100%" onclick="doGenerateCalendarFeedToken()">Kalender-Adresse erzeugen</button>';
 }
 async function doGenerateCalendarFeedToken(){
@@ -436,7 +436,7 @@ function render2faSetup(secret,uri,forced,qrSvg){
     : '';
   body.innerHTML=''
    +(forced?'<div style="font-size:11px;color:var(--neg);line-height:1.6;margin-bottom:10px;background:rgba(220,60,60,0.08);border:1px solid var(--neg);border-radius:6px;padding:8px 10px">Für den externen Zugriff ist Zwei-Faktor-Authentifizierung <b>verpflichtend</b>. Bitte jetzt einrichten — dieser Schritt kann nicht übersprungen werden.</div>':'')
-   +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:10px">Scanne den QR-Code mit deiner Authenticator-App (Google/Microsoft Authenticator) — oder trage das Secret manuell ein — und bestätige mit dem 6-stelligen Code.</div>'
+   +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:10px">Scannen Sie den QR-Code mit Ihrer Authenticator-App (Google/Microsoft Authenticator) — oder tragen Sie das Secret manuell ein — und bestätigen Sie mit dem 6-stelligen Code.</div>'
    +qrBlock
    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:2px">Secret</div>'
    +'<div style="display:flex;gap:6px;align-items:stretch;margin-bottom:4px"><div style="flex:1;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px;letter-spacing:2px;background:var(--bg);border:1px solid var(--b1);border-radius:6px;padding:8px 10px;word-break:break-all">'+escapeHtml(secret)+'</div><button class="btn" type="button" style="font-size:10px;white-space:nowrap" onclick="do2faCopySecret()" title="Secret in die Zwischenablage kopieren">Kopieren</button></div>'
@@ -487,7 +487,7 @@ async function do2faEnable(){
     var res=await API.post('/auth/2fa/enable',{code:String((el&&el.value)||'').trim()});
     window.__force2fa=false; _set2faCloseVisible(true);
     if(res&&res.recovery_codes&&res.recovery_codes.length){
-      render2faRecoveryCodes(res.recovery_codes,'2FA aktiviert. Bewahre diese Backup-Codes sicher auf — falls du deinen Authenticator verlierst, kommst du damit rein. Jeder Code ist nur EINMAL gültig.');
+      render2faRecoveryCodes(res.recovery_codes,'2FA aktiviert. Bewahren Sie diese Backup-Codes sicher auf — falls Sie Ihren Authenticator verlieren, können Sie sich damit anmelden. Jeder Code ist nur EINMAL gültig.');
     } else { render2faEnabled(); }
   }
   catch(e){ if(msg){msg.style.color='var(--neg)';msg.textContent=String(e.detail||e.message||'Code falsch');} }
@@ -726,7 +726,7 @@ async function teamRevoke(uid){
 <div id="m-force-pw" class="overlay"><div class="modal" style="max-width:400px">
   <div class="mhd"><div class="mtitle">Passwort ändern — erforderlich</div></div>
   <div class="mbody">
-    <div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:10px">Dein Account wurde mit einem Initial-Passwort angelegt. Bitte setze jetzt ein eigenes Passwort (mindestens 10 Zeichen), um fortzufahren.</div>
+    <div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:10px">Ihr Konto wurde mit einem Initial-Passwort angelegt. Bitte setzen Sie jetzt ein eigenes Passwort (mindestens 10 Zeichen), um fortzufahren.</div>
     <input id="fpw-new" type="password" placeholder="Neues Passwort" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:13px;margin-bottom:6px">
     <input id="fpw-confirm" type="password" placeholder="Bestätigen" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:13px;margin-bottom:6px">
     <div id="fpw-msg" style="font-size:11px;color:var(--neg);min-height:14px;margin-bottom:8px"></div>
@@ -771,7 +771,7 @@ async function checkInviteParam(){
   try{
     var info=await API.get('/auth/invite/'+encodeURIComponent(token));
     if(body)body.innerHTML=''
-     +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:12px">Willkommen, <b>'+escapeHtml(info.full_name||'')+'</b>. Setze jetzt dein Passwort (mindestens 10 Zeichen), um dein Konto <b>'+escapeHtml(info.username||'')+'</b> zu aktivieren. Danach richtest du die Zwei-Faktor-Authentifizierung ein.</div>'
+     +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:12px">Willkommen, <b>'+escapeHtml(info.full_name||'')+'</b>. Setzen Sie jetzt Ihr Passwort (mindestens 10 Zeichen), um Ihr Konto <b>'+escapeHtml(info.username||'')+'</b> zu aktivieren. Danach richten Sie die Zwei-Faktor-Authentifizierung ein.</div>'
      +'<input id="inv-pw" type="password" placeholder="Passwort" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:13px;margin-bottom:6px">'
      +'<input id="inv-pw2" type="password" placeholder="Bestätigen" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:13px;margin-bottom:6px">'
      +'<div id="inv-msg" style="font-size:11px;color:var(--neg);min-height:14px;margin-bottom:8px"></div>'
@@ -814,7 +814,7 @@ function openResetRequest(){
   try{ om('m-reset'); }catch(e){}
   var body=document.getElementById('m-reset-body'); if(!body)return;
   body.innerHTML=''
-   +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:12px">Gib deinen Benutzernamen oder deine E-Mail ein. Falls ein Konto existiert, senden wir einen Link zum Zurücksetzen (gültig 2 Stunden).</div>'
+   +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:12px">Geben Sie Ihren Benutzernamen oder Ihre E-Mail-Adresse ein. Falls ein Konto existiert, senden wir einen Link zum Zurücksetzen (gültig 2 Stunden).</div>'
    +'<input id="rst-ident" type="text" placeholder="Benutzername oder E-Mail" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:13px;margin-bottom:6px">'
    +'<div id="rst-msg" style="font-size:11px;color:var(--n5);min-height:14px;margin-bottom:8px"></div>'
    +'<button class="btn-p" style="width:100%" onclick="doResetRequest()">Link anfordern</button>';
@@ -837,7 +837,7 @@ async function checkResetParam(){
   try{ om('m-reset'); }catch(e){}
   var body=document.getElementById('m-reset-body'); if(!body)return true;
   body.innerHTML=''
-   +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:12px">Setze jetzt dein neues Passwort (mindestens 8 Zeichen).</div>'
+   +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:12px">Setzen Sie jetzt Ihr neues Passwort (mindestens 8 Zeichen).</div>'
    +'<input id="rst-pw" type="password" placeholder="Neues Passwort" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:13px;margin-bottom:6px">'
    +'<input id="rst-pw2" type="password" placeholder="Bestätigen" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:13px;margin-bottom:6px">'
    +'<div id="rst-msg" style="font-size:11px;color:var(--neg);min-height:14px;margin-bottom:8px"></div>'
@@ -851,7 +851,7 @@ async function doResetConfirm(){
   if(pw!==pw2){ if(msg){msg.style.color='var(--neg)';msg.textContent='Passwörter stimmen nicht überein.';} return; }
   try{
     await API.post('/auth/password-reset/confirm',{token:window.__resetToken,new_password:pw});
-    if(msg){msg.style.color='var(--pos)';msg.textContent='Passwort gesetzt. Du kannst dich jetzt anmelden.';}
+    if(msg){msg.style.color='var(--pos)';msg.textContent='Passwort gesetzt. Sie können sich jetzt anmelden.';}
     _stripResetParam();
     setTimeout(function(){ try{cm('m-reset');}catch(e){} try{ if(typeof showLogin==='function') showLogin(''); }catch(e){} },1300);
   }catch(e){ if(msg){msg.style.color='var(--neg)';msg.textContent=String(e.detail||e.message||'Reset fehlgeschlagen');} }
@@ -3054,7 +3054,7 @@ function _wireSollIstHover(){
       <div id="nz-saa-info" style="display:none;margin:-4px 0 8px;padding:8px 12px;background:rgba(59,130,246,0.07);border:1px solid rgba(59,130,246,0.22);border-radius:var(--r);font-size:10px;color:#1e40af;line-height:1.55">
         <strong>Wissenschaftliche Logik:</strong> Goal-&Auml;nderungen beeinflussen die
         <strong>Zielerreichungs-Wahrscheinlichkeit</strong>, nicht die strategische Asset-Allocation.
-        Die SAA wird durch dein <strong>Risikoprofil</strong> definiert
+        Die SAA wird durch Ihr <strong>Risikoprofil</strong> definiert
         (FINMA Art. 6 FIDLEG &middot; Strategietreue &middot; Brinson/Hood/Beebower 1986).
         Nach dem Speichern wird die Zielerreichung mit "Strategie neu berechnen" aktualisiert.
       </div>
@@ -3795,7 +3795,7 @@ async function doLogin() {
       var __t = document.getElementById('login-totp');
       if (__det.indexOf('2FA-Code erforderlich') >= 0) {
         if (__row) __row.style.display = '';
-        if (errEl) errEl.textContent = 'Bitte 2FA-Code aus deinem Authenticator eingeben.';
+        if (errEl) errEl.textContent = 'Bitte 2FA-Code aus Ihrem Authenticator eingeben.';
         if (__t) __t.focus();
       } else if (__det.indexOf('2FA') >= 0) {
         if (__row) __row.style.display = '';
@@ -4234,7 +4234,7 @@ function applyUpdateState(state) {
   }
   if (checkBtn) checkBtn.disabled = !!state.checking;
   if (state.checking) {
-    label.textContent = 'Prüfe auf Updates…';
+    label.textContent = 'Updates werden geprüft…';
   } else if (state.downloaded) {
     label.textContent = 'Update ' + (state.latestVersion||'') + ' bereit zur Installation.';
     if (installBtn) installBtn.style.display = 'inline-block';
@@ -4250,7 +4250,7 @@ function applyUpdateState(state) {
 
 async function adminCheckUpdates() {
   const btn = document.getElementById('btn-check-updates');
-  if (btn) { btn.disabled = true; btn.textContent = 'Prüfe…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Wird geprüft…'; }
   try {
     if (window.AresAPI && window.AresAPI.updates) {
       const state = await window.AresAPI.updates.check();
@@ -4765,7 +4765,7 @@ function initPrefSummaryText(){
     var prefHeaderMeta=prefHeader?prefHeader.querySelector('span[style*="font-size:9px"]'):null;
     if(prefHeaderMeta)prefHeaderMeta.textContent='Nächster Fachschritt in Asset Allokation';
     var prefCopy=prefSummary.nextElementSibling;
-    if(prefCopy)prefCopy.textContent='ESG, Ausschlüsse, Währung, Tilts und Bandbreiten werden in der Asset Allokation fachlich definiert. Von hier aus gehst du direkt in den nächsten Schritt.';
+    if(prefCopy)prefCopy.textContent='ESG, Ausschlüsse, Währung, Tilts und Bandbreiten werden in der Asset Allokation fachlich definiert. Von hier aus gehen Sie direkt zum nächsten Schritt.';
   }
 }
 
@@ -8592,11 +8592,11 @@ async function openOverrideModal(opts){
   // Demo-Mandate duerfen weiter (visualisierungs-Zweck).
   if(mid&&!isDemoMandateId(mid)&&!risk){
     try{showAppError(
-      'Bitte zuerst das Risikoprofil erfassen, bevor du es überschreibst. '+
+      'Bitte zuerst das Risikoprofil erfassen, bevor Sie es überschreiben. '+
       'FIDLEG verlangt ein dokumentiertes Original-Profil als Basis für den Override.',
       {title:'Risikoprofil fehlt'}
     );}catch(e){
-      uiAlert({level:'warn',modal:true,message:'Bitte zuerst das Risikoprofil erfassen, bevor du es überschreibst.'});
+      uiAlert({level:'warn',modal:true,message:'Bitte zuerst das Risikoprofil erfassen, bevor Sie es überschreiben.'});
     }
     return;
   }
@@ -8675,7 +8675,7 @@ async function applyOv(){
   if(!raId){
     if(errEl){
       errEl.style.display='block';
-      errEl.textContent='Bitte zuerst das Risikoprofil erfassen, bevor du es überschreibst. (Compliance-Pflicht: ein Original-Profil muss existieren)';
+      errEl.textContent='Bitte zuerst das Risikoprofil erfassen, bevor Sie es überschreiben. (Compliance-Pflicht: ein Original-Profil muss existieren)';
     }
     if(btn){btn.disabled=false;btn.textContent='Override bestätigen & protokollieren';}
     return;
@@ -22948,7 +22948,7 @@ function _renderCashflowDuplicateHint(manualRows, derivedRows){
   if(!hits.length){ el.style.display='none'; el.innerHTML=''; return; }
   var items=hits.slice(0,4).map(function(h){return '«'+escapeHtml(h.manual)+'» ↔ &#9881; «'+escapeHtml(h.derived)+'»';}).join(' · ');
   el.style.display='';
-  el.innerHTML='<div style="font-size:10px;color:var(--g4);line-height:1.5;background:rgba(201,168,76,0.10);border:1px solid rgba(201,168,76,0.28);border-radius:8px;padding:8px 10px;margin-bottom:10px">&#9888; Mögliche Doppelerfassung: '+items+'. Diese Posten werden bereits automatisch aus dem Vermögen abgeleitet — prüfe, ob die manuelle Zeile doppelt zählt (beide fliessen in die Projektion).</div>';
+  el.innerHTML='<div style="font-size:10px;color:var(--g4);line-height:1.5;background:rgba(201,168,76,0.10);border:1px solid rgba(201,168,76,0.28);border-radius:8px;padding:8px 10px;margin-bottom:10px">&#9888; Mögliche Doppelerfassung: '+items+'. Diese Posten werden bereits automatisch aus dem Vermögen abgeleitet — prüfen Sie, ob die manuelle Zeile doppelt zählt (beide fliessen in die Projektion).</div>';
 }
 var _cashflowsUiRefreshEpoch=0;
 async function refreshCashflowsUI(cid){
