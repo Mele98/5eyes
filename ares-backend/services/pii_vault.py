@@ -51,10 +51,12 @@ Bewusste Grenzen (dokumentiert, nicht still)
 """
 from __future__ import annotations
 
+import threading
+import weakref
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import inspect as sa_inspect, text
+from sqlalchemy import event, inspect as sa_inspect, text
 from sqlalchemy.orm import Session
 
 ENVELOPE_PREFIX = "pii-sealed:v1:"
@@ -177,36 +179,126 @@ def seal_for_client(db: Session, client_id: str | None, plaintext: Any) -> str |
     return f"{ENVELOPE_PREFIX}{row.key_id}:{token}"
 
 
+# C-L2D-01 (Codex-Abnahme 26.11.2026): Alle lebenden Leser des Prozesses. Eine
+# committete Schluesselvernichtung leert ihre Caches (``_invalidate_all_readers``),
+# auch in anderen Sessions desselben Prozesses.
+_LIVE_READERS: "weakref.WeakSet[KeyReader]" = weakref.WeakSet()
+_LIVE_READERS_LOCK = threading.Lock()
+_SESSION_HOOK_FLAG = "pii_vault_key_reader_hooks"
+_SHRED_HOOK_FLAG = "pii_vault_shred_commit_hook"
+
+
+def _readers(session: Session | None = None) -> list["KeyReader"]:
+    with _LIVE_READERS_LOCK:
+        readers = list(_LIVE_READERS)
+    return [r for r in readers if session is None or r.db is session]
+
+
+def _invalidate_readers_of(session: Session) -> None:
+    for reader in _readers(session):
+        reader._invalidate()
+
+
+def _invalidate_all_readers() -> None:
+    for reader in _readers():
+        reader._invalidate()
+
+
+def _install_session_hooks(db: Session) -> None:
+    """Der Cache eines Lesers gilt hoechstens bis zum Ende der Transaktion, in
+    der er gefuellt wurde (auf PostgreSQL: so lange, wie die FOR-SHARE-Sperre
+    der Schluesselzeile gehalten wird). Danach liest er neu aus der DB."""
+    info = getattr(db, "info", None)
+    if info is None or info.get(_SESSION_HOOK_FLAG):
+        return
+    info[_SESSION_HOOK_FLAG] = True
+    for name in ("after_commit", "after_rollback", "after_soft_rollback"):
+        event.listen(db, name, lambda session, *_args: _invalidate_readers_of(session))
+
+
+def _key_lock_clause(db: Session) -> str:
+    """PostgreSQL: FOR SHARE haelt die Schluesselzeile bis zum Transaktionsende;
+    ``shred_client_keys`` (UPDATE) wartet, bis aeltere Leser beendet sind.
+    SQLite serialisiert Schreiber dateiweit; dort sichern die Prozess-Registry
+    und die Transaktionsgrenze denselben Vertrag."""
+    try:
+        return " FOR SHARE" if db.get_bind().dialect.name == "postgresql" else ""
+    except Exception:  # pragma: no cover - ungebundene Session
+        return ""
+
+
 class KeyReader:
     """N-938-02: Lesekontext EINES Aufrufs (Liste, Bericht, PDF). Kundenschluessel,
     Mandat -> Kunde und der Loeschbeleg werden je einmal gelesen statt je
-    versiegeltem Wert. Nie ueber Aufrufe hinweg aufbewahren: nach einer
-    DSG-Loeschung darf kein Schluessel im Speicher weiterleben."""
+    versiegeltem Wert.
+
+    C-L2D-01 (Vertrag): Nach Commit einer Schluesselvernichtung kann kein neuer
+    oder bereits aktiver Ares-Leser den Schluessel erneut zur Entschluesselung
+    verwenden. Umsetzung:
+    * Der Cache gilt nur innerhalb der laufenden Transaktion (Commit/Rollback
+      der Session leert ihn); auf PostgreSQL liest ``key`` mit FOR SHARE, die
+      Vernichtung wartet also auf aeltere Leser.
+    * ``shred_client_keys`` leert sofort alle Leser derselben Session und nach
+      seinem Commit alle Leser des Prozesses.
+    * ``close``/Context-Manager: leert den Cache; danach verweigert der Leser.
+    Keine Aussage ueber forensische Nullung unveraenderlicher Python-Bytes."""
 
     def __init__(self, db: Session) -> None:
         self.db = db
         self._keys: dict[str, Any] = {}
         self._erased: dict[str, bool] = {}
         self._clients: dict[str, str | None] = {}
+        self._closed = False
+        _install_session_hooks(db)
+        with _LIVE_READERS_LOCK:
+            _LIVE_READERS.add(self)
+
+    def __enter__(self) -> "KeyReader":
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
+
+    def _invalidate(self) -> None:
+        self._keys.clear()
+        self._erased.clear()
+        self._clients.clear()
+
+    def close(self) -> None:
+        self._invalidate()
+        self._closed = True
+        with _LIVE_READERS_LOCK:
+            _LIVE_READERS.discard(self)
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def _check_open(self) -> None:
+        if self._closed:
+            raise PiiVaultError("Lesekontext ist geschlossen; fuer einen neuen Aufruf neu oeffnen.")
 
     def key(self, key_id: str):
+        self._check_open()
         if key_id not in self._keys:
             self._keys[key_id] = self.db.execute(
                 text(
                     "SELECT client_id, key_material, shredded_at FROM client_pii_keys "
-                    "WHERE key_id = :key_id"
+                    "WHERE key_id = :key_id" + _key_lock_clause(self.db)
                 ),
                 {"key_id": key_id},
             ).first()
         return self._keys[key_id]
 
     def erased(self, client_id: str | None) -> bool:
+        self._check_open()
         cache_key = str(client_id or "")
         if cache_key not in self._erased:
             self._erased[cache_key] = erasure_executed_for_client(self.db, client_id)
         return self._erased[cache_key]
 
     def client_of_mandate(self, mandate_id: Any) -> str | None:
+        self._check_open()
         if not mandate_id:
             return None
         key = str(mandate_id)
@@ -341,6 +433,13 @@ def shred_client_keys(db: Session, client_id: str) -> int:
         {"now": now, "client_id": client_id},
     )
     shredded = int(result.rowcount or 0)
+    # C-L2D-01: Leser derselben Session sofort leeren; nach dem Commit dieser
+    # Vernichtung alle Leser des Prozesses (andere Sessions).
+    _invalidate_readers_of(db)
+    info = getattr(db, "info", None)
+    if info is not None and not info.get(_SHRED_HOOK_FLAG):
+        info[_SHRED_HOOK_FLAG] = True
+        event.listen(db, "after_commit", lambda _session: _invalidate_all_readers())
     if _key_row(db, client_id) is None:
         from database import new_uuid
 
