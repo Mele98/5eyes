@@ -107,6 +107,9 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     # L2d (H-194, N-938-01): Massnahme eines Interessenkonflikts als Auswahlliste
     # (Kategorie wie CHECK-Regel und API), kein Freitext.
     ("conflict-mitigation.js", "js"),
+    # UX-L0 (Codex-UX-Audit 25.11.2026, UX-CH-02): Schrittanzeige current/visited/
+    # complete; "OK" nur aus belegter Vollstaendigkeit, nie aus der Position.
+    ("ux-step-states.js", "js"),
     # E2 Nachhaltigkeitspraeferenzen (Dok. 106): Kundenmaske nach dem Risikoprofil.
     ("sustainability-preferences.js", "js"),
 )

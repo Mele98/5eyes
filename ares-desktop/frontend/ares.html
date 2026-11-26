@@ -74,8 +74,6 @@ body{font-family:var(--f-s);}</style>
       background-size:58px 44px;-webkit-mask-image:linear-gradient(to top,#000,transparent 86%);mask-image:linear-gradient(to top,#000,transparent 86%);}
     #intro-screen .intro-topline{position:absolute;z-index:4;top:0;left:0;right:0;height:48px;padding:0 34px;display:flex;align-items:center;justify-content:space-between;
       border-bottom:1px solid rgba(112,171,187,.2);background:rgba(4,9,16,.34);font:600 9px/1 ui-monospace,Consolas,monospace;letter-spacing:2.2px;color:#92a9b7;}
-    #intro-screen .intro-live{display:flex;align-items:center;gap:9px;color:#bac8cf;}
-    #intro-screen .intro-live i{width:6px;height:6px;border-radius:50%;background:var(--intro-red);box-shadow:0 0 10px rgba(218,91,85,.9);animation:introLive 2.4s ease-in-out infinite;}
     #intro-screen .intro-clock{font-variant-numeric:tabular-nums;color:#d2dde2;}
     #intro-screen .intro-lockup{position:absolute;z-index:4;left:5.3%;top:50%;width:min(480px,38vw);transform:translateY(-53%);animation:introReveal .9s .12s both;}
     #intro-screen .intro-kicker{display:flex;align-items:center;gap:12px;margin-bottom:17px;font:600 10px/1 ui-monospace,Consolas,monospace;letter-spacing:3.2px;color:var(--intro-cyan);}
@@ -89,11 +87,6 @@ body{font-family:var(--f-s);}</style>
     #intro-screen .intro-log{min-height:18px;color:#a9bbc5;font:500 10px/1.5 ui-monospace,Consolas,monospace;letter-spacing:1px;text-transform:uppercase;}
     #intro-screen .intro-progress{width:min(420px,100%);height:2px;margin-top:13px;background:rgba(255,255,255,.09);overflow:hidden;}
     #intro-screen .intro-progress i{display:block;width:0;height:100%;background:linear-gradient(90deg,var(--intro-gold),var(--intro-cyan));box-shadow:0 0 12px rgba(84,198,216,.7);transition:width .5s ease;}
-    #intro-screen .intro-rail{position:absolute;z-index:4;right:3.1%;top:50%;width:214px;transform:translateY(-48%);border-left:1px solid rgba(112,171,187,.22);padding-left:21px;animation:introReveal .9s .35s both;}
-    #intro-screen .intro-rail-title{margin-bottom:17px;color:#6f8999;font:600 8px/1 ui-monospace,Consolas,monospace;letter-spacing:2.4px;}
-    #intro-screen .intro-signal{display:grid;grid-template-columns:1fr auto;gap:8px;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.07);font:500 9px/1.2 ui-monospace,Consolas,monospace;color:#9eb0ba;letter-spacing:.6px;}
-    #intro-screen .intro-signal em{font-style:normal;color:#8ed4c8;}
-    #intro-screen .intro-signal em::before{content:"";display:inline-block;width:4px;height:4px;margin:0 7px 1px 0;border-radius:50%;background:#67c9ad;box-shadow:0 0 7px rgba(103,201,173,.7);}
     #intro-screen .intro-caption{position:absolute;z-index:4;left:52%;top:15.5%;font:600 8px/1.5 ui-monospace,Consolas,monospace;letter-spacing:2px;color:rgba(166,193,204,.68);}
     #intro-screen .intro-caption strong{display:block;margin-top:3px;font-size:12px;font-weight:500;letter-spacing:1px;color:#d2dde1;}
     #intro-screen .intro-bottom{position:absolute;z-index:5;left:0;right:0;bottom:0;height:54px;display:flex;align-items:stretch;background:rgba(3,7,13,.9);border-top:1px solid rgba(112,171,187,.24);}
@@ -104,16 +97,12 @@ body{font-family:var(--f-s);}</style>
     #intro-screen .intro-skip{display:flex;align-items:center;padding:0 28px;border:0;border-left:1px solid rgba(112,171,187,.18);background:transparent;
       font:600 8px/1 ui-monospace,Consolas,monospace;letter-spacing:1.5px;color:#748a98;white-space:nowrap;cursor:default;transition:background .3s ease,color .3s ease;}
     #intro-screen.intro-ready .intro-skip{background:var(--intro-gold);color:#091019;cursor:pointer;animation:introReady 2.6s ease-in-out infinite;}
-    #intro-screen.intro-calm .intro-live i{animation-duration:4.2s;}
     #intro-screen.intro-calm .intro-ticker-track{animation-duration:48s;}
-    #intro-screen.intro-calm .intro-signal em::before{box-shadow:0 0 4px rgba(103,201,173,.45);}
     @keyframes introReveal{from{opacity:0;transform:translateY(-48%) translateX(-14px)}to{opacity:1;transform:translateY(-53%) translateX(0)}}
-    @keyframes introLive{50%{opacity:.35}}
     @keyframes introReady{50%{background:#e2c675}}
     @keyframes introTicker{to{transform:translateX(-50%)}}
     @media(max-width:900px){
       #intro-screen .intro-lockup{left:6%;width:48vw;top:48%;}
-      #intro-screen .intro-rail{display:none;}
       #intro-screen .intro-caption{left:auto;right:5%;top:18%;}
       #intro-screen .intro-brand{font-size:clamp(68px,14vw,112px);}
     }
@@ -128,14 +117,13 @@ body{font-family:var(--f-s);}</style>
       #intro-screen .intro-skip{display:flex;flex:1;justify-content:center;padding:0 12px;}
     }
     @media(prefers-reduced-motion:reduce){
-      #intro-screen .intro-live i,#intro-screen .intro-ticker-track,#intro-screen.intro-ready .intro-skip{animation:none!important;}
+      #intro-screen .intro-ticker-track,#intro-screen.intro-ready .intro-skip{animation:none!important;}
     }
   </style>
   <canvas id="intro-world" aria-hidden="true"></canvas>
   <div class="intro-perspective"></div>
   <div class="intro-topline">
     <span>ARES / GLOBAL WEALTH NETWORK</span>
-    <span class="intro-live"><i></i> SECURE PRIVATE BANKING CHANNEL</span>
     <span class="intro-clock">ZURICH 00:00:00</span>
   </div>
   <div class="intro-lockup">
@@ -147,19 +135,11 @@ body{font-family:var(--f-s);}</style>
     <div class="intro-progress"><i></i></div>
   </div>
   <div class="intro-caption">GLOBAL WEALTH VIEW<strong>CROSS-BORDER / MULTI-ASSET</strong></div>
-  <aside class="intro-rail" aria-label="Systemstatus">
-    <div class="intro-rail-title">PRIVATE BANKING LAYERS</div>
-    <div class="intro-signal"><span>STRATEGIC ALLOCATION</span><em>ACTIVE</em></div>
-    <div class="intro-signal"><span>PRIVATE MARKETS</span><em>MAPPED</em></div>
-    <div class="intro-signal"><span>LIQUIDITY PLAN</span><em>READY</em></div>
-    <div class="intro-signal"><span>RISK BUDGET</span><em>AWARE</em></div>
-    <div class="intro-signal"><span>ESTATE &amp; LEGACY</span><em>SYNC</em></div>
-  </aside>
   <div class="intro-bottom">
-    <div class="intro-channel">ARES LIVE</div>
+    <div class="intro-channel">ARES</div>
     <div class="intro-ticker"><div class="intro-ticker-track">
-      <span>STRATEGIC ASSET ALLOCATION</span><span>PRIVATE MARKETS</span><span>LIQUIDITY PLANNING</span><span>GOAL-BASED INVESTING</span><span>SUCCESSION &amp; LEGACY</span><span>RISK BUDGET AWARE</span>
-      <span>STRATEGIC ASSET ALLOCATION</span><span>PRIVATE MARKETS</span><span>LIQUIDITY PLANNING</span><span>GOAL-BASED INVESTING</span><span>SUCCESSION &amp; LEGACY</span><span>RISK BUDGET AWARE</span>
+      <span>STRATEGIC ASSET ALLOCATION</span><span>PRIVATE MARKETS</span><span>LIQUIDITY PLANNING</span><span>GOAL-BASED INVESTING</span><span>SUCCESSION &amp; LEGACY</span><span>RISK BUDGET</span>
+      <span>STRATEGIC ASSET ALLOCATION</span><span>PRIVATE MARKETS</span><span>LIQUIDITY PLANNING</span><span>GOAL-BASED INVESTING</span><span>SUCCESSION &amp; LEGACY</span><span>RISK BUDGET</span>
     </div></div>
     <button class="intro-skip" type="button" disabled>SYSTEM WIRD GELADEN</button>
   </div>
@@ -197,85 +177,85 @@ body{font-family:var(--f-s);}</style>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
       <div>
         <div style="font-size:15px;font-weight:600;color:var(--n8)">Ares</div>
-        <div style="font-size:10px;color:var(--g3);letter-spacing:0.1em;text-transform:uppercase;">Advisory OS</div>
+        <div style="font-size:10px;color:var(--text-body);letter-spacing:0.1em;text-transform:uppercase;">Advisory OS</div>
       </div>
     </div>
     <div id="login-panel">
-      <div style="font-size:12px;color:var(--g3);line-height:1.6;margin-bottom:16px;">Melde dich mit deinem lokalen Benutzerkonto an. Tokens bleiben nur lokal auf diesem Gerät gespeichert.</div>
+      <div style="font-size:12px;color:var(--text-body);line-height:1.6;margin-bottom:16px;">Melde dich mit deinem lokalen Benutzerkonto an. Tokens bleiben nur lokal auf diesem Gerät gespeichert.</div>
       <div style="margin-bottom:14px;">
-        <label style="font-size:11px;color:var(--g3);display:block;margin-bottom:4px;">Benutzername</label>
+        <label style="font-size:11px;color:var(--text-body);display:block;margin-bottom:4px;">Benutzername</label>
         <input id="login-username" type="text" autocomplete="username"
           style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:9px 12px;color:var(--n8);font-size:13px;outline:none;"
           onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()"
           placeholder="berater@firma.ch" />
       </div>
       <div style="margin-bottom:20px;">
-        <label style="font-size:11px;color:var(--g3);display:block;margin-bottom:4px;">Passwort</label>
+        <label style="font-size:11px;color:var(--text-body);display:block;margin-bottom:4px;">Passwort</label>
         <input id="login-password" type="password" autocomplete="current-password"
           style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:9px 12px;color:var(--n8);font-size:13px;outline:none;"
           onkeydown="if(event.key==='Enter')doLogin()" />
       </div>
       <!-- E1: 2FA-Code — erscheint nur, wenn der Server X-2FA-Required / "2FA-Code erforderlich" meldet. -->
       <div id="login-2fa-row" style="display:none;margin-bottom:20px;">
-        <label style="font-size:11px;color:var(--g3);display:block;margin-bottom:4px;">2FA-Code (Authenticator)</label>
+        <label style="font-size:11px;color:var(--text-body);display:block;margin-bottom:4px;">2FA-Code (Authenticator)</label>
         <input id="login-totp" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-stellig"
           style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:9px 12px;color:var(--n8);font-size:13px;letter-spacing:4px;outline:none;"
           onkeydown="if(event.key==='Enter')doLogin()" />
       </div>
       <div id="login-error" style="color:#e05a5a;font-size:11px;min-height:16px;margin-bottom:10px;"></div>
       <button id="btn-login-submit" onclick="doLogin()"
-        style="width:100%;background:var(--g4);color:#fff;border:none;border-radius:6px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;">
+        style="width:100%;background:var(--chrome-n8);color:#fff;border:none;border-radius:6px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;">
         Anmelden
       </button>
-      <div style="margin-top:12px;text-align:center;"><a href="#" onclick="openResetRequest();return false;" style="font-size:11px;color:var(--g3);text-decoration:none;">Passwort vergessen?</a></div>
-      <div id="login-bootstrap-hint" style="display:none;margin-top:14px;font-size:11px;color:var(--g3);line-height:1.6;">
-        Die Datenbank ist noch nicht initialisiert. <a href="#" onclick="showBootstrap();return false;" style="color:var(--g4);text-decoration:none;">Ersten Admin anlegen</a>
+      <div style="margin-top:12px;text-align:center;"><a href="#" onclick="openResetRequest();return false;" style="font-size:11px;color:var(--text-body);text-decoration:none;">Passwort vergessen?</a></div>
+      <div id="login-bootstrap-hint" style="display:none;margin-top:14px;font-size:11px;color:var(--text-body);line-height:1.6;">
+        Die Datenbank ist noch nicht initialisiert. <a href="#" onclick="showBootstrap();return false;" style="color:var(--n5);text-decoration:underline;">Ersten Admin anlegen</a>
       </div>
     </div>
 
     <div id="bootstrap-panel" style="display:none;">
-      <div style="font-size:12px;color:var(--g3);line-height:1.6;margin-bottom:16px;">Ersteinrichtung: Lege den ersten lokalen Admin-Benutzer an. Dieser Schritt ist nur verfügbar, solange noch kein Benutzer existiert.</div>
+      <div style="font-size:12px;color:var(--text-body);line-height:1.6;margin-bottom:16px;">Ersteinrichtung: Lege den ersten lokalen Admin-Benutzer an. Dieser Schritt ist nur verfügbar, solange noch kein Benutzer existiert.</div>
       <div style="display:grid;gap:12px;">
         <div>
-          <label style="font-size:11px;color:var(--g3);display:block;margin-bottom:4px;">Firmenname</label>
+          <label style="font-size:11px;color:var(--text-body);display:block;margin-bottom:4px;">Firmenname</label>
           <input id="bootstrap-company-name" type="text" autocomplete="organization" style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:9px 12px;color:var(--n8);font-size:13px;outline:none;" placeholder="Muster Vermögensverwaltung AG" />
         </div>
         <div>
-          <label style="font-size:11px;color:var(--g3);display:block;margin-bottom:4px;">Land Ihrer Firma (Sitz/Lizenznehmer)</label>
+          <label style="font-size:11px;color:var(--text-body);display:block;margin-bottom:4px;">Land Ihrer Firma (Sitz/Lizenznehmer)</label>
           <select id="bootstrap-home-jurisdiction" style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:9px 12px;color:var(--n8);font-size:13px;outline:none;">
             <option value="CH">Schweiz (CH)</option>
             <option value="DE">Deutschland (DE)</option>
           </select>
-          <div style="font-size:9.5px;color:var(--g3);opacity:0.75;margin-top:3px;">Bestimmt den Standard-Rechtsraum für neue Mandate (pro Mandat später anpassbar, z.B. bei Kunden in einem anderen Land).</div>
+          <div style="font-size:9.5px;color:var(--text-body);opacity:0.75;margin-top:3px;">Bestimmt den Standard-Rechtsraum für neue Mandate (pro Mandat später anpassbar, z.B. bei Kunden in einem anderen Land).</div>
         </div>
         <div>
-          <label style="font-size:11px;color:var(--g3);display:block;margin-bottom:4px;">Vollständiger Name</label>
+          <label style="font-size:11px;color:var(--text-body);display:block;margin-bottom:4px;">Vollständiger Name</label>
           <input id="bootstrap-full-name" type="text" autocomplete="name" style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:9px 12px;color:var(--n8);font-size:13px;outline:none;" placeholder="Max Muster" />
         </div>
         <div>
-          <label style="font-size:11px;color:var(--g3);display:block;margin-bottom:4px;">Benutzername</label>
+          <label style="font-size:11px;color:var(--text-body);display:block;margin-bottom:4px;">Benutzername</label>
           <input id="bootstrap-username" type="text" autocomplete="username" style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:9px 12px;color:var(--n8);font-size:13px;outline:none;" placeholder="admin" />
         </div>
         <div>
-          <label style="font-size:11px;color:var(--g3);display:block;margin-bottom:4px;">E-Mail (optional)</label>
+          <label style="font-size:11px;color:var(--text-body);display:block;margin-bottom:4px;">E-Mail (optional)</label>
           <input id="bootstrap-email" type="email" autocomplete="email" style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:9px 12px;color:var(--n8);font-size:13px;outline:none;" placeholder="admin@firma.ch" />
         </div>
         <div>
-          <label style="font-size:11px;color:var(--g3);display:block;margin-bottom:4px;">Passwort</label>
+          <label style="font-size:11px;color:var(--text-body);display:block;margin-bottom:4px;">Passwort</label>
           <input id="bootstrap-password" type="password" autocomplete="new-password" style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:9px 12px;color:var(--n8);font-size:13px;outline:none;" placeholder="Mindestens 10 Zeichen" />
         </div>
         <div>
-          <label style="font-size:11px;color:var(--g3);display:block;margin-bottom:4px;">Passwort bestätigen</label>
+          <label style="font-size:11px;color:var(--text-body);display:block;margin-bottom:4px;">Passwort bestätigen</label>
           <input id="bootstrap-password-confirm" type="password" autocomplete="new-password" style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:9px 12px;color:var(--n8);font-size:13px;outline:none;" onkeydown="if(event.key==='Enter')doBootstrapAdmin()" />
         </div>
       </div>
       <div id="bootstrap-error" style="color:#e05a5a;font-size:11px;min-height:16px;margin-top:12px;margin-bottom:10px;"></div>
       <button id="btn-bootstrap-submit" onclick="doBootstrapAdmin()"
-        style="width:100%;background:var(--g4);color:#fff;border:none;border-radius:6px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;">
+        style="width:100%;background:var(--chrome-n8);color:#fff;border:none;border-radius:6px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;">
         Admin anlegen
       </button>
-      <div style="margin-top:14px;font-size:11px;color:var(--g3);line-height:1.6;">
-        Bereits eingerichtet? <a href="#" onclick="showLogin();return false;" style="color:var(--g4);text-decoration:none;">Zur Anmeldung</a>
+      <div style="margin-top:14px;font-size:11px;color:var(--text-body);line-height:1.6;">
+        Bereits eingerichtet? <a href="#" onclick="showLogin();return false;" style="color:var(--n5);text-decoration:underline;">Zur Anmeldung</a>
       </div>
     </div>
   </div>
@@ -4463,19 +4443,7 @@ async function go(p,b){
   Object.keys(pages).forEach(k=>{const el=document.getElementById('page-'+k);if(el)el.classList.remove('active');});
   const pg=document.getElementById('page-'+p);if(pg)pg.classList.add('active');
   const idx=pages[p];
-  document.querySelectorAll('.tnav .tstep').forEach((s,i)=>{
-    s.classList.remove('active','done');
-    const sn=s.querySelector('.sn');
-    var stepKey=s.dataset.page||Object.keys(pages)[i];
-    var stepIdx=pages[stepKey];
-    if(stepIdx<idx){s.classList.add('done');if(sn)sn.textContent='OK';}
-    else if(stepIdx===idx){s.classList.add('active');if(sn)sn.textContent=i+1;}
-    else if(sn){sn.textContent=i+1;}
-    // A11Y-GP-001: aria-selected muss dem sichtbaren aktiven Schritt folgen,
-    // sonst behauptet der Tab-Status gegenueber Screenreadern weiterhin
-    // Schritt 1, egal wohin tatsaechlich navigiert wurde.
-    s.setAttribute('aria-selected',stepIdx===idx?'true':'false');
-  });
+  renderStepStates(p);
   setTimeout(initCharts,80);
   // AKTUALISIEREN-001 (2026-10-07): das Stammdaten-Dokumentenarchiv
   // (renderStammdatenDocumentArchive) haengt am State von refreshReviewUI(),
@@ -25212,6 +25180,8 @@ function updateStammdatenCompletenessLabel(){
     var verb=result.missing.length===1?'fehlt':'fehlen';
     el.textContent='Stammdaten unvollständig — '+result.missing.join(', ')+' '+verb;
   }
+  // UX-CH-02: Vollstaendigkeit aendert sich beim Laden/Speichern -> Schrittanzeige nachziehen.
+  if(typeof renderStepStates==='function')renderStepStates();
 }
 function renderHouseholdGridFromCurrentPersona(){
   var hg=document.getElementById('hh-grid');
@@ -26277,6 +26247,6 @@ function openStammdatenModal(){
 </div>
 <!-- ─────────────────────────────────────────────────────────── -->
 
-<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./owner-content.js"></script><script src="./advice-contract.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./finalize-attestation.js"></script><script src="./fx-rates-editor.js"></script><script src="./advisor-guidance.js"></script><script src="./mandate-view.js"></script><script src="./kn3-ui.js"></script><script src="./kn4-ui.js"></script><script src="./kn5-ui.js"></script><script src="./p5c-ui.js"></script><script src="./conflict-mitigation.js"></script><script src="./sustainability-preferences.js"></script>
+<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./owner-content.js"></script><script src="./advice-contract.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./finalize-attestation.js"></script><script src="./fx-rates-editor.js"></script><script src="./advisor-guidance.js"></script><script src="./mandate-view.js"></script><script src="./kn3-ui.js"></script><script src="./kn4-ui.js"></script><script src="./kn5-ui.js"></script><script src="./p5c-ui.js"></script><script src="./conflict-mitigation.js"></script><script src="./ux-step-states.js"></script><script src="./sustainability-preferences.js"></script>
 </body>
 </html>

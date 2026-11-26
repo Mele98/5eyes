@@ -1026,6 +1026,14 @@ jobs:
         run: |
           python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/kn-u             --startup-timeout 300 --test-timeout 600 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_kn_u_ui.py -p no:xdist -rs --tb=short
 
+      # UX-L0 (UX-CH-02): kein "OK" ohne vollstaendigen Schritt, Intro ohne Statusbehauptung.
+      - name: Wahrheitsgetreue Schrittanzeige (UX-L0, Playwright Pflicht)
+        working-directory: ares-backend
+        env:
+          ARES_REQUIRE_PLAYWRIGHT: "1"
+        run: |
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/ux-l0             --startup-timeout 300 --test-timeout 300 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_ux_l0_step_states.py -p no:xdist -rs --tb=short
+
       - name: Upload vitest log on failure
         if: failure()
         uses: actions/upload-artifact@v6

@@ -22,7 +22,7 @@ function arrMax(a){var m=-Infinity;for(var i=0;i<a.length;i++){var n=Number(a[i]
   var bar=intro.querySelector('.intro-progress > i');
   var clockEl=intro.querySelector('.intro-clock');
   var continueButton=intro.querySelector('.intro-skip');
-  var steps=['Wealth structure mapping','Strategic allocation synchronized','Private markets and liquidity mapped','Risk budget and goals validated','Advisory environment ready'];
+  var steps=['Ares wird geladen','Oberfläche wird aufgebaut','Anmeldung wird vorbereitet'];
   var done=false,ready=false,raf=0,clockTimer=0,calmTimer=0,start=performance.now();
   var countryOutlines=Array.isArray(window.INTRO_COUNTRY_OUTLINES)?window.INTRO_COUNTRY_OUTLINES:[];
   var continents=[
@@ -157,7 +157,7 @@ function arrMax(a){var m=-Infinity;for(var i=0;i<a.length;i++){var n=Number(a[i]
     if(done||ready)return;
     ready=true;
     intro.classList.add('intro-ready');
-    if(logEl)logEl.textContent='System ready · click to enter';
+    if(logEl)logEl.textContent='Zum Anmelden klicken';
     if(bar)bar.style.width='100%';
     if(continueButton){
       continueButton.disabled=false;

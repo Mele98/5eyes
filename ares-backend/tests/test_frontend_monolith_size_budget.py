@@ -220,6 +220,13 @@ owner-content.js 336/21153 (beim Erfassen: wo der Text erscheint).
 L2d (H-194, N-938-01): Massnahme eines Interessenkonflikts als Auswahlliste im neuen
 Teil ``conflict-mitigation.js`` (Budget = Stand bei Einfuehrung, 14/854); im Monolithen
 ersetzt ein leeres select das Freitextfeld -> Monolith gesenkt auf 26282/1614900.
+UX-L0 (Codex-UX-Audit 25.11.2026): neuer Teil ``ux-step-states.js`` (Budget = Stand bei
+Einfuehrung, 43/2177): Schrittanzeige current/visited/complete (UX-CH-02). Im Monolithen
+entfallen die Intro-Statusleiste und die positionsbasierte OK-Logik (UX-CH-01) -> Monolith
+gesenkt auf 26252/1612569 trotz Script-Einbindung; intro-sequence.js 761/36764 (Ladeschritte
+ohne Behauptungen wie "synchronized", "validated", "ready").
+RC-Kopf (27.11.2026): L2d und UX-L0 zusammengefuehrt (beide Script-Einbindungen in einer
+Zeile) -> Monolith 26252/1612542.
 """
 from __future__ import annotations
 
@@ -228,16 +235,16 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26282
+MONOLITH_MAX_LINES = 26252
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1614900
+MONOLITH_MAX_BYTES = 1612542
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
 EXTRACTED_PART_BUDGETS = {
     "ares.css": (1143, 90070),
     "aa-chart.css": (66, 5978),
-    "intro-sequence.js": (761, 36861),
+    "intro-sequence.js": (761, 36764),
     "aa-chart.js": (316, 20608),
     "ist-projection-gate.js": (288, 15951),
     "session-boundary.js": (53, 2763),
@@ -260,6 +267,7 @@ EXTRACTED_PART_BUDGETS = {
     "kn5-ui.js": (105, 6960),
     "p5c-ui.js": (44, 3318),
     "conflict-mitigation.js": (14, 854),
+    "ux-step-states.js": (43, 2177),
     "advisor-guidance.js": (728, 43963),
 }
 
