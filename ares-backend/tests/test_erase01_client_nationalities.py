@@ -28,6 +28,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from test_client_erasure import (  # noqa: F401
     admin_client,
     session_factory,
+    _erase_via_privacy_executor,
     _scalar,
     _seed_full_client_chain,
 )
@@ -40,11 +41,7 @@ def test_erase_client_redacts_nationality_country_code(admin_client, session_fac
         # Vorbedingung: der Seed legt eine Nationalitaet mit country_code='CH' an.
         assert _scalar(session, "SELECT country_code FROM client_nationalities WHERE id='nat-e1'") == "CH"
 
-    response = admin_client.post(
-        f"/clients/{ids['client_id']}/erase",
-        json={"reason": "Kunde verlangt Loeschung seiner Personendaten gemaess DSG Art. 32."},
-    )
-    assert response.status_code == 200, response.text
+    response = _erase_via_privacy_executor(session_factory, ids['client_id'], "Kunde verlangt Loeschung seiner Personendaten gemaess DSG Art. 32.")
 
     with session_factory() as session:
         row = session.execute(
@@ -67,10 +64,6 @@ def test_erase_client_nationalities_redaction_counted_in_summary(admin_client, s
     with session_factory() as session:
         ids = _seed_full_client_chain(session)
 
-    response = admin_client.post(
-        f"/clients/{ids['client_id']}/erase",
-        json={"reason": "Kunde verlangt Loeschung seiner Personendaten gemaess DSG Art. 32."},
-    )
-    assert response.status_code == 200, response.text
-    payload = response.json()
+    response = _erase_via_privacy_executor(session_factory, ids['client_id'], "Kunde verlangt Loeschung seiner Personendaten gemaess DSG Art. 32.")
+    payload = response
     assert payload["redacted"].get("client_nationalities") == 1

@@ -155,15 +155,14 @@ def test_mitigate_records_the_measure(auth_client, advisor_user, session_factory
 
     resp = auth_client.post(
         f"/mandates/{mandate_id}/conflicts/{conflict_id}/mitigate",
-        json={"mitigation_action": "Retrozession wird vollumfänglich erstattet"},
+        json={"mitigation_action": "Weitergabe an Kunden"},
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["mitigation_action"] == (
-        "Retrozession wird vollumfänglich erstattet"
-    )
+    assert resp.json()["mitigation_action"] == "Weitergabe an Kunden"
 
 
-@pytest.mark.parametrize("action", ["", "  ", "ok"])
+# L2d / N-938-01: die Massnahme ist eine Kategorie -- Freitext ist 422.
+@pytest.mark.parametrize("action", ["", "  ", "ok", "Retrozession wird vollumfänglich erstattet"])
 def test_mitigate_rejects_an_empty_placeholder(
     auth_client, advisor_user, session_factory, action,
 ):

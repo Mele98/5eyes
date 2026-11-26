@@ -146,7 +146,7 @@ def test_a1_wealth_inflow_crud(session_factory, cleanup_overrides):
     resp = client.post(
         f"/clients/{cid}/wealth-inflows",
         json={"label": "Erbschaft Tante", "source_type": "Erbschaft",
-              "amount_rappen": 10_000_000, "expected_year": 2030,
+              "amount_rappen": 10_000_000, "currency": "CHF", "expected_year": 2030,
               "value_mode": "nominal"},
     )
     assert resp.status_code == 201, resp.text
@@ -184,7 +184,7 @@ def test_a1_wealth_inflow_recurring_validation(session_factory, cleanup_override
     resp = client.post(
         f"/clients/{cid}/wealth-inflows",
         json={"label": "Bonus", "source_type": "Bonus",
-              "amount_rappen": 500_000, "expected_year": 2027,
+              "amount_rappen": 500_000, "currency": "CHF", "expected_year": 2027,
               "is_recurring": 1, "value_mode": "nominal"},
     )
     assert resp.status_code == 422
@@ -205,7 +205,7 @@ def test_a1_wealth_inflow_update_validates_merged_recurring_state(
             "label": "Einmalige Erbschaft",
             "source_type": "Erbschaft",
             "amount_rappen": 10_000_000,
-            "expected_year": 2030,
+            "currency": "CHF", "expected_year": 2030,
             "is_recurring": 0,
             "value_mode": "nominal",
         },

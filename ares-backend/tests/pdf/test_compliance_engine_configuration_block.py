@@ -36,7 +36,7 @@ def test_c2_backwards_compat_payload_ohne_engine_cfg_kein_block(styles):
         # KEIN engine_configuration
     }
     story: list = []
-    render_compliance_audit_section(payload, story, styles)
+    render_compliance_audit_section(payload, story, styles, advisor_annex=True)
     # Story ist nicht leer (Standard-Sektionen drin)
     assert len(story) > 0
 
@@ -58,8 +58,8 @@ def test_c2_payload_mit_engine_cfg_appended_block(styles):
     }
     story_basic: list = []
     story_with: list = []
-    render_compliance_audit_section(payload_basic, story_basic, styles)
-    render_compliance_audit_section(payload_with, story_with, styles)
+    render_compliance_audit_section(payload_basic, story_basic, styles, advisor_annex=True)
+    render_compliance_audit_section(payload_with, story_with, styles, advisor_annex=True)
     # Mit cfg hat mehr Elemente in der story
     assert len(story_with) > len(story_basic)
 
@@ -144,6 +144,6 @@ def test_c2_full_compliance_audit_mit_engine_cfg(styles):
         },
     }
     story: list = []
-    render_compliance_audit_section(payload, story, styles)
+    render_compliance_audit_section(payload, story, styles, advisor_annex=True)
     # Mind. 10 Elemente (Header + 5 Standard-Bloecke + Spacer + Engine-Block)
     assert len(story) >= 10

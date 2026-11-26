@@ -543,15 +543,21 @@ def test_risikoprofil_pdf_override_table_shows_decision_reference():
         override_decision_id="rod-123", override_decision_hash="ab" * 32,
         override_decision_verified=True,
     )
-    table = _override_documentation(data, make_paragraph_styles())
-    texts = [
-        cell.getPlainText() if isinstance(cell, Paragraph) else str(cell)
-        for row in table._cellvalues for cell in row
-    ]
-    joined = " ".join(texts)
+    # KN7 (H-181, CTO-Nachtrag Punkt 3): volle Decision-ID/SHA-256 nur in der
+    # Berater-/Audit-Fassung; das Kunden-PDF zeigt «Entscheid-Nr. <8 Zeichen>».
+    def _joined(**kw):
+        table = _override_documentation(data, make_paragraph_styles(), **kw)
+        return " ".join(
+            cell.getPlainText() if isinstance(cell, Paragraph) else str(cell)
+            for row in table._cellvalues for cell in row
+        )
+
+    joined = _joined(advisor_annex=True)
     assert "rod-123" in joined
     assert ("ab" * 32) in joined
     assert "verifiziert" in joined
+    customer = _joined()
+    assert "Entscheid-Nr. rod-123 · Nachweis geprüft" in customer and ("ab" * 32) not in customer
 
 
 def test_risikoprofil_pdf_flags_unverified_decision_hash():
@@ -567,9 +573,13 @@ def test_risikoprofil_pdf_flags_unverified_decision_hash():
         override_decision_id="rod-123", override_decision_hash="cd" * 32,
         override_decision_verified=False,
     )
-    table = _override_documentation(data, make_paragraph_styles())
-    joined = " ".join(
-        cell.getPlainText() if isinstance(cell, Paragraph) else str(cell)
-        for row in table._cellvalues for cell in row
-    )
-    assert "NICHT verifiziert" in joined
+    def _joined(**kw):
+        table = _override_documentation(data, make_paragraph_styles(), **kw)
+        return " ".join(
+            cell.getPlainText() if isinstance(cell, Paragraph) else str(cell)
+            for row in table._cellvalues for cell in row
+        )
+
+    assert "NICHT verifiziert" in _joined(advisor_annex=True)
+    # KN7: Kundenfassung nennt das Pruefergebnis in Worten, ohne Hash.
+    assert "Nachweis nicht bestätigt" in _joined() and ("cd" * 32) not in _joined()

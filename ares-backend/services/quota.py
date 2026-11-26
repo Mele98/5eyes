@@ -8,20 +8,50 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from models.mandates import Mandate
-from models.tenant import Tenant
+from models.tenant import DEFAULT_TENANT_ID, Tenant
 from models.users import User
 from services.tenant_context import is_postgres_bind
 
 QuotaKind = Literal["users", "mandates"]
 
+# OWN-LIC-01 (CTO-Entscheid H-180, technischer Standard; der Owner kann es
+# kommerziell uebersteuern): die externe Pruefperson ist eine Kontrollfunktion
+# mit minimalem Pfad-Umfang, keine Nutzerlizenz -- sie zaehlt nicht gegen
+# ``max_users`` und ihr Anlegen/Einladen wird nicht durch die Grenze gesperrt.
+QUOTA_EXEMPT_USER_ROLES: tuple[str, ...] = ("compliance_reviewer",)
 
-def assert_within_quota(db: Session, tenant_id: str | None, kind: QuotaKind) -> None:
-    """Raise HTTP 409 when creating ``kind`` would exceed the tenant quota."""
+
+def _licensed_users(db: Session, tid: str):
+    return _tenant_rows(db, User, tid).filter(User.role.notin_(QUOTA_EXEMPT_USER_ROLES))
+
+
+def _tenant_rows(db: Session, model, tid: str):
+    """Aktive Zeilen eines Mandanten. KN-B (Lizenzzaehlung): Zeilen ohne
+    ``tenant_id`` gehoeren zum Default-Mandanten -- dieselbe Regel wie ueberall
+    sonst (``tenant_id or DEFAULT_TENANT_ID``, z. B. GET /tenants/me). Die
+    Ersteinrichtung (Tier 1) legt den Admin ohne ``tenant_id`` an; ohne diese
+    Regel zeigte die Lizenz bei zwei aktiven Konten ``current_users: 0``."""
+    owner = model.tenant_id == tid
+    if tid == DEFAULT_TENANT_ID:
+        owner = or_(owner, model.tenant_id.is_(None))
+    return db.query(model).filter(owner, model.deleted_at.is_(None))
+
+
+def assert_within_quota(
+    db: Session, tenant_id: str | None, kind: QuotaKind, *, role: str | None = None,
+) -> None:
+    """Raise HTTP 409 when creating ``kind`` would exceed the tenant quota.
+
+    ``role``: Rolle des anzulegenden Kontos; eine quota-freie Rolle
+    (``QUOTA_EXEMPT_USER_ROLES``) wird nie durch ``max_users`` gesperrt."""
     tid = str(tenant_id or "").strip()
     if not tid:
+        return
+    if kind == "users" and role in QUOTA_EXEMPT_USER_ROLES:
         return
     # Kontrollrunde 2026-09-24: FOR UPDATE auf der Tenant-Zeile serialisiert
     # konkurrierende Aufrufe fuer denselben Tenant -- ohne diese Sperre
@@ -50,22 +80,14 @@ def assert_within_quota(db: Session, tenant_id: str | None, kind: QuotaKind) -> 
         limit = _quota_limit(getattr(tenant, "max_users", None))
         if limit is None:
             return
-        current = (
-            db.query(User)
-            .filter(User.tenant_id == tid, User.deleted_at.is_(None))
-            .count()
-        )
+        current = _licensed_users(db, tid).count()
         _raise_if_at_limit("max_users", current, limit)
         return
     if kind == "mandates":
         limit = _quota_limit(getattr(tenant, "max_mandates", None))
         if limit is None:
             return
-        current = (
-            db.query(Mandate)
-            .filter(Mandate.tenant_id == tid, Mandate.deleted_at.is_(None))
-            .count()
-        )
+        current = _tenant_rows(db, Mandate, tid).count()
         _raise_if_at_limit("max_mandates", current, limit)
         return
     raise ValueError(f"Unknown quota kind: {kind!r}")
@@ -82,16 +104,8 @@ def compute_tenant_usage(db: Session, tenant_id: str | None) -> dict[str, int]:
     tid = str(tenant_id or "").strip()
     if not tid:
         return {"current_users": 0, "current_mandates": 0}
-    current_users = (
-        db.query(User)
-        .filter(User.tenant_id == tid, User.deleted_at.is_(None))
-        .count()
-    )
-    current_mandates = (
-        db.query(Mandate)
-        .filter(Mandate.tenant_id == tid, Mandate.deleted_at.is_(None))
-        .count()
-    )
+    current_users = _licensed_users(db, tid).count()
+    current_mandates = _tenant_rows(db, Mandate, tid).count()
     return {"current_users": current_users, "current_mandates": current_mandates}
 
 

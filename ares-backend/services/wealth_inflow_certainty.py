@@ -105,6 +105,7 @@ def uncertain_inflow_sensitivity(
     external_reserve_rappen: int,
     currency: str = "CHF",
     reasoning: list[str] | None = None,
+    fx_source=None,
 ) -> dict | None:
     """Reasoning + Info-Sensitivitaet "mit Zufluss" fuer unsichere Zufluesse.
 
@@ -121,6 +122,7 @@ def uncertain_inflow_sensitivity(
 
     uncertain_series = _wealth_inflow_series_rappen(
         uncertain_inflows, projection_years, start_year, inflation_series_bps,
+        fx_source=fx_source, target_currency=currency if fx_source is not None else None,
     )
     base_series = [int(v) for v in (reserve_inputs.get("inflow_projection_series_rappen") or [])]
     length = max(len(base_series), len(uncertain_series))

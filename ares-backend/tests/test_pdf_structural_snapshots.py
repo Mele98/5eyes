@@ -58,8 +58,8 @@ REQUIRED_ANCHOR_STRINGS_MINIMAL = (
     "Rechtliche Hinweise",     # Disclaimer-Header
     "Inhaltsverzeichnis",      # TOC-Header
     "Compliance-Audit",        # FINMA-Audit-Block
-    "Geeignetheitspruefung",   # Sektion 19 im PDF sichtbar
-    "Methodology-Modelle",     # Sektion 20 im PDF sichtbar
+    "Geeignetheitsprüfung",   # Sektion 19 im PDF sichtbar (KN-B E2E2-11: echte Umlaute)
+    "Methodik der Produktempfehlung",  # Sektion 20 (KN5: Kundenfassung)
 )
 
 # PDF darf KEINE dieser Strings enthalten (Branding-Disziplin).
