@@ -261,7 +261,7 @@ def test_import_no_conservative_warning_when_lower_or_new_set(session, tmp_path)
 def test_import_apply_writes_source_date(session, tmp_path):
     p = _csv_path(tmp_path, (
         "assumption_set_name,valid_from,source,source_date,equity_ch_return_bps\n"
-        "SourceDated,2026-07-01,Pictet CMA 2026Q3,2026-06-15,500\n"
+        "SourceDated,2026-07-01,Haus-CMA 2026Q3,2026-06-15,500\n"
     ))
     result = import_cma_csv(session, p, user_id="user-cma", dry_run=False)
     assert not result.has_errors
@@ -269,7 +269,7 @@ def test_import_apply_writes_source_date(session, tmp_path):
     entry = session.query(CapitalMarketAssumption).filter(
         CapitalMarketAssumption.assumption_set_name == "SourceDated"
     ).one()
-    assert entry.source == "Pictet CMA 2026Q3"
+    assert entry.source == "Haus-CMA 2026Q3"
     assert entry.source_date == "2026-06-15"
 
 

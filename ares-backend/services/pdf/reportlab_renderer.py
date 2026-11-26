@@ -53,13 +53,15 @@ class ReportLabRenderer:
         )
 
     def render_risikoprofil(
-        self, ctx: PDFContext, data: RisikoprofilData
+        self, ctx: PDFContext, data: RisikoprofilData, *, advisor_annex: bool = False,
     ) -> bytes:
+        """KN7: ``advisor_annex=True`` = Berater-/Audit-Fassung (volle
+        Decision-ID/Hash); Default = Kunden-PDF."""
         from services.pdf.documents.risikoprofil import build_risikoprofil_flowables
         return self._render_to_bytes(
             ctx=ctx,
             title="Risikoprofil",
-            build_flowables=lambda: build_risikoprofil_flowables(ctx, data),
+            build_flowables=lambda: build_risikoprofil_flowables(ctx, data, advisor_annex=advisor_annex),
         )
 
     def render_portfolio(self, ctx: PDFContext, data) -> bytes:
@@ -88,7 +90,7 @@ class ReportLabRenderer:
 
         return self._render_to_bytes(
             ctx=ctx,
-            title="Beratungsentscheid und Kundenbestaetigung",
+            title="Beratungsentscheid und Kundenbestätigung",
             build_flowables=lambda: build_contract_signoff_flowables(ctx, data),
         )
 
@@ -143,7 +145,10 @@ class ReportLabRenderer:
 
         register_editorial_fonts()
         buffer = BytesIO()
-        metadata_brand = ctx.advisor_org or ctx.advisor_name or "Emanuele Konzelmann"
+        # KN-B Nachtrag 1: kein Personenname als Fallback; ohne Firma/Berater entfaellt das Praefix.
+        # KN3-B E2E3-04: Firma im Titel, der Berater bleibt Autor.
+        metadata_brand = ctx.advisor_org or ""
+        doc_title = " - ".join(part for part in (metadata_brand, title, ctx.mandate_name) if part)
         doc = SimpleDocTemplate(
             buffer,
             pagesize=PAGE_SIZE,
@@ -151,7 +156,7 @@ class ReportLabRenderer:
             bottomMargin=MARGIN_BOTTOM + 12 * mm,  # extra Platz fuer Footer
             leftMargin=MARGIN_LEFT,
             rightMargin=MARGIN_RIGHT,
-            title=f"{metadata_brand} - {title} - {ctx.mandate_name}",
+            title=doc_title,
             author=ctx.advisor_name,
             subject=title,
             creator="Ares",

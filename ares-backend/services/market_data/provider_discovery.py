@@ -8,8 +8,8 @@ anzubieten — analog dem Tax-SDK-Pattern aus ADR-006.
 Externe Pakete deklarieren in ihrer pyproject.toml:
 
     [project.entry-points."ares.market_data_provider"]
-    bloomberg = "fivee_eyes_bloomberg:BloombergProvider"
-    refinitiv = "fivee_eyes_refinitiv:RefinitivProvider"
+    example = "ares_provider_example:ExampleProvider"
+    other = "ares_provider_other:OtherProvider"
 
 Beim Boot scannt Ares diese Entry-Group, instanziiert jeden Provider und
 fuegt ihn in die Aggregator-Cascade ein. Konformanz-Check (vor Aufnahme):

@@ -13,6 +13,7 @@ function base(overrides: Partial<WealthInflowFormInput> = {}): WealthInflowFormI
     label: 'Erbschaft Tante',
     source_type: 'Erbschaft',
     amountChf: '250000',
+    currency: 'USD',
     expected_year: '2032',
     is_recurring: false,
     frequency: 'jaehrlich',
@@ -54,6 +55,14 @@ describe('validateWealthInflow', () => {
   it('verlangt Dauer bei Wiederkehrend', () => {
     const errs = validateWealthInflow(base({ is_recurring: true, frequency: 'jaehrlich', duration_years: '' }));
     expect(errs.some((e) => e.includes('Dauer'))).toBe(true);
+  });
+});
+
+describe('CCX-P3-FX Waehrung', () => {
+  it('verlangt eine ISO-Waehrung und rät nie', () => {
+    expect(validateWealthInflow(base({ currency: '' }))).toContain('Bitte die Währung des Zuflusses wählen.');
+    expect(validateWealthInflow(base({ currency: 'chf' }))).toContain('Bitte die Währung des Zuflusses wählen.');
+    expect(buildWealthInflowPayload(base({ currency: 'EUR' })).currency).toBe('EUR');
   });
 });
 

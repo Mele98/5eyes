@@ -203,7 +203,9 @@ def test_chf_rate_must_quantize_to_exactly_10000(auth_client, session_factory):
 # ── Normaler Berater-Workflow bleibt unveraendert (Regression) ─────────────
 
 def test_normal_rollover_still_produces_exactly_one_current_row(auth_client, session_factory):
-    auth_client.put("/fx-rates", json={"rates": [{"currency": "eur", "rate": 0.95}]})
+    # N-909-11: 0.95 = Ersatzkurs -> nur mit ausdruecklicher Bestaetigung belegt.
+    first = auth_client.put("/fx-rates", json={"rates": [{"currency": "eur", "rate": 0.95, "confirm_current": True}]})
+    assert first.status_code == 200, first.text
     resp = auth_client.put("/fx-rates", json={"rates": [{"currency": "eur", "rate": 0.97}]})
     assert resp.status_code == 200, resp.text
 
