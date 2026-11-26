@@ -215,6 +215,13 @@ def _install_session_hooks(db: Session) -> None:
     for name in ("after_commit", "after_rollback", "after_soft_rollback"):
         event.listen(db, name, lambda session, *_args: _invalidate_readers_of(session))
 
+    # Session.close() (Request-Ende in get_db) loest nur after_transaction_end aus.
+    def _outer_end(session, transaction):
+        if getattr(transaction, "parent", None) is None:
+            _invalidate_readers_of(session)
+
+    event.listen(db, "after_transaction_end", _outer_end)
+
 
 def _key_lock_clause(db: Session) -> str:
     """PostgreSQL: FOR SHARE haelt die Schluesselzeile bis zum Transaktionsende;

@@ -75,6 +75,18 @@ def test_reader_cache_ends_with_the_transaction(sf):
         assert reader._keys == {}
 
 
+def test_session_close_at_request_end_clears_the_reader(sf):
+    """get_db schliesst die Session am Request-Ende ohne Commit."""
+    with sf() as db:
+        envelope = _sealed(db)
+    db = sf()
+    reader = pii_vault.KeyReader(db)
+    assert pii_vault.reveal(db, envelope, reader=reader) == TEXT
+    assert reader._keys
+    db.close()
+    assert reader._keys == {}
+
+
 def test_closed_reader_refuses_and_holds_no_key(sf):
     with sf() as db:
         envelope = _sealed(db)
