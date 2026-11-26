@@ -10,7 +10,7 @@ on:
       - r5/l2d-codex-pg-probe
 
 env:
-  TARGET_SHA: 965cd3c311511cb56221ec4cdcf8bffadabfa579
+  TARGET_SHA: 4ad446007b8e8fae5b1b8346899f87e03173adff
 
 jobs:
   codex-pg-probe:
