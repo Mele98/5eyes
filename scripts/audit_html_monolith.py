@@ -104,6 +104,9 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     # P5c (H-186): Zielstatus nur aus M-3 (goalStatusView) und keine stille
     # Neuberechnung bei Klicks mit anderer Absicht (loadStrategyOnly).
     ("p5c-ui.js", "js"),
+    # UX-L0 (Codex-UX-Audit 25.11.2026, UX-CH-02): Schrittanzeige current/visited/
+    # complete; "OK" nur aus belegter Vollstaendigkeit, nie aus der Position.
+    ("ux-step-states.js", "js"),
     # E2 Nachhaltigkeitspraeferenzen (Dok. 106): Kundenmaske nach dem Risikoprofil.
     ("sustainability-preferences.js", "js"),
 )

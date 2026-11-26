@@ -72,7 +72,12 @@ def test_go_function_keeps_aria_selected_in_sync_with_active_step():
     html = _read_html()
     go_fn = re.search(r"async function go\(p,b\)\{(.*?)\n\}\n", html, re.DOTALL)
     assert go_fn, "go() function not found"
-    assert "setAttribute('aria-selected'" in go_fn.group(1), (
+    # UX-L0 (UX-CH-02): go() delegiert die Schrittanzeige an renderStepStates
+    # (ux-step-states.js); aria-selected muss dort fuer jeden Schritt folgen.
+    assert "renderStepStates(p);" in go_fn.group(1)
+    render = re.search(r"function renderStepStates\(p\)\{(.*?)\n\}\n", html, re.DOTALL)
+    assert render, "renderStepStates() not found"
+    assert "setAttribute('aria-selected',stepIdx===idx?'true':'false')" in render.group(1), (
         "go() must update aria-selected on every step element when "
         "navigating, not just the CSS active/done classes -- otherwise "
         "screen readers keep announcing the original step as selected"
