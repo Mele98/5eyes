@@ -222,6 +222,8 @@ Einfuehrung, 43/2177): Schrittanzeige current/visited/complete (UX-CH-02). Im Mo
 entfallen die Intro-Statusleiste und die positionsbasierte OK-Logik (UX-CH-01) -> Monolith
 gesenkt auf 26252/1612569 trotz Script-Einbindung; intro-sequence.js 761/36764 (Ladeschritte
 ohne Behauptungen wie "synchronized", "validated", "ready").
+UX-L1a (UX-CH-05, Sie-Ansprache): reine Textaenderung in bestehenden Zeilen, Sie-Formen
+sind laenger -> Monolith 26252/1612646 (+77 B, keine neue Logik, keine neue Zeile).
 """
 from __future__ import annotations
 
@@ -232,7 +234,7 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 26252
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1612569
+MONOLITH_MAX_BYTES = 1612646
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).

@@ -362,7 +362,7 @@ function WealthInflowFormDrawer({ open, clientId, editing, onClose, onSaved }: D
         <div className="mt-block flex justify-end gap-2">
           <button type="button" onClick={onClose} className="rounded border border-rule px-4 py-2 text-caption text-ink">Abbrechen</button>
           <button type="button" onClick={onSubmit} disabled={saving} className="rounded bg-ink px-4 py-2 text-caption text-paper disabled:opacity-50">
-            {saving ? 'Speichere…' : 'Speichern'}
+            {saving ? 'Wird gespeichert…' : 'Speichern'}
           </button>
         </div>
       </div>
