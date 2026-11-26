@@ -710,7 +710,9 @@ def test_k2_flow_guidance_without_dead_ends(server):
         finally:
             browser.close()
 
-    assert steps == ["OK", "2", "3", "4", "5", "6", "7"], steps
+    # UX-L0 / UX-CH-02: "Charlie" hat weder Kanton noch Zivilstand -> Stammdaten
+    # unvollstaendig, Schritt 1 bleibt "besucht" mit Nummer (vorher positionsbasiert "OK").
+    assert steps == ["1", "2", "3", "4", "5", "6", "7"], steps
     assert re.match(r"Punkte \d+/12", rsub[1]), rsub
     assert "nicht erfasst" in ret_before
     assert mandate_after["retirement_year"] == 2041
