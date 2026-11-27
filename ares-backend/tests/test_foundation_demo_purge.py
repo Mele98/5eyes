@@ -286,7 +286,7 @@ def _seed_foundation_chain(session) -> str:
             mortgage_amortization_rappen, pension_wef_possible, is_available_for_goal_funding,
             is_active, created_at, updated_at
         )
-        VALUES ('wealth-foundation', 'client-foundation', 'UBS Advisory Depot',
+        VALUES ('wealth-foundation', 'client-foundation', 'Beratungsdepot (Muster)',
                 'Depot', 'Beratungsvermoegen', 10000000, 'CHF', 5000, 3000,
                 0, 2000, 0, 0, 0, 0, 1, 1, :now, :now)
         """,
@@ -557,7 +557,7 @@ def test_foundation_purge_deletes_portfolio_handoff_without_integrity_error(
                 created_by, created_at, updated_at, snapshot_sha256, holdings_basis
             )
             VALUES ('handoff-foundation', 'mandate-foundation', 'run-foundation', '[]',
-                    1000000, 1, 'UBS AG Zuerich', 'Gesendet',
+                    1000000, 1, 'Testbank Fiktiv', 'Gesendet',
                     'admin-purge', :now, :now,
                     -- HANDOFF-DB-INVARIANT-001: SHA-256 von '[]'
                     '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',

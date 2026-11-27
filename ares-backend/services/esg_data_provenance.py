@@ -27,6 +27,7 @@ ein offener Data-Owner-Entscheid, Review H6).
 """
 from __future__ import annotations
 
+import hashlib
 from functools import lru_cache
 
 ESG_DATA_STATUS_SEED_UNVERIFIED = "seed_unverified"
@@ -43,7 +44,7 @@ ESG_DATA_FIELDS: tuple[str, ...] = (
 # (Modulkonstante, von ensure_default_products() genutzt; lazy importiert).
 @lru_cache(maxsize=1)
 def _seed_esg_values() -> dict[str, dict]:
-    from services.portfolio_engine import DEFAULT_CATALOG_PRODUCTS
+    from services.portfolio_engine import DEFAULT_CATALOG_PRODUCTS, LEGACY_SEED_NAME_SHA256
     from services.portfolio_engine_payload import default_catalog_theme_tags, parse_theme_tags
 
     values: dict[str, dict] = {}
@@ -55,6 +56,10 @@ def _seed_esg_values() -> dict[str, dict]:
             "climate_benchmark": None,
             "theme_tags": parse_theme_tags(default_catalog_theme_tags(sub_asset_class)) or None,
         }
+    # K2/N-915-03: Bestandsinstallationen fuehren frueher geseedete Namen (nur als SHA-256 bekannt).
+    for digest, name in LEGACY_SEED_NAME_SHA256.items():
+        if name in values:
+            values[digest] = values[name]
     return values
 
 
@@ -73,7 +78,9 @@ def seed_unverified_esg_fields(product) -> tuple[str, ...]:
     """ESG-Felder des Produkts, die noch den unbelegten Seed-Wert tragen."""
     if str(getattr(product, "tenant_id", None) or "").strip():
         return ()
-    seed = _seed_esg_values().get(str(getattr(product, "product_name", None) or ""))
+    name = str(getattr(product, "product_name", None) or "").strip()
+    values = _seed_esg_values()
+    seed = values.get(name) or values.get(hashlib.sha256(name.encode("utf-8")).hexdigest())
     if not seed:
         return ()
     return tuple(

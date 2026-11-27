@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -41,7 +42,7 @@ from services.knowledge_asset_class_gap import (  # noqa: E402
 )
 
 NOW = "2026-10-21T00:00:00.000Z"
-HTML = (BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html").read_text(encoding="utf-8")
+HTML = read_monolith_bundle()
 
 SAA = [
     {"asset_class": "Aktien", "sub_asset_class": "Aktien Schweiz", "target_weight_bps": 2500},
@@ -338,6 +339,9 @@ def test_protokoll_pdf_renders_knowledge_gap_section():
     texts = [getattr(f, "text", "") for f in build_protokoll_flowables(ctx, data)]
     assert any("KENNTNISSE ZU DEN ANLAGEKLASSEN DER STRATEGIE" in t.upper() for t in texts)
     assert any("Kunde über Private Equity informieren und dokumentieren." in t for t in texts)
+    # KN5 / N-917R4-01: der Reason-Code bleibt im Reasoning, nicht im Kunden-PDF.
+    assert not any("KNOWLEDGE_GAP_ASSET_CLASS" in t for t in texts)
+    assert any("Kenntnislücke: Die SAA enthält Private Equity" in t for t in texts)
     assert any("Allokation wurde dadurch nicht" in t for t in texts)
 
     empty = [getattr(f, "text", "") for f in build_protokoll_flowables(ctx, ProtokollData())]

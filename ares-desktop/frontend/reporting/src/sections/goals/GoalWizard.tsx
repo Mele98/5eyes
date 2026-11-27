@@ -12,6 +12,7 @@
  * Als Drawer umgesetzt (role="dialog"/aria-modal, Esc schliesst) — Muster
  * analog components/SectionEditWrapper.tsx.
  */
+import { useReportCurrency } from '@/lib/reportCurrency';
 import { useEffect, useState } from 'react';
 import { ApiError } from '@/api/client';
 import { createGoal, updateGoal } from '@/api/goals';
@@ -178,6 +179,7 @@ function stepForField(field: GoalFormField): number {
 }
 
 export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalWizardProps) {
+  const currency = useReportCurrency(); // N-894-10: Zielbetraege in Mandatswaehrung
   const [step, setStep] = useState(0);
   const [state, setState] = useState<WizardState>(emptyState);
   const [errors, setErrors] = useState<GoalFieldError[]>([]);
@@ -403,7 +405,7 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
               )}
               {(typeKey === 'einmalige_ausgabe' || isCashflowRecurring) && (
                 <label className="block text-caption text-ink-muted">
-                  {isCashflowRecurring ? 'Betrag pro Zahlung (CHF)' : 'Zielbetrag (CHF)'}
+                  {isCashflowRecurring ? `Betrag pro Zahlung (${currency ?? "—"})` : `Zielbetrag (${currency ?? "—"})`}
                   <input
                     type="number"
                     min={0}
@@ -418,7 +420,7 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
               {isWealth && (
                 <>
                   <label className="block text-caption text-ink-muted">
-                    Zielvermögen (CHF)
+                    Zielvermögen ({currency ?? "—"})
                     <input
                       type="number"
                       value={state.wealthChf}

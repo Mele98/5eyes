@@ -151,6 +151,9 @@ def test_gate_passes_for_allocation_within_budget(session_factory):
     advisor_id, mid, aid, alloc_id = _setup(session_factory, "rbg-ok", mode="ok")
     policy, cma = _allocation_policy_and_cma(session_factory, alloc_id)
     run_id = _make_run(session_factory, mid, alloc_id, aid, advisor_id, policy, cma)
+    from product_evidence_test_support import bind_run_with_synthetic_product
+
+    bind_run_with_synthetic_product(session_factory, run_id)  # C-COMP-02
     with session_factory() as db:
         mandate = db.query(Mandate).filter(Mandate.id == mid).one()
         from models.review import RecommendationRun
@@ -207,6 +210,11 @@ def test_signature_of_non_recommendation_document_is_not_gated(session_factory):
     advisor_id, mid, _aid, _alloc = _setup(session_factory, "rbg-sign-contract", mode="violated")
     doc_id = _add_document(session_factory, mid, advisor_id, "Beratungsvertrag")
     with session_factory() as db:
+        # H8 C-2/C-5: Vertragsunterzeichnung erst nach Kundeninformation und KYC.
+        from client_onboarding_fixture import satisfy_client_onboarding
+
+        satisfy_client_onboarding(db, db.get(Mandate, mid))
+        db.commit()
         advisor = db.query(User).filter(User.id == advisor_id).one()
         doc = sign_document(
             mandate_id=mid, doc_id=doc_id,

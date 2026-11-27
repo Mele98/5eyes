@@ -53,6 +53,9 @@ from tests.risk_fixture_helpers import (
     derive_current_risk_fields,
     noop_lifespan,
 )
+# CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
+# tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
+from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
 
 
 def _utc_now_iso() -> str:
@@ -256,6 +259,7 @@ def test_f6_goal_timing_label_falls_through_for_other_types():
 # F5 - Strategy-Snapshot schreibt AuditLog
 # ===========================================================================
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_f5_create_snapshot_writes_audit_log(auth_client, session_factory, advisor_user):
     cid, mid = _make_client_and_mandate(session_factory, advisor_user.id)
 
