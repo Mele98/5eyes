@@ -504,7 +504,7 @@ def test_wealth_inflow_create_invalidates_cache(http_client):
 
     resp = client.post(f"/clients/{cid}/wealth-inflows", json={
         "label": "Cache-Test-Erbschaft", "source_type": "Erbschaft",
-        "amount_rappen": 50_000_00, "expected_year": 2035,
+        "amount_rappen": 50_000_00, "currency": "CHF", "expected_year": 2035,
     })
     assert resp.status_code == 201, resp.text
 

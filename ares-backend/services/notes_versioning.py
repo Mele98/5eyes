@@ -33,6 +33,8 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
+from services import advisory_log_service
+
 # Felder von MandateReportNotes die versioniert werden.
 # Audit-Anchor (last_edited_*, updated_at) NICHT enthalten — die sind
 # triviale Metadata.
@@ -147,3 +149,47 @@ def load_history_page(
     history = _parse_history(getattr(notes_obj, "previous_versions_json", None))
     total = len(history)
     return history[offset:offset + limit], total
+
+
+# ---------------------------------------------------------------------------
+# L2c (H-192): Versionierung statt Ueberschreiben. Die Berichtsnotizen werden
+# als append-only Versionen mit versiegelten Freitexten gespeichert
+# (services/advisory_log_service.py: report_notes_view /
+# append_report_note_version). Diese Funktionen sind der Zugang fuer den
+# Router; previous_versions_json wird nicht mehr fortgeschrieben.
+# ---------------------------------------------------------------------------
+
+ProtocolTextSealError = advisory_log_service.ProtocolTextSealError
+
+
+def report_notes_current(db: Any, mandate_id: str, *, client_id: Optional[str] = None):
+    """Aktueller, geoeffneter Stand (oder None); siehe report_notes_view."""
+    return advisory_log_service.report_notes_view(db, mandate_id, client_id=client_id)
+
+
+def save_report_notes_version(
+    db: Any, notes_head: Any, *, client_id: Optional[str], values: dict[str, Any],
+    edited_by: str, edited_at: str,
+) -> Optional[dict[str, Any]]:
+    """Legt eine neue Version an (None ohne Aenderung) und leert die
+    Klartextfelder der Kopfzeile (Altbestand) -- nur wenn danach eine Version
+    existiert (N-938-03: sonst ginge die einzige Kopie verloren). Fail-closed
+    ``ProtocolTextSealError`` nach DSG-Loeschung."""
+    row = advisory_log_service.append_report_note_version(
+        db, mandate_id=notes_head.mandate_id, client_id=client_id, values=values,
+        edited_by=edited_by, edited_at=edited_at,
+    )
+    if row is None and not advisory_log_service._report_note_versions(
+        db, notes_head.mandate_id, latest_only=True,
+    ):
+        return None
+    for field in NOTES_VERSIONED_FIELDS:
+        if getattr(notes_head, field, None) is not None:
+            setattr(notes_head, field, None)
+    return row
+
+
+def history_page(view: Any, *, limit: int = 20, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
+    """Seite der Historie aus der geoeffneten Sicht (neueste zuerst)."""
+    history = list(getattr(view, "history", None) or [])
+    return history[offset:offset + limit], len(history)

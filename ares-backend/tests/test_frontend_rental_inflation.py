@@ -5,8 +5,9 @@ inflation_linked geht, beim Bearbeiten aus der Position gesetzt und bei neuer Po
 zurueckgesetzt wird.
 """
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
-HTML = (Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html").read_text(encoding="utf-8")
+HTML = read_monolith_bundle()
 
 
 def test_checkbox_present():

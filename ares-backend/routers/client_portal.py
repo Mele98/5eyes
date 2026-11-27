@@ -23,11 +23,19 @@ from database import get_db
 from models.clients import Client
 from models.mandates import Mandate
 from models.users import User
-from services.advisory_report import compute_advisory_report
+from services.advisory_report import (
+    AdvisoryLogIntegrityFailed, assert_report_advisory_log_integrity, compute_advisory_report)
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer die Kunden-Unterschrift
 # (rechtlich relevant -- Eignungspruefungs-Nachweis).
-from routers.auth import _extract_client_ip
+# CCX-P4: direkt aus services.auth (derselbe Helfer, den routers.auth nur
+# weiterreicht) -- Router importieren keine Router.
+from services.auth import extract_client_ip as _extract_client_ip
+# CCX-P4: der Kunde sieht nie einen Entwurf -- nur die publizierte Strategie.
+from services.allocation_publication_gate import customer_document_watermark, evaluate_channel_envelope
 from services.auth import get_linked_client_for_user_or_404, require_client
+# KN9a: gemeinsame Sperre (_block_portal_report) fuer alle Portal-Gates.
+from services.audit import log as audit_log
+from services.recommendation_release_gate import CLIENT_PORTAL_UNAVAILABLE_MESSAGE
 
 
 logger = logging.getLogger(__name__)
@@ -118,46 +126,83 @@ def client_portal_mandate_report(
     # REP-002 (Codex-Audit 2026-08-25): Kundenportal darf ausschliesslich
     # eine finalisierte, an die aktuelle Zielallokation gebundene Empfehlung
     # zeigen -- niemals einen Entwurf oder eine ueberholte Version.
-    _assert_portal_report_releasable(db, mandate, client, current_user)
-    return compute_advisory_report(db, mandate, client_facing=True)
+    draft_notice = _assert_portal_report_releasable(db, mandate, client, current_user)
+    report = compute_advisory_report(db, mandate, client_facing=True)
+    # KN9a / N-934-02: dieselbe Integritaetsregel wie das Advisory-Report-PDF.
+    # Veraenderter Protokolleintrag -> neutrale Meldung, Code nur in Log/Audit.
+    try:
+        assert_report_advisory_log_integrity(report, document="Kundenportal-Bericht")
+    except AdvisoryLogIntegrityFailed as exc:
+        _block_portal_report(db, mandate, client, current_user, "ADVISORY_LOG_INTEGRITY_FAILED",
+                             detail=f"advisory_log_id={exc.entry_id}")
+    # N-897-12: ohne jede KYC-Bestaetigung als Entwurf vor Vertragsabschluss.
+    if isinstance(report, dict):
+        report = {**report, "kyc_draft_notice": draft_notice}
+    return report
 
 
-def _assert_portal_report_releasable(db: Session, mandate: Mandate, client: Client, user: User) -> None:
+def _assert_portal_report_releasable(db: Session, mandate: Mandate, client: Client, user: User) -> str | None:
     """CIO-Entscheid 2026-10-24: kein Kundenbericht, solange die
     Risikoprofil-Signatur nicht mehr zum gespeicherten Profil passt --
     dasselbe zentrale Gate wie Kunden-PDFs, E-Signing und Handoff. Der Kunde
     sieht nur eine neutrale Meldung; Reason-Code nur in Log und Audit."""
-    from services.audit import log as audit_log
     from services.recommendation_release_gate import (
         CHANNEL_CLIENT_PORTAL,
-        CLIENT_PORTAL_UNAVAILABLE_MESSAGE,
+        KYC_DRAFT_NOTICE,
         assert_current_allocation_without_adr12a_hold,
+        assert_kyc_review_release_eligible,
         assert_risk_signoff_release_eligible,
+        kyc_release_is_draft,
     )
 
     try:
+        # C-890-01 N-897-01: KYC-Wiedervorlage (faellig/ungebunden -> kein Bericht).
+        assert_kyc_review_release_eligible(db, mandate, channel=CHANNEL_CLIENT_PORTAL)
         assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_CLIENT_PORTAL)
         # CMA-001 / ADR-12a-Release-Hold: Strategie auf KGV-aktiver CMA wird
         # dem Kunden nicht angezeigt (neutrale Meldung, Code nur in Log/Audit).
         assert_current_allocation_without_adr12a_hold(
             db, mandate, channel=CHANNEL_CLIENT_PORTAL,
         )
+        # CCX-P4: eine Soll-Allokation erscheint im Kundenportal nur, wenn sie
+        # gueltig publiziert ist (Entwurf oder ungueltige Publikation -> neutral
+        # gesperrt, Code nur in Log/Audit).
+        if customer_document_watermark(db, mandate) is not None:
+            raise DomainError("CCX_ALLOCATION_NOT_PUBLISHABLE",
+                              "Soll-Allokation nicht publiziert.", http_status=409)
+        # CCX P5 / N-925R-01: derselbe Kanal-Gate wie Kunden-PDF, Signatur und
+        # Handoff -- SEALED+FRESH, heutige FX gleich der gebundenen, Parameter-
+        # satz und Zielkennzahl. Code nur in Log/Audit, Kunde sieht neutral.
+        decision = evaluate_channel_envelope(db, mandate)
+        if decision.applicable and not decision.ok:
+            raise DomainError(str(decision.reason_code), "Beratungsentscheid nicht auslieferbar.",
+                              http_status=409)
     except (HTTPException, DomainError) as exc:
         # K-2b: die Gates werfen DomainError (detail/status_code wie HTTPException).
         detail = exc.detail if isinstance(exc.detail, dict) else {}
         reason_code = str(detail.get("reason_code") or "RELEASE_BLOCKED")
-        logger.warning(
-            "Client-portal report blocked for mandate %s: %s (%s)",
-            mandate.id, reason_code, ", ".join(detail.get("integrity_mismatches") or []),
-        )
-        audit_log(
-            db, user_id=user.id, user_name=user.full_name or user.username,
-            table_name="mandates", record_id=mandate.id, action="EXPORT",
-            field_name="client_portal_report_blocked", new_value=reason_code,
-            mandate_id=mandate.id, client_id=client.id,
-        )
-        db.commit()
-        raise HTTPException(status_code=409, detail=CLIENT_PORTAL_UNAVAILABLE_MESSAGE) from None
+        if detail.get("finding_codes"):
+            reason_code = str(detail["finding_codes"][0])
+        _block_portal_report(db, mandate, client, user, reason_code,
+                             detail=", ".join(detail.get("integrity_mismatches") or []))
+    # N-897-12: Rueckgabe = Entwurfshinweis (ohne jede KYC-Bestaetigung) oder None.
+    return KYC_DRAFT_NOTICE if kyc_release_is_draft(db, mandate) else None
+
+
+def _block_portal_report(db: Session, mandate: Mandate, client: Client, user: User,
+                         blocked_code: str, *, detail: str = "") -> None:
+    """Kundenportal gesperrt: Code nur in Log und Audit, der Kunde sieht die
+    neutrale Meldung (409)."""
+    logger.warning("Client-portal report blocked for mandate %s: %s (%s)",
+                   mandate.id, blocked_code, detail)
+    audit_log(
+        db, user_id=user.id, user_name=user.full_name or user.username,
+        table_name="mandates", record_id=mandate.id, action="EXPORT",
+        field_name="client_portal_report_blocked", new_value=blocked_code,
+        mandate_id=mandate.id, client_id=client.id,
+    )
+    db.commit()
+    raise HTTPException(status_code=409, detail=CLIENT_PORTAL_UNAVAILABLE_MESSAGE) from None
 
 
 @router.post("/mandates/{mandate_id}/risk-profile/sign")

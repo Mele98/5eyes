@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 FRONTEND_HTML = (
     Path(__file__).resolve().parents[2]
@@ -88,7 +89,7 @@ EXPECTED_CATEGORY_LABELS = {
 
 
 def _html() -> str:
-    return FRONTEND_HTML.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _admin_sidebar_block(html: str) -> str:

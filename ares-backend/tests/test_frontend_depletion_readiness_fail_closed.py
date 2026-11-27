@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 HTML_PATH = (
     Path(__file__).resolve().parents[2]
@@ -40,7 +41,7 @@ HTML_PATH = (
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 # ── DECUM-DEPLETION-001: fehlend != 0% ───────────────────────────────────────
@@ -129,7 +130,7 @@ def test_readiness_checklist_always_adds_item_when_applicable():
     assert "if(_reviewHasDecumulationRelevantGoal()){" in body
     # Der Fail-closed-Zweig: fehlt die Datenbasis, MUSS der Punkt trotzdem
     # auftauchen -- als offener (done:false), blockierender Punkt.
-    assert "nicht geprueft (Datenbasis fehlt)" in body
+    assert "nicht geprüft (Datenbasis fehlt)" in body
     assert "done:false" in body
 
 
@@ -147,10 +148,10 @@ def test_readiness_checklist_non_applicable_case_unaffected():
     body = match.group(1)
     # Die urspruenglichen 4 Basis-Punkte sind noch unveraendert vorhanden.
     for label in (
-        "Strategievergleich geprueft",
-        "Eignungspruefung erfasst",
+        "Strategievergleich geprüft",
+        "Eignungsprüfung erfasst",
         "Entscheidung protokolliert",
-        "Interessenkonflikte geprueft",
+        "Interessenkonflikte geprüft",
     ):
         assert label in body
     # Der 5. Punkt haengt strikt an der Anwendbarkeits-Pruefung, nicht an

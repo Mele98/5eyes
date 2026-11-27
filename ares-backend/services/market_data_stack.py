@@ -151,8 +151,11 @@ def _provider_meta(name: str | None) -> dict[str, Any] | None:
     }
 
 
-def _resolved_env_path() -> Path:
-    candidate = Path(resolve_env_file())
+def _resolved_env_path() -> Path | None:
+    resolved = resolve_env_file()
+    if resolved is None:  # N-935-01: gepackte EXE liest keine .env
+        return None
+    candidate = Path(resolved)
     if candidate.is_absolute():
         return candidate
     return (Path.cwd() / candidate).resolve()
@@ -225,7 +228,9 @@ def get_market_data_setup_status(provider_roles: dict[str, Any] | None = None) -
     target_missing: list[dict[str, Any]] = []
     warnings: list[str] = []
 
-    if not env_path.exists():
+    if env_path is None:
+        warnings.append("Die installierte Version liest keine .env-Datei; externe Provider laufen nur mit Prozessvariablen.")
+    elif not env_path.exists():
         warnings.append("Keine Backend-.env gefunden; externe Provider laufen nur mit Prozessvariablen oder spaeter gesetzten Keys.")
 
     for role_name, role in roles.items():
@@ -263,8 +268,8 @@ def get_market_data_setup_status(provider_roles: dict[str, Any] | None = None) -
                         warnings.append(message)
 
     return {
-        "env_file": str(env_path),
-        "env_file_exists": env_path.exists(),
+        "env_file": "" if env_path is None else str(env_path),
+        "env_file_exists": env_path is not None and env_path.exists(),
         "current_ready": not current_missing,
         "target_key_ready": not target_missing,
         "current_missing_requirements": current_missing,

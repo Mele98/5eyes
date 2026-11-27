@@ -1,11 +1,12 @@
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def test_goal_editor_stage6_fields_exist():
@@ -37,7 +38,7 @@ def test_return_goal_hardness_hart_is_disabled_and_saved_as_return_bps():
     html = _html()
     assert 'id="nz-prio-hart-option"' in html
     assert "hartOpt.disabled=!cfg.hardness_hart" in html
-    assert "Renditeziele koennen nicht als Hart gespeichert werden" in html
+    assert "Renditeziele können nicht als Hart gespeichert werden" in html
     assert "returnRaw=getInputValue('nz-target-return-bps')" in html
     assert "payload.target_return_bps=targetReturnBps" in html
 
