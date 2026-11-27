@@ -37,7 +37,28 @@ EXCLUDED_DIRS = frozenset(
 
 # (Datei, Funktions-Qualname) -> Begruendung. Heute leer: alle Fundstellen
 # sind inventarisiert.
-UNINVENTORIED_EXCEPTIONS: dict[tuple[str, str], str] = {}
+UNINVENTORIED_EXCEPTIONS: dict[tuple[str, str], str] = {
+    # CCX P5: Stdlib-Blaetter (duerfen core.evidence nicht importieren);
+    # eigene Domaene b"Ares\x00ares/risk-parameter-set/1\x00" bzw.
+    # b"Ares\x00ares/goal-metric/1\x00", Integer-only, belegt in
+    # tests/test_ccx_p5_parameter_set.py / tests/test_ccx_p5_channel_envelope.py.
+    ("core/risk_parameter_set.py", "parameter_set_hash"):
+        "P5 M-2 Parametersatz-Hash (domaenensepariert, Stdlib-Blatt)",
+    ("core/goal_metric_contract.py", "goal_metric_hash"):
+        "P5 M-3 Zielkennzahl-Hash (domaenensepariert, Stdlib-Blatt)",
+    # C-COMP-02: eigene Vertragsdomaene "ares-product-evidence/v1" (Vertrag
+    # 19.11., Stdlib-Blatt), belegt in tests/test_c_comp_02_product_evidence.py.
+    ("core/product_evidence.py", "stored_json_hash"):
+        "C-COMP-02 Nachweis-/Satz-Hash (domaenensepariert, Stdlib-Blatt)",
+    # P5b / N-925-08: Ziel-Revision = Fingerabdruck der fachlichen Zielfelder
+    # (Stdlib-Blatt, Teil des M-3-Payloads und damit dessen Hash).
+    ("core/goal_metric_contract.py", "goal_revision"):
+        "P5b Ziel-Revision (Fingerabdruck, Teil des M-3-Payloads)",
+    # P5b / N-925R-02: Archivschluessel der Kundeninformation = bestehender
+    # content_hash + Fussformat (kein neues Evidenzobjekt).
+    ("routers/pdf_reports.py", "get_kundeninformation_pdf"):
+        "P5b Archivschluessel Kundeninformation (content_hash + Fussformat)",
+}
 
 
 def _inventoried_sites() -> set[tuple[str, str]]:

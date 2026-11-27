@@ -1,6 +1,6 @@
-# 5Eyes Electron Wrapper (Windows skeleton)
+# Ares Electron Wrapper (Windows skeleton)
 
-This desktop shell starts the local FastAPI backend, verifies that the reachable service is really the 5Eyes API, chooses a free localhost port when 8000 is already occupied by something else, and then opens the current `ares.html` frontend inside Electron.
+This desktop shell starts the local FastAPI backend, verifies that the reachable service is really the Ares API, chooses a free localhost port when 8000 is already occupied by something else, and then opens the current `ares.html` frontend inside Electron.
 
 ## What is included
 

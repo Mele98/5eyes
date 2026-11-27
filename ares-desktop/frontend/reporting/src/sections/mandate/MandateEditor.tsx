@@ -211,7 +211,7 @@ export function MandateEditor({ mandateId }: MandateEditorProps) {
 
           <div className="col-span-2 flex justify-end">
             <button type="submit" disabled={saving} className="rounded bg-ink px-4 py-2 text-caption text-paper disabled:opacity-50">
-              {saving ? 'Speichere…' : 'Mandat speichern'}
+              {saving ? 'Wird gespeichert…' : 'Mandat speichern'}
             </button>
           </div>
         </form>

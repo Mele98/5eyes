@@ -136,7 +136,9 @@ def test_wealth_goal_rejects_target_return(auth_client, advisor_user):
     )
 
     assert response.status_code == 422, response.text
-    assert "Feld 'target_return_bps' ist für Zieltyp 'Vermoegensziel' nicht erlaubt" in response.text
+    # RC-CH-1-F1: die ASCII-Eingabe wird vor der Feldpruefung auf den DB-Wert
+    # 'Vermögensziel' kanonisiert; die Meldung nennt den gespeicherten Typ.
+    assert "Feld 'target_return_bps' ist für Zieltyp 'Vermögensziel' nicht erlaubt" in response.text
 
 
 def test_pension_goal_rejects_target_return(auth_client, advisor_user):

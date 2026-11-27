@@ -17,6 +17,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -284,7 +285,7 @@ def test_anlagestrategie_pdf_renders_deviation_section(session_factory):
 
 def _monolith() -> str:
     path = BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html"
-    return path.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def test_monolith_band_editor_has_reason_field_bound_to_preferences():

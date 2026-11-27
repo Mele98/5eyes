@@ -259,8 +259,11 @@ def test_existing_db_with_narrow_willingness_check_is_widened_on_startup(tmp_pat
     assert response.status_code == 201, response.text
 
 
-def test_check_violation_is_not_reported_as_concurrent_save(tmp_path, monkeypatch, api_factory):
-    """CHECK-Verletzung != Concurrency-Konflikt: kein 409 mehr."""
+def test_check_violation_is_not_reported_as_concurrent_save(tmp_path, monkeypatch, api_factory, caplog):
+    """CHECK-Verletzung != Concurrency-Konflikt: kein 409 mehr.
+
+    N-903-06: das Log nennt nur den Constraint (check_constraint_label), nicht
+    das SQL-Statement mit Parametern."""
     import services.sqlite_check_constraint_upgrade as check_upgrade
 
     db_path = _bootstrap_with_narrow_willingness_check(tmp_path, "narrow_no_upgrade")
@@ -270,8 +273,14 @@ def test_check_violation_is_not_reported_as_concurrent_save(tmp_path, monkeypatc
 
     client, user = api_factory(test_engine)
     mandate_id = _new_mandate(client, user, "chk")
-    response = _post_with_willingness(client, mandate_id, 3)
+    import logging
+
+    with caplog.at_level(logging.ERROR, logger="routers.profiling"):
+        response = _post_with_willingness(client, mandate_id, 3)
     assert response.status_code == 500, response.text
+    logged = [r.getMessage() for r in caplog.records if "CHECK-Constraint" in r.getMessage()]
+    assert logged and all("INSERT" not in m and "parameters" not in m.lower() for m in logged), logged
+    assert any("risk_willingness_profile" in m for m in logged), logged
     detail = response.json()["detail"]
     assert detail["code"] == "RISK_PROFILE_CHECK_VIOLATION"
     assert "gleichzeitig" not in detail["message"]

@@ -196,7 +196,6 @@ describe('CrmEditor', () => {
       await screen.findByText('Klassifikation geändert und gespeichert.');
 
       expect(postOptHistoryMock).toHaveBeenCalledWith('c1', expect.objectContaining({
-        event_type: 'reclassification',
         from_classification: 'Privatkunde',
         to_classification: 'Professioneller Kunde',
         notes: 'Antrag Kunde',

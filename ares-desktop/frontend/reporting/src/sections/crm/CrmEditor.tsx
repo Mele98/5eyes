@@ -133,7 +133,7 @@ export function CrmEditor({ initialClientId }: CrmEditorProps) {
     setClassificationError('');
     try {
       await postOptHistory(selected.id, {
-        event_type: 'reclassification',
+        // N-890-13: event_type leitet der Server aus dem Uebergang ab (FIDLEG).
         from_classification: selected.client_classification as ClientClassification,
         to_classification: targetClassification,
         client_requested: true,
@@ -392,7 +392,7 @@ export function CrmEditor({ initialClientId }: CrmEditorProps) {
 
               <div className="col-span-2 flex justify-end">
                 <button type="submit" disabled={saving} className="rounded bg-ink px-4 py-2 text-caption text-paper disabled:opacity-50">
-                  {saving ? 'Speichere…' : 'Stammdaten speichern'}
+                  {saving ? 'Wird gespeichert…' : 'Stammdaten speichern'}
                 </button>
               </div>
             </form>
@@ -481,7 +481,7 @@ export function CrmEditor({ initialClientId }: CrmEditorProps) {
                       disabled={classificationSaving}
                       className="rounded bg-ink px-4 py-2 text-caption text-paper disabled:opacity-50"
                     >
-                      {classificationSaving ? 'Speichere…' : 'Klassifikation speichern'}
+                      {classificationSaving ? 'Wird gespeichert…' : 'Klassifikation speichern'}
                     </button>
                   </div>
                 </form>

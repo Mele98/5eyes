@@ -17,6 +17,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from product_evidence_test_support import bind_synthetic_run
 from core.reason_codes import DomainError  # noqa: E402  K-2b: Gates werfen DomainError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import configure_mappers, sessionmaker
@@ -45,6 +47,7 @@ from models.review import (  # noqa: E402
 from models.users import User  # noqa: E402
 from models.wealth import WealthPosition  # noqa: E402
 from services import portfolio_data_release_gate as gate_mod  # noqa: E402
+from tests.fx_test_support import seed_attested_fx  # noqa: E402
 from services.portfolio_data_policy import (  # noqa: E402
     _default_policy_path,
     parse_portfolio_data_policy,
@@ -170,6 +173,9 @@ def test_shipped_proposed_policy_gate_returns_without_db_access(monkeypatch):
 def test_assessment_with_proposed_policy_warns_but_does_not_block(session_factory):
     with session_factory() as s:
         _advisor, mandate = _seed(s, holdings=(("eq", "Aktien", "CHF"), ("us", "Aktien", "USD")))
+        # CCX-P3-FX (N-909-01): der IST-Bestand wird nur mit belegtem Kurs bewertet;
+        # den Fall ohne Kurs deckt test_usd_without_attested_rate_is_freshness_error ab.
+        seed_attested_fx(s, {"USD": 0.88}, commit=False)
         result = gate_mod.assess_mandate_portfolio_data(s, mandate)
 
     assert result["policy"]["status"] == "PROPOSED"
@@ -177,8 +183,7 @@ def test_assessment_with_proposed_policy_warns_but_does_not_block(session_factor
     comps = result["freshness"]["components"]
     assert comps["holdings_as_of"]["status"] == "ok"
     assert comps["price_as_of"]["status"] == "ok"
-    # USD ohne aktive FX-Zeile: versionierte Default-Kurse belegen keinen Stichtag.
-    assert comps["fx_as_of"]["status"] == "missing_as_of"
+    assert comps["fx_as_of"]["status"] == "ok"
     # Keine erfasste Liquiditaet ist kein Beleg fuer null.
     assert comps["cash_as_of"]["status"] == "missing_as_of"
     assert comps["cash_as_of"]["source"] is None
@@ -194,12 +199,30 @@ def test_assessment_with_proposed_policy_warns_but_does_not_block(session_factor
         assert any("PROPOSED" in w for w in gate["warnings"])
 
 
+def test_usd_without_attested_rate_is_freshness_error(session_factory):
+    """CCX-P3-FX (N-909-01): USD nur mit Ersatzkurs -> kein bewerteter IST-Bestand.
+    Die Bewertung bleibt sichtbar (freshness_error, typisierte Kursmeldung) und
+    jede Aktion wuerde blockieren; PROPOSED erzwingt nicht."""
+    with session_factory() as s:
+        _advisor, mandate = _seed(s, holdings=(("eq", "Aktien", "CHF"), ("us", "Aktien", "USD")))
+        result = gate_mod.assess_mandate_portfolio_data(s, mandate)
+    assert result["freshness"] is None
+    assert "USD" in result["freshness_error"] and "MISSING" in result["freshness_error"]
+    assert result["snapshot_id"] is None
+    for action in ("finalize", "pdf", "signature", "handoff"):
+        gate = result["gates"][action]
+        assert gate["reasons"][0] == "freshness_not_evaluated"
+        assert gate["would_block"] is True and gate["blocked"] is False
+
+
 def test_components_come_from_snapshot_cash_and_fx_rows(session_factory):
     with session_factory() as s:
         _advisor, mandate = _seed(s, holdings=(("eq", "Aktien", "CHF"), ("us", "Aktien", "USD")))
         _add_cash(s, valuation_date="2026-10-20")
         s.add(FXRate(
-            id="fx-usd", currency="USD", rate_x10000=8800, valid_from="2026-10-19", is_current=1,
+            # CCX-P3-FX: frisch relativ zum Stichtag 2026-10-26 (Frist 5 Tage);
+            # ein 7 Tage alter Kurs waere STALE und bewertet keinen IST-Bestand.
+            id="fx-usd", currency="USD", rate_x10000=8800, valid_from="2026-10-22", is_current=1,
             source="API", created_at=NOW, updated_at=NOW,
         ))
         s.flush()
@@ -209,7 +232,7 @@ def test_components_come_from_snapshot_cash_and_fx_rows(session_factory):
     comps = result["freshness"]["components"]
     assert comps["cash_as_of"]["as_of"] == "2026-10-20"
     assert comps["cash_as_of"]["source"] == "wealth_positions"
-    assert comps["fx_as_of"]["as_of"] == "2026-10-19"
+    assert comps["fx_as_of"]["as_of"] == "2026-10-22"
     assert comps["fx_as_of"]["source"] == "fx_rates:API"
 
 
@@ -273,6 +296,7 @@ def test_active_policy_blocks_advisory_pdf_endpoint_before_rendering(session_fac
     monkeypatch.setattr(pdf_reports, "_enforce_cma_currency_release", _must_not_render)
     with session_factory() as s:
         advisor, mandate = _seed(s)
+        bind_synthetic_run(s, s.get(RecommendationRun, "run"))  # C-COMP-02
         with pytest.raises(DomainError) as exc:
             pdf_reports.get_advisory_report_pdf(mandate.id, db=s, current_user=advisor)
     assert exc.value.status_code == 409
@@ -292,6 +316,7 @@ def test_proposed_policy_lets_advisory_pdf_endpoint_pass_the_gate(session_factor
     monkeypatch.setattr(pdf_reports, "_enforce_cma_currency_release", _after_gate)
     with session_factory() as s:
         advisor, mandate = _seed(s)
+        bind_synthetic_run(s, s.get(RecommendationRun, "run"))  # C-COMP-02
         with pytest.raises(_PassedGate):
             pdf_reports.get_advisory_report_pdf(mandate.id, db=s, current_user=advisor)
 
