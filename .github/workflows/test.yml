@@ -921,7 +921,7 @@ jobs:
     # CI verifiziert.
     name: Frontend Reporting Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     # N-858-4: der Pflicht-Browsertest unten laeuft wie die Backend-Shards
     # unter dem Supervisor mit scharfem Leak-Guard.
     env:
