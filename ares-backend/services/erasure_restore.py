@@ -16,7 +16,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
-from database import create_app_engine
+from database import create_app_engine, sqlite_file_database_url
 from services.client_erasure import (
     ERASURE_LEDGER_FILENAME,
     _read_ledger_entries,
@@ -54,7 +54,8 @@ def reapply_erasures_after_restore(
     if not entries:
         return summary
 
-    engine = create_app_engine(db_path=target, db_key=db_key)
+    # C-T1-01: genau das Restore-Ziel oeffnen, nie settings.database_url.
+    engine = create_app_engine(db_key=db_key, database_url=sqlite_file_database_url(target))
     session_factory = sessionmaker(
         autocommit=False, autoflush=False, expire_on_commit=False, bind=engine
     )

@@ -254,25 +254,57 @@ def _db_with(path: Path, *tenants: Tenant) -> Path:
     return path
 
 
-def test_restore_rejects_multi_company_backup_before_overwriting(single, tmp_path):
+def _digest(path: Path) -> str:
+    import hashlib
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize("configured_url", [False, True], ids=["ohne_database_url", "mit_database_url"])
+def test_restore_rejects_multi_company_backup_before_overwriting(single, monkeypatch, tmp_path, configured_url):
     from services.maintenance import restore_backup
 
     live = _db_with(tmp_path / "live.db", _tenant(DEFAULT_TENANT_ID, "main"))
     backup = _db_with(tmp_path / "fremd.db", _tenant(DEFAULT_TENANT_ID, "main"), _tenant("t-2", "zwei"))
-    before_live, before_backup = live.read_bytes(), backup.read_bytes()
+    # C-T1-01: eine gesetzte DATABASE_URL (zeigt auf die laufende Einfirmen-DB)
+    # darf die Vorpruefung nicht von der Sicherung weglenken.
+    monkeypatch.setattr(settings, "database_url", f"sqlite:///{live.as_posix()}" if configured_url else None,
+                        raising=False)
+    before_live, before_backup = _digest(live), _digest(backup)
     with pytest.raises(TenantDeploymentError) as exc:
         restore_backup(backup, target_db_path=live, verify_hash=False, verify_hmac=False)
     assert exc.value.code == TENANT_COUNT_INVALID
-    assert live.read_bytes() == before_live
-    assert backup.read_bytes() == before_backup
+    assert _digest(live) == before_live
+    assert _digest(backup) == before_backup
 
 
+@pytest.mark.parametrize("configured_url", [False, True], ids=["ohne_database_url", "mit_database_url"])
 @pytest.mark.parametrize("tenants", [1, 0])
-def test_restore_accepts_single_or_empty_company_backup(single, tmp_path, tenants):
+def test_restore_accepts_single_or_empty_company_backup(single, monkeypatch, tmp_path, tenants, configured_url):
     from services.maintenance import restore_backup
 
     live = _db_with(tmp_path / "live.db", _tenant(DEFAULT_TENANT_ID, "main"))
     rows = (_tenant(DEFAULT_TENANT_ID, "main"),) if tenants else ()
     backup = _db_with(tmp_path / "eigen.db", *rows)
+    if configured_url:
+        # Konfigurierte DB mit zwei Firmen: wuerde sie statt des Ziels geprueft,
+        # schluege die Nachpruefung faelschlich an.
+        other = _db_with(tmp_path / "konfiguriert.db", _tenant(DEFAULT_TENANT_ID, "main"), _tenant("t-2", "zwei"))
+        monkeypatch.setattr(settings, "database_url", f"sqlite:///{other.as_posix()}", raising=False)
     result = restore_backup(backup, target_db_path=live, verify_hash=False, verify_hmac=False)
     assert result["status"] == "ok"
+
+
+def test_explicit_database_url_wins_only_when_passed(monkeypatch, tmp_path):
+    from database import create_app_engine, sqlite_file_database_url
+
+    configured = tmp_path / "konfiguriert.db"
+    probe = tmp_path / "probe.db"
+    monkeypatch.setattr(settings, "database_url", f"sqlite:///{configured.as_posix()}", raising=False)
+    explicit = create_app_engine(db_path=probe, database_url=sqlite_file_database_url(probe))
+    implicit = create_app_engine(db_path=probe)  # Startup-Prioritaet unveraendert
+    try:
+        assert Path(explicit.url.database).resolve() == probe.resolve()
+        assert Path(implicit.url.database).resolve() == configured.resolve()
+    finally:
+        explicit.dispose()
+        implicit.dispose()

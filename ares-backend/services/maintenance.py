@@ -21,6 +21,7 @@ from database import (
     assert_single_company_database,
     create_app_engine,
     resolve_db_file,
+    sqlite_file_database_url,
 )
 from services import backup as backup_engine
 from services import erasure_restore
@@ -244,6 +245,7 @@ def restore_backup(
     # Tier-1-Einzelfirmen-Gate: die Sicherung wird VOR dem Ueberschreiben an
     # einer Arbeitskopie geprueft (single_company -> genau eine Firma), damit
     # eine fremde Mehrfirmen-Sicherung die laufende Datenbank nie ersetzt.
+    logger.info("Restore | ziel=%s", target)
     _assert_restorable_single_company(Path(backup_path), db_key=db_key)
     result = backup_engine.restore_database(
         backup_path=backup_path,
@@ -277,7 +279,11 @@ def _check_single_company_file(db_file: Path, *, db_key: str | None) -> None:
     Firma -> TENANT_COUNT_INVALID. Eine Sicherung ohne Firma (oder von vor der
     Mandantenfaehigkeit, ohne Tabelle ``tenants``) ist zulaessig: der Start legt
     dann genau die eine Firma 'main' an und prueft streng (genau eine)."""
-    engine = create_app_engine(db_path=db_file, db_key=db_key)
+    # C-T1-01: explizite URL aus der kanonisch aufgeloesten Datei; eine gesetzte
+    # settings.database_url darf die Pruefung nie auf die laufende DB umlenken.
+    url = sqlite_file_database_url(db_file)
+    logger.info("Tier-1-Einzelfirmen-Pruefung | datei=%s", resolve_db_file(db_file))
+    engine = create_app_engine(db_key=db_key, database_url=url)
     try:
         with Session(bind=engine) as db:
             has_tenants = db.execute(text(

@@ -185,12 +185,25 @@ def attach_sqlite_pragmas(target_engine: Engine, db_key: str | None = None) -> N
         cursor.close()
 
 
+def sqlite_file_database_url(db_file: str | Path) -> str:
+    """C-T1-01: explizite SQLite-/SQLCipher-URL fuer genau diese Datei.
+
+    Fuer Pruef- und Restore-Pfade, die eine bestimmte Datei oeffnen muessen:
+    die globale ``settings.database_url`` darf sie nie umlenken. SQLCipher
+    braucht keinen Schluessel in der URL (connect-Event in create_app_engine).
+    """
+    return f'sqlite:///{resolve_db_file(db_file)}'
+
+
 def create_app_engine(
     db_path: str | Path | None = None,
     db_key: str | None = None,
     echo: bool | None = None,
+    database_url: str | None = None,
 ) -> Engine:
-    database_url = build_database_url(db_path=db_path, db_key=db_key)
+    # database_url hat nur bei ausdruecklicher Uebergabe Vorrang; ohne sie gilt
+    # unveraendert settings.database_url vor db_path (Startup-Prioritaet).
+    database_url = build_database_url(db_path=db_path, db_key=db_key, database_url=database_url)
     connect_args = build_connect_args(db_key=db_key, database_url=database_url)
     kwargs: dict[str, Any] = {
         'echo': settings.db_echo if echo is None else echo,
