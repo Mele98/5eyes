@@ -9266,8 +9266,8 @@
     {
       "kind": "css",
       "path": "ares-desktop/frontend/ares.css",
-      "sha256": "a7f6bea480c5cdbf0e75f4d63a440f13696a92500388196056295bed69a6a3d9",
-      "size_bytes": 90070
+      "sha256": "25e9c2c0a22540e826b0a177e103dd545f770db4f084c661b6bf6a270b2157b1",
+      "size_bytes": 90094
     },
     {
       "kind": "css",
