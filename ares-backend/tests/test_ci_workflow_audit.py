@@ -280,7 +280,10 @@ def test_vitest_uses_npm_ci(workflow_text):
 
 def test_vitest_job_timeout(workflow_yaml):
     """Vitest darf nicht ewig laufen."""
-    assert workflow_yaml["jobs"]["vitest"].get("timeout-minutes") == 15  # N-858-4: +Playwright/Chromium fuer den H5-Verhaltenstest
+    # N-858-4: +Playwright/Chromium fuer den H5-Verhaltenstest (15). CH-RC 27.11.2026:
+    # 25 -- der Job lief mit den Pflicht-Browsertests 14-15 min und wurde nach
+    # gruenen Schritten am 15-min-Limit abgebrochen (ROL-b, C-COMP-02 #947/#948).
+    assert workflow_yaml["jobs"]["vitest"].get("timeout-minutes") == 25
 
 
 # ---------------------------------------------------------------------------
