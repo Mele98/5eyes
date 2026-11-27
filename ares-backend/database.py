@@ -248,8 +248,14 @@ def _resolve_engine(target_engine: Engine | None = None) -> Engine:
 
 
 def session_for_engine(target_engine: Engine | None = None) -> Session:
-    """Oeffentlicher Alias von ``_session_for`` (Tier-1-Gate, routers.tenants)."""
-    return _session_for(target_engine)
+    """Session fuer das Tier-1-Gate (routers.tenants) auf derselben Engine wie
+    ``init_db``: ohne Argument die Modul-Engine zur AUFRUFZEIT
+    (``_resolve_engine``), nicht das beim Import gebundene ``SessionLocal``.
+    Sonst koennten Startpruefung und Schema/Seed verschiedene DBs sehen."""
+    return sessionmaker(
+        autocommit=False, autoflush=False, expire_on_commit=False,
+        bind=_resolve_engine(target_engine),
+    )()
 
 
 def _session_for(target_engine: Engine | None = None) -> Session:

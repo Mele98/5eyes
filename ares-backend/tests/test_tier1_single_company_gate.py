@@ -308,3 +308,17 @@ def test_explicit_database_url_wins_only_when_passed(monkeypatch, tmp_path):
     finally:
         explicit.dispose()
         implicit.dispose()
+
+
+def test_startup_gate_checks_same_engine_as_init_db(single, monkeypatch, engine):
+    """Ohne Argument prueft das Gate die Modul-Engine zur Aufrufzeit (wie init_db),
+    nicht das beim Import gebundene SessionLocal."""
+    import database as db_module
+
+    _add(engine, _tenant(DEFAULT_TENANT_ID, "main"))
+    monkeypatch.setattr(db_module, "engine", engine)
+    enforce_deployment_mode_at_startup()
+    _add(engine, _tenant("t-2", "zwei"))
+    with pytest.raises(TenantDeploymentError) as exc:
+        enforce_deployment_mode_at_startup()
+    assert exc.value.code == TENANT_COUNT_INVALID
