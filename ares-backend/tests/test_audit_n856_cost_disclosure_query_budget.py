@@ -5,7 +5,10 @@ Bestaende frueherer Laeufe in EINER Abfrage mit den Positionen. Gemessen auf
 612b510f: 5 SELECTs fuer ``build_cost_disclosure_for_run`` in diesem Szenario
 (Lauf ohne eigenes Gebuehrenmodell -> Policy-Abfrage, Positionen+Holdings
 ueber alle Laeufe, Produkt-Konditionen, Soll-Allokation,
-Interessenkonflikte). Jede zusaetzliche Abfrage (z. B. eine
+Interessenkonflikte). C-COMP-02 (27.11.2026): Kosten und Retrozession stammen
+nur noch aus dem gebundenen Evidenzsatz des Laufs; die Live-Abfrage der
+Produkt-Konditionen (override_ter_bps) entfaellt. Dieser Lauf hat keinen
+Evidenzsatz, daher keine Evidenzabfrage -> 4 SELECTs. Jede zusaetzliche Abfrage (z. B. eine
 zweite Holding-Abfrage wie in der N-856-3-Fassung) macht diesen Test rot und
 muss bewusst begruendet werden; das Report-Gesamtbudget pinnt
 tests/test_aggregator_n1_baseline.py.
@@ -23,7 +26,7 @@ from models.review import Product, RecommendationHolding, RecommendationPosition
 from services.cost_disclosure import build_cost_disclosure_for_run
 
 NOW = "2026-11-02T00:00:00"
-COST_DISCLOSURE_SELECT_BUDGET = 5
+COST_DISCLOSURE_SELECT_BUDGET = 4
 
 
 @pytest.fixture()
