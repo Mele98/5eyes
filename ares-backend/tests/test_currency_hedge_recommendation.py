@@ -120,7 +120,7 @@ def _mandate_stub(mid: str = "m-u98") -> SimpleNamespace:
 def test_check_with_no_currency_data_returns_nicht_beurteilbar():
     db = _StubDB()
     out = _check_waehrungsabsicherung(db, _mandate_stub(), dc={})
-    assert out["pruefpunkt"] == "Waehrungsabsicherung"
+    assert out["pruefpunkt"] == "Währungsabsicherung"
     assert out["bewertung"] == "nicht_beurteilbar"
 
 
@@ -129,7 +129,7 @@ def test_check_with_only_chf_returns_gruen():
     dc = {"currency_exposure_bps": {"CHF": 10000}}
     out = _check_waehrungsabsicherung(db, _mandate_stub(), dc)
     assert out["bewertung"] == "gruen"
-    assert "Keine Fremdwaehrungs" in out["beurteilung"]
+    assert "Keine Fremdwährungs" in out["beurteilung"]
 
 
 def test_check_with_tiny_fx_returns_gruen():
@@ -207,7 +207,7 @@ def test_build_erkenntnisse_has_waehrungsabsicherung_item(session_factory):
         mandate = s.query(Mandate).filter(Mandate.id == mid).first()
         result = _build_erkenntnisse(s, mandate, dc=None)
     pruefpunkte = [c["pruefpunkt"] for c in result["checks"]]
-    assert "Waehrungsabsicherung" in pruefpunkte
+    assert "Währungsabsicherung" in pruefpunkte
     # Bestehende Items duerfen nicht weggefallen sein
     for legacy in ("Risikoprofil", "Asset Allocation", "Währungsstruktur",
                    "Liquidität", "Diversifikation"):

@@ -9,7 +9,7 @@
 This PDF is not a generic wealth-management risk profile. It is a wrapper-specific
 questionnaire for a Swiss free-passage / BVG-style mandate with a limited strategy universe.
 
-## Material Differences Versus Current 5Eyes Logic
+## Material Differences Versus Current Ares Logic
 
 ### 1. Different objective
 
@@ -19,7 +19,7 @@ questionnaire for a Swiss free-passage / BVG-style mandate with a limited strate
   - `BVG-Mix 35`
   - `BVG-Mix 45`
   - `BVG-Mix 75`
-- Current 5Eyes logic targets a broader `Risk Score -> Risky Fraction -> House Matrix`
+- Current Ares logic targets a broader `Risk Score -> Risky Fraction -> House Matrix`
   framework with advisory wealth, goals, Monte Carlo and portfolio construction.
 
 ### 2. Different risk-capacity questions
@@ -32,7 +32,7 @@ The PDF uses:
 - Q7 `Ersparnisse für Notfälle`
 - Q8 `frei verfügbares Vermögen`
 
-Current 5Eyes v1.6 logic uses:
+Current Ares v1.6 logic uses:
 - income
 - obligations
 - savings rate
@@ -52,7 +52,7 @@ Examples from the PDF:
 - free wealth: `<50k / 50-99k / 100-250k / >250k`
 - horizon: `0-4 / 5-7 / 8-11 / 12+`
 
-Current 5Eyes v1.6 thresholds are materially different and broader.
+Current Ares v1.6 thresholds are materially different and broader.
 
 ### 4. Different willingness scale
 
@@ -61,15 +61,15 @@ The PDF is much more compressed:
 - behavior question uses `0..3`
 - result universe tops out at `BVG-Mix 75`
 
-That is structurally more conservative than the current 5Eyes 1–10 model.
+That is structurally more conservative than the current Ares 1–10 model.
 
 ## Practical Conclusion
 
-This PDF should not blindly replace the current 5Eyes questionnaire.
+This PDF should not blindly replace the current Ares questionnaire.
 
 Instead, it indicates that the product needs at least two profile modes:
 
-1. `General WM / 5Eyes TBI profile`
+1. `General WM / Ares TBI profile`
    - broader household + goals + advisory-wealth context
    - 1–10 risk score
    - optimizer and house matrix
@@ -82,7 +82,7 @@ Instead, it indicates that the product needs at least two profile modes:
 ## Implementation Consequence
 
 Before changing the core questionnaire again, compare these sources side by side:
-- `5eyes_Fachlogik_v1.6.docx`
+- Fachlogik v1.6 (archived Word document)
 - Excel source used for the scoring truth table
 - this FZ PDF
 - any second questionnaire provided by the user

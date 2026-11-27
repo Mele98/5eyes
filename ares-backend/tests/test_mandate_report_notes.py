@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import configure_mappers, sessionmaker
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -217,9 +217,21 @@ def test_put_creates_row_and_persists_all_fields(http_client):
     assert body["created_at"] == body["last_edited_at"]
 
     # DB-Persistenz prüfen
+    # L2c (H-192): Versionierung statt Ueberschreiben -- die Kopfzeile traegt
+    # keinen Klartext, die Version nur versiegelte Umschlaege; gelesen wird
+    # ueber die zentrale Sicht.
+    from services.advisory_log_service import report_notes_view
+    from services.pii_vault import is_sealed
+
     persisted = session.query(MandateReportNotes).filter_by(mandate_id=mandate.id).one()
-    assert persisted.aa_anmerkungen == "Berater-Text fuer Asset-Allocation."
-    parsed_fragen = json.loads(persisted.vorgehen_offene_fragen_json)
+    assert persisted.aa_anmerkungen is None and persisted.vorgehen_offene_fragen_json is None
+    version = session.execute(text(
+        "SELECT aa_anmerkungen, vorgehen_offene_fragen_json, version FROM mandate_report_note_versions"
+    )).one()
+    assert version[2] == 1 and is_sealed(version[0]) and is_sealed(version[1])
+    view = report_notes_view(session, mandate.id)
+    assert view.aa_anmerkungen == "Berater-Text fuer Asset-Allocation."
+    parsed_fragen = json.loads(view.vorgehen_offene_fragen_json)
     assert parsed_fragen == ["Pillar 3a-Limit erreicht?", "Risikoabsicherung?"]
 
 

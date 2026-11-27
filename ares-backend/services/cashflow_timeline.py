@@ -394,7 +394,16 @@ def _convert_cf_amount_to_target_currency(
             f"Ungueltige FX-Rate fuer Cashflow '{label or cf_currency}' "
             f"({cf_currency}->{target}): {rate}."
         )
-    return int(round(raw_amount * rate))
+    # CCX-P3-FX: exakte Konversion (Kursverhaeltnis x10000, ares-rounding/1,
+    # ISO-Exponent der Zielwaehrung) statt Gleitkomma-Rundung.
+    try:
+        return fx_source.convert_storage_amount(raw_amount, cf_currency, target)
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise ValueError(
+            f"Keine gueltige FX-Rate fuer Cashflow "
+            f"'{label or cf_currency}' ({cf_currency}->{target}); eine "
+            "stille 1:1-Konvertierung ist nicht zulaessig."
+        ) from exc
 
 
 def totals_for_year(

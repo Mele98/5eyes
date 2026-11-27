@@ -27,6 +27,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -74,14 +75,14 @@ def _seed(session_factory, *, orphan_link: bool = False):  # noqa: F811
             liquidity_available_from=f"{start + 2}-06-30",
             is_active=1, created_at=_now(), updated_at=_now(),
         ))
-        s.add(WealthInflow(
+        s.add(WealthInflow(currency="CHF",
             id=f"inf-fz-{uuid.uuid4().hex[:8]}", client_id=client_id, label="Kapitalbezug FZ",
             source_type="Andere", amount_rappen=LINKED_AMOUNT, expected_year=start + 2,
             is_recurring=0, frequency="einmalig", value_mode="nominal",
             linked_position_id=("pos-gibt-es-nicht" if orphan_link else fz_id),
             is_active=1, created_at=_now(), updated_at=_now(),
         ))
-        s.add(WealthInflow(
+        s.add(WealthInflow(currency="CHF",
             id=f"inf-erb-{uuid.uuid4().hex[:8]}", client_id=client_id, label="Erbschaft",
             source_type="Erbschaft", amount_rappen=OTHER_INFLOW, expected_year=start + 4,
             is_recurring=0, frequency="einmalig", value_mode="nominal",
@@ -213,7 +214,7 @@ def test_report_reserve_recompute_uses_engine_inflow_series(session_factory, mon
 
 
 def test_monolith_renders_labeled_pension_row_from_api_fields():
-    html = MONOLITH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     assert 'id="pension-payout-rows"' in html
     assert "Vorsorgebezug (automatisch, netto)" in html
     start = html.index("function renderPensionPayoutRows(")

@@ -86,6 +86,8 @@ def _make_client_as(user, session_factory, monkeypatch):
     monkeypatch.setattr(
         settings, "tenant_admin_ui_enabled", True, raising=False,
     )
+    # Tier-1-Einzelfirmen-Gate: weitere Firmen nur im Modus multi_tenant.
+    monkeypatch.setattr(settings, "deployment_mode", "multi_tenant", raising=False)
 
     def override_db():
         with session_factory() as session:

@@ -73,11 +73,13 @@ def test_mode_vertraulich_draws_horizontal_top():
     assert "VERTRAULICH" in draw_args[2]
 
 
-def test_mode_unknown_falls_back_to_none():
-    """Unbekannter Modus wird zu 'none' normalisiert."""
-    canvas = _mock_canvas()
-    draw_watermark(canvas, mode="bogus", page_width=595, page_height=842)
-    assert not canvas.saveState.called
+def test_mode_unknown_or_missing_is_marked_fail_closed():
+    """H-193: nur ausdruecklich "none" ist final; Unbekanntes bleibt gekennzeichnet."""
+    for mode in ("bogus", "", None, "NONE"):
+        canvas = _mock_canvas()
+        draw_watermark(canvas, mode=mode, page_width=595, page_height=842)
+        texts = [c[0][2] for c in canvas.drawCentredString.call_args_list]
+        assert "Entwurf – nicht final" in texts, (mode, texts)
 
 
 def test_mode_case_insensitive():

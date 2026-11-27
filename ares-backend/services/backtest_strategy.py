@@ -31,6 +31,7 @@ Pipeline) — dieselbe Endpoint-Signatur, dann nur intern andere Datenquelle.
 from __future__ import annotations
 
 import math
+import sys
 from bisect import bisect_right
 from typing import Any, Iterable, Mapping
 
@@ -38,6 +39,8 @@ from sqlalchemy.orm import Session
 
 from datetime import date as Date
 
+from core.reason_codes import DomainError, ReasonCode
+from core.risk_parameter_set import ReferenceDataPackageMissing
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
 from models.snapshots import AssetClassAnnualReturn, AssetClassFxHistory, AssetClassPriceHistory
@@ -71,7 +74,9 @@ BUCKET_LABELS_DE = {
 # ---------------------------------------------------------------------------
 
 
-def load_annual_returns_matrix(db: Session) -> dict[int, dict[str, int]]:
+def load_annual_returns_matrix(
+    db: Session, *, production_mode: bool | None = None,
+) -> dict[int, dict[str, int]]:
     """Lädt die annual_returns-Tabelle und liefert {year: {bucket_en: bps}}.
 
     Nur Jahre, in denen ALLE 5 Asset-Klassen gepflegt sind, werden
@@ -80,13 +85,17 @@ def load_annual_returns_matrix(db: Session) -> dict[int, dict[str, int]]:
 
     Phase 3 Sub-Asset (2026-06-09): Filter sub_asset_class IS NULL, damit
     Top-Level-Aggregate getrennt von Sub-Asset-Returns bleiben.
+
+    N-935R-03 (ROL-b): in Produktion/EXE zaehlen Zeilen mit ``source='seed'``
+    (Start-Seeding des Quellbetriebs, keine freigegebenen Daten) nie -- auch
+    nicht aus einer uebernommenen Bestands-DB.
     """
-    rows = (
-        db.query(AssetClassAnnualReturn)
-        .filter(AssetClassAnnualReturn.sub_asset_class.is_(None))
-        .order_by(AssetClassAnnualReturn.year, AssetClassAnnualReturn.asset_class)
-        .all()
-    )
+    if production_mode is None:
+        production_mode = bool(getattr(sys, "frozen", False))
+    query = db.query(AssetClassAnnualReturn).filter(AssetClassAnnualReturn.sub_asset_class.is_(None))
+    if production_mode:
+        query = query.filter(_released_annual_return_source())
+    rows = query.order_by(AssetClassAnnualReturn.year, AssetClassAnnualReturn.asset_class).all()
     by_year: dict[int, dict[str, int]] = {}
     for row in rows:
         bucket_en = ASSET_CLASS_DE_TO_EN.get(str(row.asset_class or "").strip())
@@ -99,11 +108,23 @@ def load_annual_returns_matrix(db: Session) -> dict[int, dict[str, int]]:
             continue
         by_year.setdefault(year, {})[bucket_en] = bps
     # Filter: nur vollständige Jahre (alle 5 Buckets vorhanden)
-    return {
+    complete = {
         y: m
         for y, m in by_year.items()
         if all(b in m for b in BUCKETS)
     }
+    # N-935-05 (H-187): in Produktion bzw. der gepackten EXE gibt es kein
+    # Start-Seeding der Jahresrenditen; ohne freigegebene Daten typisierte
+    # Ablehnung (REFERENCE_DATA_PACKAGE_MISSING, 409) statt eines leeren Backtests.
+    # ``production_mode`` reicht der Aufrufer herein (``settings.production_mode``);
+    # ohne Angabe gilt die gepackte EXE (``sys.frozen``) immer als Produktion.
+    if not complete and production_mode:
+        raise ReferenceDataPackageMissing(
+            "Es fehlen freigegebene historische Jahresrenditen (Backtest). Die installierte "
+            "Version legt keine Referenzdaten automatisch an; sie kommen nur aus einem "
+            "freigegebenen Paket."
+        )
+    return complete
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +132,18 @@ def load_annual_returns_matrix(db: Session) -> dict[int, dict[str, int]]:
 # ---------------------------------------------------------------------------
 
 
-def load_sub_asset_annual_returns_matrix(db: Session) -> dict[int, dict[str, int]]:
+SEED_ANNUAL_RETURN_SOURCE = "seed"
+
+
+def _released_annual_return_source():
+    """N-935R-03: Filter "nicht aus dem Start-Seeding" (NULL-Quelle zaehlt
+    als nicht geseedet, wie bisher manuell erfasste Zeilen)."""
+    return (AssetClassAnnualReturn.source.is_(None)) | (AssetClassAnnualReturn.source != SEED_ANNUAL_RETURN_SOURCE)
+
+
+def load_sub_asset_annual_returns_matrix(
+    db: Session, *, production_mode: bool | None = None,
+) -> dict[int, dict[str, int]]:
     """Laedt Sub-Asset-Annual-Returns -> {year: {sub_asset_key: bps}}.
 
     Im Unterschied zu load_annual_returns_matrix:
@@ -121,13 +153,14 @@ def load_sub_asset_annual_returns_matrix(db: Session) -> dict[int, dict[str, int
       1988, EM ab 1988, Bonds ab 2007 etc.)
     - Caller (compute_sub_asset_portfolio_returns) entscheidet pro
       Benchmark welche Sub-Assets gebraucht sind und welche Jahre nutzbar.
+    - N-935R-03: in Produktion/EXE ohne ``source='seed'``-Zeilen.
     """
-    rows = (
-        db.query(AssetClassAnnualReturn)
-        .filter(AssetClassAnnualReturn.sub_asset_class.isnot(None))
-        .order_by(AssetClassAnnualReturn.year, AssetClassAnnualReturn.sub_asset_class)
-        .all()
-    )
+    if production_mode is None:
+        production_mode = bool(getattr(sys, "frozen", False))
+    query = db.query(AssetClassAnnualReturn).filter(AssetClassAnnualReturn.sub_asset_class.isnot(None))
+    if production_mode:
+        query = query.filter(_released_annual_return_source())
+    rows = query.order_by(AssetClassAnnualReturn.year, AssetClassAnnualReturn.sub_asset_class).all()
     by_year: dict[int, dict[str, int]] = {}
     for row in rows:
         sub_key = str(row.sub_asset_class or "").strip()
@@ -957,6 +990,19 @@ def _resolve_initial_value_rappen(db: Session, mandate: Mandate, ta: TargetAlloc
         )
         .all()
     )
+    # N-913-04 (K1-Nachtrag 1): nie eine nominale Summe ueber Waehrungen. Der
+    # Fallback (nur Alt-Allokationen ohne Snapshot) summiert ausschliesslich
+    # Positionen in der Mandatswaehrung; jede andere Waehrung sperrt typisiert
+    # (die strikte Umrechnung liegt im Generate-Pfad, der den Snapshot setzt).
+    base = str(getattr(mandate, "base_currency", None) or "CHF").upper()
+    foreign = sorted({str(getattr(r, "currency", None) or "").upper() for r in rows} - {base})
+    if foreign:
+        raise DomainError(
+            ReasonCode.CCX_FX_BASIS_MISMATCH,
+            "Der Backtest-Startwert ist ohne Strategie-Snapshot nicht ohne Umrechnung bestimmbar "
+            f"(Positionen in {', '.join(foreign) or 'unbekannter Waehrung'}). Bitte Strategie neu berechnen.",
+            extra={"currencies": foreign},
+        )
     return sum(int(getattr(r, "current_value_rappen", 0) or 0) for r in rows)
 
 
@@ -1125,6 +1171,7 @@ def _run_strategy_backtest(
     benchmark_fee_bps: int | None = None,
     benchmark_sub_weights_bps: Mapping[str, int] | None = None,
     projection_gate: Any = None,
+    production_mode: bool | None = None,
 ) -> dict:
     """Master-Service: führt den SOLL-Strategie-Backtest für das Mandat aus.
 
@@ -1248,7 +1295,7 @@ def _run_strategy_backtest(
     # und liefern einen parallelen benchmark-Block. Die SOLL-Strategie bleibt
     # auf Top-Level (5 Buckets), weil TargetAllocation aktuell nur Top-Level-
     # Gewichte kennt. Sub-Asset-SOLL ist eine spaetere Sprint-Erweiterung.
-    matrix = load_annual_returns_matrix(db)
+    matrix = load_annual_returns_matrix(db, production_mode=production_mode)
     available_years_all = sorted(matrix.keys())
     if not available_years_all:
         return {
@@ -1300,7 +1347,7 @@ def _run_strategy_backtest(
     sub_normalized = _normalize_sub_asset_weights(benchmark_sub_weights_bps)
     sub_benchmark_meta: dict | None = None
     if sub_normalized is not None:
-        sub_matrix = load_sub_asset_annual_returns_matrix(db)
+        sub_matrix = load_sub_asset_annual_returns_matrix(db, production_mode=production_mode)
         sub_keys_used = list(sub_normalized.keys())
         sub_years_available = _years_with_all_sub_assets(sub_matrix, sub_keys_used)
         # Schnittmenge mit start_year/end_year
@@ -1371,6 +1418,7 @@ def run_strategy_backtest(
     benchmark_fee_bps: int | None = None,
     benchmark_sub_weights_bps: Mapping[str, int] | None = None,
     projection_gate: Any = None,
+    production_mode: bool | None = None,
 ) -> dict:
     """Oeffentlicher Einstieg; siehe ``_run_strategy_backtest``.
 
@@ -1387,6 +1435,7 @@ def run_strategy_backtest(
         benchmark_fee_bps=benchmark_fee_bps,
         benchmark_sub_weights_bps=benchmark_sub_weights_bps,
         projection_gate=projection_gate,
+        production_mode=production_mode,
     )
     if projection_gate is not None:
         result["projection_gate"] = projection_gate.to_payload()

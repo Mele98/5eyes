@@ -16,14 +16,28 @@ Tier 3 sind diese Endpoints deaktiviert via settings.tenant_admin_ui_enabled.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import raise_if_check_violation
 from sqlalchemy.orm import Session
 
 from config import settings
-from database import get_db, new_uuid
+from database import (
+    DEPLOYMENT_MANIFEST_TABLE,
+    DEPLOYMENT_MODE_CHANGED,
+    TenantDeploymentError,
+    assert_single_company_database,
+    assert_tenant_creation_allowed,
+    current_deployment_mode,
+    get_db,
+    new_uuid,
+    session_for_engine,
+)
 from models.client_login import ClientLogin
 from models.clients import Client
 from models.tenant import DEFAULT_TENANT_ID, Tenant
@@ -36,12 +50,15 @@ from schemas.tenants import (
     TenantUpdate,
     UserAssignTenantRequest,
 )
+from core.reason_codes import DomainError, ReasonCode
+from services.allocation_publication_approval import publication_approver_ids
 from services.audit import log
-from services.auth import require_admin, require_super_admin
+# H12: IP-Helfer aus dem Service statt aus routers.auth (Router importieren keine
+# Router; haelt den Fan-out trotz der neuen Kante zur Approval-Zaehlung konstant).
+from services.auth import extract_client_ip as _extract_client_ip, require_admin, require_super_admin
 from services.quota import compute_tenant_usage
 from services.refresh_tokens import revoke_all_for_user
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Tenant-Admin-Aktionen.
-from routers.auth import _extract_client_ip
 
 router = APIRouter(prefix="/tenants", tags=["Tenants"])
 
@@ -94,6 +111,42 @@ def get_my_tenant(
     return TenantSelfResponse(**payload)
 
 
+def _single_person_firm_change(db: Session, tenant: Tenant, updates: dict) -> tuple[int, int] | None:
+    """CCX-P4 N-910-02: (alt, neu) der Konfiguration "Ein-Personen-Firma",
+    falls sie sich aendert.
+
+    H12 N-910-15: Das Setzen auf 1 ist nur plausibel, wenn der Mandant genau
+    EINEN aktiven Publish-Berechtigten hat (dieselbe Zaehlung wie die
+    Einzelfreigabe); sonst 409 ``CCX_SINGLE_PERSON_FIRM_IMPLAUSIBLE`` -- vor
+    jeder Aenderung und ohne Audit-Eintrag einer Aenderung. Das Zuruecksetzen
+    auf 0 ist immer zulaessig (konservative Richtung)."""
+    if updates.get("single_person_firm") is None:
+        updates.pop("single_person_firm", None)
+        return None
+    old, new = int(getattr(tenant, "single_person_firm", 0) or 0), int(bool(updates["single_person_firm"]))
+    if new == 1 and old != 1:
+        approvers = publication_approver_ids(db, tenant.id)
+        if len(approvers) != 1:
+            raise DomainError(
+                ReasonCode.CCX_SINGLE_PERSON_FIRM_IMPLAUSIBLE,
+                "Ein-Personen-Firma kann nur gesetzt werden, wenn genau eine aktive Person "
+                f"Soll-Allokationen publizieren darf (heute: {len(approvers)}).",
+                http_status=409, extra={"eligible_approver_count": len(approvers)},
+            )
+    return (old, new) if old != new else None
+
+
+def _audit_single_person_firm(db: Session, user: User, tenant: Tenant, request: Request,
+                              old: int, new: int) -> None:
+    """Eigener Audit-Eintrag mit altem und neuem Wert (Governance der
+    Einzelfreigabe; Mandant gebunden)."""
+    log(
+        db, user_id=user.id, user_name=user.full_name, table_name="tenants", record_id=tenant.id,
+        action="UPDATE", field_name="tenant.single_person_firm", old_value=str(old), new_value=str(new),
+        ip_address=_extract_client_ip(request), tenant_id=tenant.id,
+    )
+
+
 @router.put("/me", response_model=TenantResponse)
 def update_my_tenant(
     body: TenantSelfServiceUpdate,
@@ -114,9 +167,12 @@ def update_my_tenant(
     if tenant is None:
         raise HTTPException(status_code=404, detail="Eigene Firma nicht gefunden")
     updates = body.model_dump(exclude_unset=True)
+    single_person_change = _single_person_firm_change(db, tenant, updates)
     for field, value in updates.items():
-        setattr(tenant, field, value)
+        setattr(tenant, field, int(value) if field == "single_person_firm" else value)
     tenant.updated_at = _now_iso()
+    if single_person_change is not None:
+        _audit_single_person_firm(db, current_user, tenant, request, *single_person_change)
     log(
         db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="tenants", record_id=tenant.id, action="UPDATE",
@@ -143,6 +199,15 @@ def create_tenant(
     Pre-Check: settings.tenant_admin_ui_enabled muss True sein (Tier 2).
     """
     _check_tenant_admin_ui_enabled()
+    # Tier-1-Einzelfirmen-Gate: derselbe Pre-Check wie der Default-Seed
+    # (database.ensure_default_tenant). single_company -> 409.
+    try:
+        assert_tenant_creation_allowed(db)
+    except TenantDeploymentError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code, "message": exc.message},
+        )
     # Slug-Konflikt-Check
     existing = db.query(Tenant).filter(Tenant.slug == body.slug).first()
     if existing is not None:
@@ -181,13 +246,15 @@ def create_tenant(
     )
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         # 2026-07-25 (Generalaudit, Wave 13): der Pre-Check oben ist TOCTOU-
         # racy -- analog zum bereits gefixten client_number-Fund in
         # routers/clients.py::create_client. Der UNIQUE-Constraint auf
         # slug (models/tenant.py) verhindert zuverlaessig ein Duplikat,
         # gab dem VERLIERENDEN Request bisher aber einen 500 statt 409.
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(status_code=409, detail=f"Slug '{body.slug}' ist bereits vergeben.")
     db.refresh(tenant)
     return tenant
@@ -251,9 +318,12 @@ def update_tenant(
             detail="Tenant nicht gefunden",
         )
     updates = body.model_dump(exclude_unset=True)
+    single_person_change = _single_person_firm_change(db, tenant, updates)
     for field, value in updates.items():
-        setattr(tenant, field, value)
+        setattr(tenant, field, int(value) if field == "single_person_firm" else value)
     tenant.updated_at = _now_iso()
+    if single_person_change is not None:
+        _audit_single_person_firm(db, current_user, tenant, request, *single_person_change)
     log(
         db,
         user_id=current_user.id,
@@ -357,3 +427,63 @@ def assign_user_to_tenant(
         "tenant_id": tenant_id,
         "assigned_at": user.updated_at,
     }
+
+
+# ---------------------------------------------------------------------------
+# Tier-1-Einzelfirmen-Gate: Moduswechsel + Startpruefung (CH-RC 27.11.2026)
+# ---------------------------------------------------------------------------
+# Zaehl-/Anlageregeln zentral in database.py. Hier (Tenant-Domaene, von main.py
+# ohnehin importiert) haelt der Start den Modus unveraenderlich: ein Wechsel von
+# deployment_mode verlangt deployment_mode_change_confirmation="<alt>-><neu>" und
+# wird im hash-verketteten Audit-Manifest (audit_log, table_name=
+# 'deployment_manifest') als DEPLOYMENT_MODE_CHANGED festgehalten.
+_startup_logger = logging.getLogger(__name__)
+
+
+def recorded_deployment_mode(db: Session) -> str | None:
+    """Zuletzt im Audit-Manifest festgehaltener Modus (None = nie gewechselt,
+    die Instanz laeuft seit Beginn im Default single_company)."""
+    row = db.execute(
+        text(
+            "SELECT new_value FROM audit_log WHERE table_name = :t AND action = :a "
+            "ORDER BY created_at DESC, id DESC LIMIT 1"
+        ),
+        {"t": DEPLOYMENT_MANIFEST_TABLE, "a": DEPLOYMENT_MODE_CHANGED},
+    ).first()
+    return row[0] if row is not None else None
+
+
+def enforce_deployment_mode_at_startup(target_engine: Engine | None = None) -> None:
+    """Beim Start (main.py-lifespan, nach init_db): Moduswechsel nur mit
+    Bestaetigung und Audit-Eintrag, danach Firmenzahl pruefen. Jeder Verstoss
+    bricht den Start mit typisiertem Fehler ab."""
+    mode = current_deployment_mode()
+    with session_for_engine(target_engine) as db:
+        recorded = recorded_deployment_mode(db) or "single_company"
+        if mode != recorded:
+            expected = f"{recorded}->{mode}"
+            confirmation = str(getattr(settings, "deployment_mode_change_confirmation", "") or "").strip()
+            if confirmation != expected:
+                raise TenantDeploymentError(
+                    DEPLOYMENT_MODE_CHANGED,
+                    f"deployment_mode wurde von {recorded} auf {mode} geaendert. Der Modus ist "
+                    "unveraenderlich; ein bewusster Wechsel verlangt "
+                    f"deployment_mode_change_confirmation={expected}.",
+                )
+            if mode == "single_company":
+                assert_single_company_database(db)
+            log(
+                db,
+                user_id="system",
+                user_name="System (Start)",
+                table_name=DEPLOYMENT_MANIFEST_TABLE,
+                record_id="deployment_mode",
+                action=DEPLOYMENT_MODE_CHANGED,
+                field_name="deployment_mode",
+                old_value=recorded,
+                new_value=mode,
+                tenant_id=DEFAULT_TENANT_ID,
+            )
+            db.commit()
+            _startup_logger.warning("Tier-1-Gate: deployment_mode %s -> %s bestaetigt und protokolliert", recorded, mode)
+        assert_single_company_database(db)

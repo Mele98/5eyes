@@ -31,6 +31,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -88,10 +90,10 @@ VALIDATOR_VARS = (
 def _node(script_body: str, extra_funcs: tuple[str, ...] = (), extra_vars: tuple[str, ...] = ()) -> object:
     if shutil.which("node") is None:
         pytest.skip("node binary not available to execute extracted JS")
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     parts = [_var(src, v) for v in VALIDATOR_VARS + extra_vars]
     parts += [_function(src, f) for f in VALIDATOR_FUNCS + extra_funcs]
-    script = "\n".join(parts) + "\n" + script_body
+    script = rounding_module_source() + "\n".join(parts) + "\n" + script_body
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
         fh.write(script)
         path = fh.name
@@ -228,7 +230,11 @@ def test_parse_rejects_instead_of_silently_rounding(raw, code):
 
 
 def test_default_risky_fractions_mirror_backend_constant():
-    from services.optimizer.constraints import DEFAULT_BUCKET_RISKY_FRACTION
+    """CCX P5 / M-2: der Backend-Bucket-Satz ist entfernt (kein Rechenpfad mehr).
+    Die Admin-Vorschau beim Bearbeiten der Hausmatrix zeigt weiterhin dieselben
+    Vorlagewerte (nur Anzeige); eingefroren gegen den Testvektor, damit eine
+    Abweichung auffaellt. Offene Owner-/IC-Frage im Handoff H-178."""
+    from tests.p5_test_vectors import P5_TEST_RISKY_FRACTION as DEFAULT_BUCKET_RISKY_FRACTION
 
     out = _node("console.log(JSON.stringify(ADMIN_POLICY_DEFAULT_RISKY_BPS));")
     mapping = {"liq": "liquidity", "bonds": "bonds", "equity": "equities",
@@ -428,7 +434,7 @@ def _runtime_seed_tuples() -> list[tuple]:
     import ast
 
     src = (REPO_ROOT / "ares-backend" / "services" / "portfolio_engine.py").read_text(encoding="utf-8")
-    body = _function(src, "def _ensure_runtime_reference_data_ch(")
+    body = _function(src, "def _reference_template_values(")  # EXE-P (H-187): Vorlagewerte herausgeloest
     start = body.index("_normalize_house_matrix_defaults([")
     end = body.index("])", start)
     return list(ast.literal_eval("[" + body[start + len("_normalize_house_matrix_defaults(["):end] + "]"))
@@ -595,7 +601,7 @@ def test_active_policy_keeps_save_locked():
 
 
 def test_monolith_no_longer_edits_policy_in_bps():
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     grid = _function(src, "function adminRenderPolicyGrid(")
     assert 'type="number"' not in grid and "pol-bps" not in grid
     assert "Werte in bps" not in src
@@ -639,12 +645,12 @@ async function adminPolicyOpen(id){OPENED.push(id);}
 def _clone(script: str) -> dict:
     if shutil.which("node") is None:
         pytest.skip("node binary not available to execute extracted JS")
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     fns = [_function(src, s) for s in (
         "function om(", "function cm(", "function adminPolicyEnsureCloneModal(",
         "function adminPolicyCloneActive(", "async function adminPolicyCloneConfirm(",
     )]
-    body = _CLONE_HARNESS + "\n".join(fns) + "\n(async function(){\n" + script + "\n})().catch(function(e){console.error(e&&e.stack||e);process.exit(1);});"
+    body = rounding_module_source() + _CLONE_HARNESS + "\n".join(fns) + "\n(async function(){\n" + script + "\n})().catch(function(e){console.error(e&&e.stack||e);process.exit(1);});"
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
         fh.write(body)
         path = fh.name
@@ -681,7 +687,7 @@ def test_clone_with_empty_name_stays_open_and_sends_nothing():
 
 
 def test_policy_editor_sources_contain_no_native_dialogs():
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     for sig in ("function adminPolicyCloneActive(", "async function adminPolicyCloneConfirm(",
                 "function adminPolicyEnsureCloneModal(", "async function adminPolicySaveRows(",
                 "function adminRenderPolicyGrid(", "function adminPolicyValidateAll("):

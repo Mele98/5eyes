@@ -24,6 +24,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import configure_mappers, sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -348,7 +349,7 @@ def test_modern_allocation_has_no_legacy_warning(SF):
 def test_classic_recovery_paths_defer_to_server_snapshot():
     import re
 
-    html = (BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html").read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     helper = re.search(
         r"function recommendationPreferencesForStoredAllocation\(result\)\{(.*?)\n\}", html, re.S,
     ).group(1)

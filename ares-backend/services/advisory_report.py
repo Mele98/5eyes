@@ -23,17 +23,73 @@ Alle Bezeichnungen sind Ares-eigen.
 Bezug: docs/planning/2026-05-24-sprint-u-p21-advisory-report-backend.md
 """
 from __future__ import annotations
+from core.goal_metric_contract import (
+    GOAL_STATUS_NOT_ASSESSABLE,
+    canonical_goal_rows,
+    goal_status_display,
+    goal_status_fields,
+)
+
+from core.holdings_rule import ist_partially_derived
 
 import json
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from sqlalchemy import or_
+from sqlalchemy import or_, text as _sql_text
 from sqlalchemy.orm import Session
 
 from models.clients import Client
 from models.mandates import Mandate
+from core.product_evidence import bound_rate_terms, bound_term
+from core.reason_codes import DomainError, ReasonCode
 from models.users import User
+from models.allocation import OptimizerPolicy
+from models.wealth import WealthInflow, WealthPosition
+from services.fx_basis import FxBasisError, compute_wealth_totals, load_fx_basis, strict_model_fx_source
+# KN9a / N-934-01..02: eine Integritaetsregel fuer alle Kundenkanaele.
+from services.advisory_log_service import (  # noqa: F401  (Re-Export)
+    PROTOCOL_TEXT_TAMPERED, AdvisoryLogIntegrityFailed, advisory_log_integrity_message,
+    assert_shown_entries_intact, conflict_text_view, customer_protocol_entry, ProtocolReader, report_notes_view)
+
+
+def assert_report_advisory_log_integrity(payload: dict[str, Any], *, document: str) -> None:
+    """Fail-closed: der Report zeigt in Sektion 16 genau einen Eintrag
+    (``beratungsprotokoll.latest_entry``). Passt dessen Pruefsumme nicht zum
+    Inhalt (``integrity_verified is False``), geht der Report an keinen Kunden
+    (Advisory-Report-PDF 409, Kundenportal neutral). True und None bleiben
+    erlaubt."""
+    protocol = payload.get("beratungsprotokoll") if isinstance(payload, dict) else None
+    entry = protocol.get("latest_entry") if isinstance(protocol, dict) else None
+    if isinstance(entry, dict):
+        assert_shown_entries_intact([entry], document=document, latest_only=True)
+    # L2c (H-192): veraenderte versiegelte Freitexte der Berichtsnotizen und
+    # Interessenkonflikte sperren denselben Kanal (gleiche 409-Form).
+    failures = payload.get(PROTOCOL_TEXT_FAILURES_KEY) if isinstance(payload, dict) else None
+    for failure in failures or ():
+        raise AdvisoryLogIntegrityFailed(
+            failure.get("entry_id"), document=document, entry_kind=failure.get("entry_kind", ""),
+            message=(
+                f"{document} kann nicht als Kunden-PDF erzeugt werden: Die Prüfsumme "
+                f"{failure.get('label', 'eines Eintrags')} passt nicht zu ihrem Inhalt. Der "
+                "Eintrag wurde nach dem Speichern verändert oder ist beschädigt. Bitte die "
+                "Datenbank prüfen lassen (Sicherung) und den Eintrag neu erfassen."
+            ),
+        )
+
+
+PROTOCOL_TEXT_FAILURES_KEY = "protocol_text_integrity_failures"
+
+
+def _protocol_text_failures(notes: Any, conflicts: Any) -> list[dict[str, Any]]:
+    failures: list[dict[str, Any]] = []
+    if notes is not None and getattr(notes, "text_state", None) == PROTOCOL_TEXT_TAMPERED:
+        failures.append({"entry_kind": "report_notes", "entry_id": getattr(notes, "id", None),
+                         "label": "der Berichtsnotizen des Beraters"})
+    for conflict_id in (conflicts or {}).get("integrity_failed_ids") or () if isinstance(conflicts, dict) else ():
+        failures.append({"entry_kind": "conflict_disclosure", "entry_id": conflict_id,
+                         "label": "der Beschreibung eines Interessenkonflikts"})
+    return failures
 
 
 # ---------------------------------------------------------------------------
@@ -59,22 +115,93 @@ def _aggregator_cache_get(db: Session, key: Any, factory) -> Any:
     return cache[key]
 
 
-def _cached_fx_source(db: Session) -> Any:
+def _cached_fx_source(db: Session, mandate: Any = None) -> Any:
     """Eine FX-Quelle je Report-Aufruf (Wealth-Summary und Reserve-Sektion
     teilen sie; TOTAL-WEALTH-LIABILITY-001 ohne zusaetzliche Query).
 
     Fallback auf FXRateSource() statt None (Generalaudit 2026-07-24):
     from_db() faengt Fehler selbst ab; None wuerde die Umrechnung abschalten.
     """
-    from services.currency.fx_rates import FXRateSource
+    # CCX-P3-FX (N-909-01): auch der Engine-Spiegel (Reserve) nur mit strikter
+    # Quelle; ein Ersatzkurs fuehrt zur typisierten Sperre bzw. zum Ausblenden.
+    return _aggregator_cache_get(db, ("fx_source",), lambda: strict_model_fx_source(db, tenant_id=getattr(mandate, "tenant_id", None)))
 
-    def _load():
-        try:
-            return FXRateSource.from_db(db)
-        except Exception:  # noqa: BLE001
-            return FXRateSource()
 
-    return _aggregator_cache_get(db, ("fx_source",), _load)
+def _cached_active_positions(db: Session, client_id: str) -> list[Any]:
+    """Aktive Vermoegenspositionen je Bericht (eine Query fuer Summen und FX-Basis)."""
+    return _aggregator_cache_get(db, ("active_positions", client_id), lambda: (
+        db.query(WealthPosition)
+        .filter(
+            WealthPosition.client_id == client_id,
+            WealthPosition.is_active == 1,
+            WealthPosition.deleted_at.is_(None),
+        )
+        .all()
+    ))
+
+
+def _cached_active_inflows(db: Session, client_id: str) -> list[Any]:
+    """Aktive Vermoegenszufluesse je Bericht (eine Query fuer Reserve, Prognose, FX-Basis)."""
+    return _aggregator_cache_get(db, ("active_inflows", client_id), lambda: (
+        db.query(WealthInflow)
+        .filter(
+            WealthInflow.client_id == client_id,
+            WealthInflow.deleted_at.is_(None),
+            WealthInflow.is_active == 1,
+        )
+        .all()
+    ))
+
+
+def _report_currencies(db: Session, mandate: Mandate) -> set[str]:
+    """Alle Waehrungen, die in eine kundenweite Summe oder die Prognose
+    einfliessen: aktive Vermoegenspositionen, Cashflows, Zufluesse."""
+    client_id = str(getattr(mandate, "client_id", "") or "")
+    currencies = {
+        str(getattr(wp, "currency", "") or "").upper().strip()
+        for wp in _cached_active_positions(db, client_id)
+    }
+    currencies |= {
+        str(getattr(cf, "currency", "") or "").upper().strip()
+        for cf in _cached_active_cashflows(db, client_id)
+    }
+    currencies |= {
+        str(getattr(inflow, "currency", "") or "").upper().strip()
+        for inflow in _cached_active_inflows(db, client_id)
+    }
+    return currencies
+
+
+def _cached_report_fx_basis(db: Session, mandate: Mandate) -> Any:
+    """CCX-P3-FX: genau EINE gebundene FX-Basis je Bericht (Zielwaehrung =
+    Mandatswaehrung). Strikt: nur belegte, frische DB-Kurse; ein Ersatzkurs
+    (DEFAULT_FX_RATES) ist fehlend und wird nie kundenwirksam."""
+    target = str(getattr(mandate, "base_currency", "") or "").upper().strip()
+    return _aggregator_cache_get(
+        db, ("report_fx_basis", str(mandate.id)),
+        lambda: load_fx_basis(db, target, _report_currencies(db, mandate) - {""},
+                              tenant_id=getattr(mandate, "tenant_id", None)),
+    )
+
+
+def _fx_reason(code: Any) -> ReasonCode:
+    """Katalogisierter FX-Blocker (statisch aufloesbar)."""
+    if code == ReasonCode.CCX_FX_BASIS_STALE:
+        return ReasonCode.CCX_FX_BASIS_STALE
+    if code == ReasonCode.CCX_FX_BASIS_MISMATCH:
+        return ReasonCode.CCX_FX_BASIS_MISMATCH
+    return ReasonCode.CCX_FX_BASIS_MISSING
+
+
+def _fx_block_status(exc: Any, basis: Any = None) -> dict[str, Any]:
+    """Typisierter Blocker statt Summe (nie 0, nie Ersatzkurs)."""
+    extra = getattr(exc, "extra", {}) or {}
+    return {
+        "reason_code": str(_fx_reason(getattr(exc, "reason_code", None))),
+        "message": str(getattr(exc, "message", "") or exc),
+        "currencies": list(extra.get("currencies") or []),
+        "fx_basis_hash": extra.get("fx_basis_hash") or getattr(basis, "fx_basis_hash", None),
+    }
 
 
 def _cached_latest_recommendation_run(db: Session, mandate: Mandate) -> Any:
@@ -502,7 +629,9 @@ def _apply_hidden_sections_filter(payload: dict[str, Any], mandate: Mandate) -> 
         return payload
     if not isinstance(hidden, list) or not hidden:
         return payload
-    hidden_keys = {str(key) for key in hidden} - PROTECTED_REPORT_SECTIONS
+    # L2c (H-192): der Sperrgrund veraenderter versiegelter Freitexte steht nur
+    # bei einem Befund im Payload und ist nie ausblendbar.
+    hidden_keys = {str(key) for key in hidden} - PROTECTED_REPORT_SECTIONS - {PROTOCOL_TEXT_FAILURES_KEY}
     if not hidden_keys:
         return payload
     return {key: value for key, value in payload.items() if key not in hidden_keys}
@@ -541,7 +670,11 @@ def _compute_advisory_report_inner(
     # Resolver GARANTIERT None ohne jeden DB-Zugriff (Constraint 1).
     from services.pdf.provisional_notice import resolve_pdf_provisional_notice
     provisional_data_warning = resolve_pdf_provisional_notice(db, mandate)
-    ist_basiert_auf_soll = _current_amounts_missing_for_latest_run(db, mandate)
+    # KN4-B / EXT-01: dieselbe Definition und Bestandsquelle wie der Depotcheck.
+    ist_basiert_auf_soll = (
+        bool(dc.get("ist_teilweise_abgeleitet") or dc.get("ist_basiert_auf_soll"))
+        if "ist_teilweise_abgeleitet" in dc else _current_amounts_missing_for_latest_run(db, mandate)
+    )
     equity_sector_context = _build_equity_sector_context(db, mandate)
     # Sprint U-P28 PR B: Berater-Overrides werden EINMAL geladen und an die
     # vier betroffenen Sektion-Builder weitergegeben. Leere/fehlende Felder
@@ -651,6 +784,9 @@ def _compute_advisory_report_inner(
     # MC-CONTEXT-001 (Codex-Closure-Review PR #663): zentrale Publikations-
     # grenze nach dem Aggregator -- skalare Projektionsfelder sind bei
     # ausgeblendetem Gate None, auch wenn ein Builder den Guard vergisst.
+    failures = _protocol_text_failures(notes, payload.get("conflict_disclosures"))
+    if failures:
+        payload[PROTOCOL_TEXT_FAILURES_KEY] = failures
     from services.report_projection_redaction import redact_projection_channels
     return redact_projection_channels(payload, projection_gate)
 
@@ -665,7 +801,7 @@ def _load_client_or_raise(db: Session, mandate: Mandate) -> Client:
         raise ValueError(f"Mandat {getattr(mandate, 'id', '?')!r} ohne client_id.")
     client = db.query(Client).filter(Client.id == client_id).first()
     if client is None:
-        raise ValueError(f"Client {client_id!r} fuer Mandat nicht gefunden.")
+        raise ValueError(f"Client {client_id!r} für Mandat nicht gefunden.")
     return client
 
 
@@ -680,14 +816,12 @@ def _load_report_notes(db: Session, mandate: Mandate) -> Any | None:
     in denen die Tabelle nicht angelegt wurde. Das ist konsistent zu den
     anderen Sektion-Buildern, die ihre Modelle ebenfalls lazy importieren.
     """
+    # L2c (H-192): geoeffnete Sicht der versiegelten, versionierten Notizen
+    # (gleiche Attributnamen wie die Kopfzeile). ``veraendert`` liefert leere
+    # Felder (Standardtexte) und sperrt die Kundenkanaele.
     try:
-        from models.review import MandateReportNotes
-
-        return (
-            db.query(MandateReportNotes)
-            .filter(MandateReportNotes.mandate_id == mandate.id)
-            .first()
-        )
+        return report_notes_view(db, str(mandate.id), client_id=getattr(mandate, "client_id", None),
+                                 with_history=False)
     except Exception:  # noqa: BLE001 — robust gegen Schema-Mismatch in alten DBs
         return None
 
@@ -752,11 +886,10 @@ def _current_or_target_amount_rappen(rec_pos: Any) -> int:
 
 
 def _current_amounts_missing_for_latest_run(db: Session, mandate: Mandate) -> bool:
-    """True when current values are absent and IST is therefore SOLL-backed."""
-    rec_positions = _latest_recommendation_positions(db, mandate)
-    if not rec_positions:
-        return False
-    return all(getattr(pos, "current_amount_rappen", None) is None for pos in rec_positions)
+    """True, wenn das IST (teilweise) aus Zielbetraegen stammt -- KN4-B /
+    N-917R3-04: dieselbe Definition wie der Depotcheck
+    (services.depot_check.ist_partially_derived)."""
+    return ist_partially_derived(_latest_recommendation_positions(db, mandate))
 
 
 def _build_equity_sector_context(db: Session, mandate: Mandate) -> dict[str, Any]:
@@ -825,7 +958,7 @@ def _build_cover(
     ) or "—"
     return {
         "title": "Strategische Portfolioanalyse",
-        "subtitle": "Persoenlicher Advisory-Report",
+        "subtitle": "Persönlicher Advisory-Report",
         "client_name": client_name,
         "mandate_number": str(getattr(mandate, "mandate_number", "") or ""),
         "report_date": generated_at[:10],  # YYYY-MM-DD
@@ -886,7 +1019,10 @@ def _build_ausgangslage(
         "risikoprofil": str(getattr(mandate, "risk_profile_label", "") or "")
             or _resolve_risk_profile_from_assessment(db, mandate),
         "anlageziel": _derive_primary_goal_label(db, mandate),
+        # CCX-P3-FX: zeilenweise in die Mandatswaehrung konvertiert; bei
+        # fehlendem/abgelaufenem Kurs None + Blocker (nie Rohsumme).
         "liquiditaetsbedarf_rappen": _derive_liquidity_need(db, mandate),
+        "liquiditaetsbedarf_currency": _liquidity_need_currency(db, mandate),
         "steuerdomizil": str(getattr(client, "country_of_residence", "") or "CH"),
         "referenzwaehrung": str(getattr(mandate, "base_currency", "") or "CHF"),
     }
@@ -931,7 +1067,7 @@ def _build_tax_domicile_mismatch_warning(client: Client, mandate: Mandate) -> st
     return (
         f"Steuersitz-Hinweis: Client-Wohnsitz ({residence}) weicht vom "
         f"hinterlegten Steuerjurisdiktions-Code des Mandats ({jurisdiction_raw}) "
-        "ab -- bitte pruefen."
+        "ab -- bitte prüfen."
     )
 
 
@@ -970,35 +1106,30 @@ def _build_wealth_summary(
     (`total_allocation.total_base_rappen`) wichen voneinander ab.
     """
     from models.wealth import WealthPosition
-    from services.portfolio_engine import _convert_position_amount_to_target_currency
     from services.wealth_position_semantics import is_liability_assignment
 
     target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
-    wp_rows = (
-        db.query(WealthPosition)
-        .filter(
-            WealthPosition.client_id == client.id,
-            WealthPosition.is_active == 1,
-            WealthPosition.deleted_at.is_(None),
-        )
-        .all()
-    )
-    # FX nur laden, wenn eine Position nicht in der Basiswaehrung liegt (keine
-    # Zusatz-Query im Normalfall; Quelle je Report-Aufruf gecacht).
-    needs_fx = any(
-        str(getattr(wp, "currency", "") or "CHF").upper().strip() != target_currency
-        for wp in wp_rows
-    )
-    fx_source = _cached_fx_source(db) if needs_fx else None
+    wp_rows = _cached_active_positions(db, str(client.id))
+    # CCX-P3-FX: eine gebundene, strikte FX-Basis (kein Ersatzkurs); jede
+    # Zeile wird vor der Addition konvertiert. Fehlt/veraltet ein Kurs, gibt
+    # es keine Summe (None + Blocker), nie eine Rohsumme oder einen Default.
+    basis = _cached_report_fx_basis(db, mandate)
+    fx_status: dict[str, Any] | None = None
+    converted_rows: list[tuple[Any, int]] = []
+    for wp in wp_rows:
+        try:
+            line = basis.convert(_safe_int(getattr(wp, "current_value_rappen", 0)), getattr(wp, "currency", None))
+        except FxBasisError as exc:
+            fx_status = _fx_block_status(exc, basis)
+            break
+        converted_rows.append((wp, line.converted_amount_minor))
     gesamtvermoegen = 0
     beratungsvermoegen = 0
     immobilien = 0
     vorsorge = 0
     kredite = 0
-    for wp in wp_rows:
-        amount = max(0, _safe_int(
-            _convert_position_amount_to_target_currency(wp, fx_source, target_currency)
-        ))
+    for wp, converted in ([] if fx_status else converted_rows):
+        amount = max(0, _safe_int(converted))
         assignment = str(getattr(wp, "assignment", "") or "").strip()
         position_type = str(getattr(wp, "position_type", "") or "").strip().lower()
         if is_liability_assignment(assignment):
@@ -1019,6 +1150,8 @@ def _build_wealth_summary(
             "label": str(getattr(cf, "label", "") or ""),
             "type": str(getattr(cf, "cashflow_type", "") or ""),
             "amount_rappen": _safe_int(getattr(cf, "amount_rappen", 0)),
+            # G7-Grundregel: Originalbetrag in seiner tatsaechlichen Waehrung.
+            "currency": str(getattr(cf, "currency", "") or "").upper().strip() or None,
             "frequency": str(getattr(cf, "frequency", "") or ""),
         }
         for cf in cashflow_rows
@@ -1036,12 +1169,19 @@ def _build_wealth_summary(
         for g in goal_rows
     ]
 
+    blocked = fx_status is not None
     return {
-        "gesamtvermoegen_rappen": gesamtvermoegen,
-        "beratungsvermoegen_rappen": beratungsvermoegen,
-        "immobilien_rappen": immobilien,
-        "vorsorge_rappen": vorsorge,
-        "kredite_rappen": kredite,
+        "gesamtvermoegen_rappen": None if blocked else gesamtvermoegen,
+        "beratungsvermoegen_rappen": None if blocked else beratungsvermoegen,
+        "immobilien_rappen": None if blocked else immobilien,
+        "vorsorge_rappen": None if blocked else vorsorge,
+        "kredite_rappen": None if blocked else kredite,
+        # CCX-P3-FX: Betrag, Waehrung, FX-Basis und Bewertungsstichtag stets
+        # gemeinsam; Browser und PDF rechnen nicht nach.
+        "amount_currency": None if blocked else target_currency,
+        "fx_basis_hash": basis.fx_basis_hash,
+        "valuation_as_of": basis.as_of,
+        "fx_status": fx_status,
         "cashflows": cashflows,
         "ziele": ziele,
     }
@@ -1056,22 +1196,34 @@ def _load_goal_achievability_view(ta) -> tuple[list[dict], dict | None]:
     Altbewertungen (``legacy_aggregate_unknown``) -- gemeinsame Aggregatwerte
     unbekannter Semantik, die keine individuelle Ampel tragen duerfen.
     """
+    from services.optimizer.goal_attribution import split_goal_achievability
+
+    parsed = _stored_goal_rows(ta)
+    if not parsed:
+        return [], None
+    # P5b / N-925-03: Anzeige aus dem kanonischen M-3-Payload.
+    return split_goal_achievability(canonical_goal_rows(parsed, ta))
+
+
+def _stored_goal_rows(ta) -> list[dict]:
+    """Gespeicherte Optimierer-Zeilen aus ``goal_achievability_json`` (gebunden,
+    roh). Leser: ``_load_goal_achievability_view`` (Anzeige ueber M-3) und die
+    Zielkompatibilitaet (N-933-03: gespeicherte Warnung als zusaetzliche Quelle)."""
     import json
 
     from services.portfolio_engine_allocation_integrity import bound_goal_achievability_json
-    from services.optimizer.goal_attribution import split_goal_achievability
 
     # GOAL-ANALYSIS-INTEGRITY-001: nur eine an den Context gebundene Analyse.
     raw = bound_goal_achievability_json(ta)
     if not raw:
-        return [], None
+        return []
     try:
         parsed = json.loads(raw) or []
     except (TypeError, ValueError):
-        return [], None
+        return []
     if not isinstance(parsed, list):
-        return [], None
-    return split_goal_achievability(parsed)
+        return []
+    return [r for r in parsed if isinstance(r, dict)]
 
 
 def _plan_solvency_payload(plan_row: dict | None) -> dict[str, Any] | None:
@@ -1288,7 +1440,40 @@ def _derive_primary_goal_label(db: Session, mandate: Mandate) -> str:
     return fallback or "—"
 
 
-def _derive_liquidity_need(db: Session, mandate: Mandate) -> int:
+def _native_sum_currency(rows: list[Any]) -> str | None:
+    """G7 N4 (Grundregel): Waehrung einer Rohsumme ohne FX-Umrechnung.
+
+    Eindeutig nur, wenn alle beitragenden Datensaetze dieselbe ``currency``
+    tragen; sonst (gemischt oder leer) ``None`` -> Anzeige "—" statt einer
+    geratenen Einheit. Rechnet nichts um.
+    """
+    currencies = {str(getattr(r, "currency", "") or "").upper().strip() for r in rows}
+    if len(currencies) == 1 and "" not in currencies:
+        return next(iter(currencies))
+    return None
+
+
+def _liquidity_need_rows(db: Session, mandate: Mandate) -> list[Any]:
+    client_id = getattr(mandate, "client_id", None)
+    if not client_id:
+        return []
+    return [
+        cf for cf in _cached_active_cashflows(db, str(client_id))
+        if str(getattr(cf, "cashflow_type", "")) == "Expense" and _safe_int(getattr(cf, "amount_rappen", 0)) > 0
+    ]
+
+
+def _liquidity_need_currency(db: Session, mandate: Mandate) -> str | None:
+    try:
+        basis = _cached_report_fx_basis(db, mandate)
+        for cf in _liquidity_need_rows(db, mandate):
+            basis.convert(_safe_int(getattr(cf, "amount_rappen", 0)), getattr(cf, "currency", None))
+    except FxBasisError:
+        return None
+    return basis.target_currency
+
+
+def _derive_liquidity_need(db: Session, mandate: Mandate) -> int | None:
     """Sprint U-P30: Liquiditätsbedarf ≈ 6 Monate Ausgaben aus Cashflows.
 
     Konservative Schweizer-Beratungs-Faustregel (Notgroschen 3-6 Monate;
@@ -1307,10 +1492,16 @@ def _derive_liquidity_need(db: Session, mandate: Mandate) -> int:
     all_cashflows = _cached_active_cashflows(db, str(client_id))
     rows = [cf for cf in all_cashflows if str(getattr(cf, "cashflow_type", "")) == "Expense"]
     annual_expenses_rappen = 0
+    basis = _cached_report_fx_basis(db, mandate)
     for cf in rows:
         amount = _safe_int(getattr(cf, "amount_rappen", 0))
         if amount <= 0:
             continue
+        # CCX-P3-FX: erst konvertieren (Zeile, Basis, Stichtag), dann summieren.
+        try:
+            amount = basis.convert(amount, getattr(cf, "currency", None)).converted_amount_minor
+        except FxBasisError:
+            return None
         freq = str(getattr(cf, "frequency", "") or "").lower()
         if "jährlich" in freq or "jahr" in freq:
             annual_expenses_rappen += amount
@@ -1376,7 +1567,7 @@ def _build_positionen(db: Session, mandate: Mandate) -> dict[str, Any]:
             "total_rappen": 0,
             "has_recommendation_run": False,
             "hinweis": (
-                "Keine aktuelle Empfehlung fuer die gueltige Asset "
+                "Keine aktuelle Empfehlung für die gültige Asset "
                 "Allokation (keine aktuelle Produktempfehlung). Bitte Asset "
                 "Allokation berechnen und Produktauswahl im Portfolio-Tab "
                 "vornehmen."
@@ -1385,6 +1576,11 @@ def _build_positionen(db: Session, mandate: Mandate) -> dict[str, Any]:
 
     rec_positions = _cached_latest_rec_positions(db, mandate)
     products_map = _cached_rec_products_by_id(db, mandate)
+    ter_terms = bound_rate_terms(
+        lambda sql, params: db.execute(_sql_text(sql), params).mappings().all(),
+        latest_run.id if latest_run.product_evidence_status else None,
+        today=datetime.now(timezone.utc).date().isoformat(),
+    )
     groups_by_key = {g["key"]: g for g in groups}
     total_rappen = 0
     for rp in rec_positions:
@@ -1419,7 +1615,7 @@ def _build_positionen(db: Session, mandate: Mandate) -> dict[str, Any]:
             "sub_asset_class": str(getattr(prod, "sub_asset_class", "") or ""),
             "currency": str(getattr(prod, "currency", "") or ""),
             "market_value_rappen": amount,
-            "ter_bps": _safe_int(getattr(prod, "ter_bps", 0)) or None,
+            "ter_bps": bound_term(ter_terms, rp.product_id, "costs")[1],  # C-COMP-02: nur gebundene Evidenz
             "provider": str(getattr(prod, "provider", "") or ""),
         })
         groups_by_key[bucket_key]["total_rappen"] += amount
@@ -1685,28 +1881,36 @@ def _check_asset_allocation(dc: dict[str, Any], mandate: Mandate) -> dict[str, A
         return _verdict(
             "Asset Allocation", "nicht_beurteilbar",
             str(dc.get("projection_gate_hinweis"))
-            + " Band-Vergleich nicht aussagekraeftig.",
-            "Risikoprofil pruefen und Strategie neu berechnen.",
+            + " Band-Vergleich nicht aussagekräftig.",
+            "Risikoprofil prüfen und Strategie neu berechnen.",
         )
     if dc.get("target_allocation_inputs_stale"):
         # ALLOCATION-INPUT-STALENESS-001: gleiche Konsequenz, anderer Grund.
         return _verdict(
             "Asset Allocation", "nicht_beurteilbar",
             _INPUT_STALE_ALLOCATION_TEXT
-            + " -- Band-Vergleich nicht aussagekraeftig.",
+            + " -- Band-Vergleich nicht aussagekräftig.",
             "Strategie neu berechnen.",
         )
     if dc.get("target_allocation_stale"):
         return _verdict(
             "Asset Allocation", "nicht_beurteilbar",
-            "Soll-Allokation basiert auf einem frueheren, nicht mehr "
-            "aktuellen Risikoprofil -- Band-Vergleich nicht aussagekraeftig.",
+            "Soll-Allokation basiert auf einem früheren, nicht mehr "
+            "aktuellen Risikoprofil -- Band-Vergleich nicht aussagekräftig.",
             "Strategie neu berechnen (siehe Compliance-Audit, Sektion 19).",
         )
     out_of_band = [
         (key, b) for key, b in buckets.items()
         if b.get("in_band") is False
     ]
+    if not out_of_band and (dc.get("ist_basiert_auf_soll") or dc.get("ist_teilweise_abgeleitet")):
+        # H-172 / KN4-B N-917R3-04: IST (teilweise) aus Zielbetraegen -> kein "gruen".
+        return _verdict(
+            "Asset Allocation", "nicht_beurteilbar",
+            "Bestand unvollständig: Für Titel der Empfehlung ist kein aktueller "
+            "Bestand erfasst -- Band-Vergleich nicht beurteilbar.",
+            "Aktuelle Bestände je Titel der Empfehlung erfassen.",
+        )
     if not out_of_band:
         return _verdict(
             "Asset Allocation", "gruen",
@@ -1795,29 +1999,29 @@ def _suggest_hedge_ratio_bps(fx_total_bps: int, horizon_years: int | None) -> tu
     """
     # 0 oder negative FX-Exposure: nichts zu hedgen
     if fx_total_bps <= 0:
-        return 0, "Keine Fremdwaehrungs-Exposition vorhanden."
+        return 0, "Keine Fremdwährungs-Exposition vorhanden."
     # Sehr kleine FX-Exposure: Hedging selten wirtschaftlich
     if fx_total_bps < 1500:
         return 0, (
-            f"Fremdwaehrungs-Anteil {fx_total_bps/100:.1f}% — Hedging wirtschaftlich "
-            "wenig sinnvoll bei dieser Groesse."
+            f"Fremdwährungs-Anteil {fx_total_bps/100:.1f}% — Hedging wirtschaftlich "
+            "wenig sinnvoll bei dieser Grösse."
         )
     if horizon_years is None:
         return 5000, (
             "Kein Anlagehorizont bekannt — konservative Default-Hedge-Quote 50% "
-            "der Fremdwaehrungs-Exposition empfohlen."
+            "der Fremdwährungs-Exposition empfohlen."
         )
     if horizon_years < 3:
         ratio_bps = 8000
         rationale = (
-            f"Kurzer Horizont ({horizon_years} J): Wechselkurs-Volatilitaet "
+            f"Kurzer Horizont ({horizon_years} J): Wechselkurs-Volatilität "
             "dominiert vor Mean-Reversion. Hohe Hedge-Quote angezeigt."
         )
     elif horizon_years < 7:
         ratio_bps = 5000
         rationale = (
             f"Mittelfristiger Horizont ({horizon_years} J): Hedge-Quote "
-            "ausgewogen — schuetzt vor Drawdowns ohne Long-Term-Mean-Reversion zu vereiteln."
+            "ausgewogen — schützt vor Drawdowns ohne Long-Term-Mean-Reversion zu vereiteln."
         )
     elif horizon_years < 15:
         ratio_bps = 2500
@@ -1829,7 +2033,7 @@ def _suggest_hedge_ratio_bps(fx_total_bps: int, horizon_years: int | None) -> tu
         ratio_bps = 0
         rationale = (
             f"Sehr langer Horizont ({horizon_years} J): Hedge nicht zwingend, "
-            "Mean-Reversion-Argument tragend, Hedge-Kosten ueberwiegen oft."
+            "Mean-Reversion-Argument tragend, Hedge-Kosten überwiegen oft."
         )
     return ratio_bps, rationale
 
@@ -1847,16 +2051,16 @@ def _check_waehrungsabsicherung(
     fx = dc.get("currency_exposure_bps") or {}
     if not fx:
         return _verdict(
-            "Waehrungsabsicherung", "nicht_beurteilbar",
-            "Keine Waehrungs-Daten verfuegbar.",
-            "Produkte mit Waehrungs-Exposure pflegen, anschliessend Hedge-Quote berechnen.",
+            "Währungsabsicherung", "nicht_beurteilbar",
+            "Keine Währungs-Daten verfügbar.",
+            "Produkte mit Währungs-Exposure pflegen, anschliessend Hedge-Quote berechnen.",
         )
 
     fx_total_bps = sum(int(v or 0) for k, v in fx.items() if k != "CHF")
     if fx_total_bps <= 0:
         return _verdict(
-            "Waehrungsabsicherung", "gruen",
-            "Keine Fremdwaehrungs-Exposition vorhanden.",
+            "Währungsabsicherung", "gruen",
+            "Keine Fremdwährungs-Exposition vorhanden.",
             "Keine Massnahme erforderlich.",
         )
 
@@ -1880,9 +2084,18 @@ def _check_waehrungsabsicherung(
     fx_pct = fx_total_bps / 100
     hedge_pct = hedge_bps / 100
     beurteilung = (
-        f"Fremdwaehrungs-Exposition {fx_pct:.1f}%. "
+        f"Fremdwährungs-Exposition {fx_pct:.1f}%. "
         + rationale
     )
+    # PO-06 (Audit 2026-11): Herkunft des Exposures offenlegen -- abgesicherte
+    # Produkte zaehlen aus den Produktdaten, der Sub-Klassen-Proxy nur noch
+    # als Rueckfall ohne Produktdaten.
+    proxy_bps = int((dc.get("currency_exposure_source_bps") or {}).get("sub_klassen_proxy", 0) or 0)
+    if proxy_bps > 0:
+        beurteilung += (
+            f" Herkunft: {proxy_bps / 100:.1f}% des Depots ohne Produktdaten zur "
+            "Währung (Schätzung aus der Sub-Anlageklasse)."
+        )
     if hedge_bps == 0:
         handlung = (
             "Hedge aktuell nicht empfohlen. Mit Kunde besprechen — Entscheidung dokumentieren."
@@ -1890,15 +2103,15 @@ def _check_waehrungsabsicherung(
         bewertung = "gruen" if fx_total_bps < 1500 else "gelb"
     else:
         handlung = (
-            f"Empfohlene Hedge-Quote: {hedge_pct:.0f}% der Fremdwaehrungs-Position "
-            f"(~{(fx_total_bps * hedge_bps // 10000)/100:.1f}% des Beratungsvermoegens). "
-            "Mit Kunde besprechen — Hedge-Kosten gegen Volatilitaets-Reduktion abwaegen."
+            f"Empfohlene Hedge-Quote: {hedge_pct:.0f}% der Fremdwährungs-Position "
+            f"(~{(fx_total_bps * hedge_bps // 10000)/100:.1f}% des Beratungsvermögens). "
+            "Mit Kunde besprechen — Hedge-Kosten gegen Volatilitäts-Reduktion abwägen."
         )
         # Gelb wenn Hedge mittel/klein, rot wenn hohe Quote bei kurzem Horizont noetig
         bewertung = "rot" if hedge_bps >= 6000 else "gelb"
 
     return _verdict(
-        "Waehrungsabsicherung", bewertung, beurteilung, handlung,
+        "Währungsabsicherung", bewertung, beurteilung, handlung,
     )
 
 
@@ -1908,23 +2121,23 @@ def _check_diversifikation(dc: dict[str, Any]) -> dict[str, Any]:
         return _verdict(
             "Diversifikation", "nicht_beurteilbar",
             "Länder-Verteilung kann nicht ermittelt werden.",
-            "Produkte mit Country-Exposure pflegen.",
+            "Länderdaten der Produkte ergänzen.",
         )
     if hhi < 1500:
         return _verdict(
             "Diversifikation", "gruen",
-            f"Länder-HHI {hhi}. Breite Streuung über Regionen.",
+            f"Länderkonzentration (Herfindahl-Index) {hhi}. Breite Streuung über Regionen.",
             "Keine Massnahme erforderlich.",
         )
     if hhi <= 2500:
         return _verdict(
             "Diversifikation", "gelb",
-            f"Länder-HHI {hhi}. Erkennbare Übergewichtung einzelner Märkte.",
-            "Globalere Streuung im Aktien-Sleeve prüfen.",
+            f"Länderkonzentration (Herfindahl-Index) {hhi}. Erkennbare Übergewichtung einzelner Märkte.",
+            "Globalere Streuung im Aktienanteil prüfen.",
         )
     return _verdict(
         "Diversifikation", "rot",
-        f"Länder-HHI {hhi}. Hohe Konzentration auf wenige Märkte.",
+        f"Länderkonzentration (Herfindahl-Index) {hhi}. Hohe Konzentration auf wenige Märkte.",
         "Globale Diversifikation erweitern.",
     )
 
@@ -1935,23 +2148,23 @@ def _check_branchen_konzentration(dc: dict[str, Any]) -> dict[str, Any]:
         return _verdict(
             "Branchenkonzentration", "nicht_beurteilbar",
             "Branchen-Verteilung kann nicht ermittelt werden.",
-            "Produkte mit Sektor-Exposure pflegen.",
+            "Branchendaten der Produkte ergänzen.",
         )
     if hhi < 1800:
         return _verdict(
             "Branchenkonzentration", "gruen",
-            f"Sektor-HHI {hhi}. Breite Sektor-Streuung.",
+            f"Branchenkonzentration (Herfindahl-Index) {hhi}. Breite Branchenstreuung.",
             "Keine Massnahme erforderlich.",
         )
     if hhi <= 2500:
         return _verdict(
             "Branchenkonzentration", "gelb",
-            f"Sektor-HHI {hhi}. Einzelne Sektoren leicht übergewichtet.",
-            "Sektor-Balance über Indextracker prüfen.",
+            f"Branchenkonzentration (Herfindahl-Index) {hhi}. Einzelne Branchen leicht übergewichtet.",
+            "Branchenausgleich über Indexfonds prüfen.",
         )
     return _verdict(
         "Branchenkonzentration", "rot",
-        f"Sektor-HHI {hhi}. Starke Übergewichtung einzelner Sektoren.",
+        f"Branchenkonzentration (Herfindahl-Index) {hhi}. Starke Übergewichtung einzelner Branchen.",
         "Sektor-Reduktion auf institutionelle Zielstruktur einleiten.",
     )
 
@@ -2069,7 +2282,7 @@ def _check_zielkompatibilitaet(db: Session, mandate: Mandate) -> dict[str, Any]:
         return _verdict(
             "Zielkompatibilität", "nicht_beurteilbar",
             "Keine Zielerreichungs-Daten verfügbar.",
-            "Anlagestrategie mit stochastischer Engine berechnen.",
+            "Anlagestrategie mit Monte-Carlo-Simulation berechnen.",
         )
     rows, _plan_row = _load_goal_achievability_view(ta)
     if not rows:
@@ -2094,28 +2307,59 @@ def _check_zielkompatibilitaet(db: Session, mandate: Mandate) -> dict[str, Any]:
     # bisher nur ("hart","hard") rot — ein nicht erreichbares primäres Ziel blieb damit
     # unauffällig, obwohl es in der Optimierung bindend ist. Kanonisches Set spiegeln.
     _PRIMARY_HARDNESS = ("hart", "hard", "primaer", "primär", "primary")
-    n_hart_unreachable = sum(
-        1 for r in rows
-        if isinstance(r, dict)
-        and str(r.get("status", "")).lower() == "nicht_erreichbar"
-        and str(r.get("hardness", "")).strip().lower() in _PRIMARY_HARDNESS
-    )
-    n_knapp = sum(
-        1 for r in rows
-        if isinstance(r, dict)
-        and str(r.get("status", "")).lower() == "knapp"
-    )
+    # P5c Fixrunde 1 / N-933-03 (CTO): es gilt die vorsichtigste verfuegbare
+    # Information je Ziel. Der M-3-Status traegt den gespeicherten Optimierer-
+    # Status bereits in sich (conservative_goal_status); ist M-3 nicht bewertbar,
+    # zaehlt eine gespeicherte Warnung ("nicht_erreichbar"/"knapp") trotzdem.
+    # Eine gespeicherte Entwarnung ("erreichbar") ohne M-3 ist kein Gruen.
+    stored = {str(r.get("goal_id")): str(r.get("status") or "").lower()
+              for r in _stored_goal_rows(ta) if r.get("goal_id") and is_individual_goal_row(r)}
+    n_hart_unreachable = n_weich_unreachable = n_knapp = n_open = 0
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        m3 = str(r.get("status", "")).lower()
+        known = [m3] if m3 in ("erreichbar", "knapp", "nicht_erreichbar") else []
+        saved = stored.get(str(r.get("goal_id") or ""), "")
+        if saved in ("knapp", "nicht_erreichbar"):
+            known.append(saved)
+        if "nicht_erreichbar" in known:
+            if str(r.get("hardness", "")).strip().lower() in _PRIMARY_HARDNESS:
+                n_hart_unreachable += 1
+            else:
+                n_weich_unreachable += 1
+        elif "knapp" in known:
+            n_knapp += 1
+        elif m3 != "erreichbar":
+            n_open += 1
+    open_note = (f" Für {n_open} weitere(s) Ziel(e) liegt keine bewertbare Zielerreichung vor."
+                 if n_open else "")
     if n_hart_unreachable > 0:
         return _verdict(
             "Zielkompatibilität", "rot",
-            f"{n_hart_unreachable} bindend (hart/primär) definiertes Ziel nicht erreichbar.",
+            f"{n_hart_unreachable} bindend (hart/primär) definiertes Ziel nicht erreichbar.{open_note}",
             "Zieldefinition oder Anlagestrategie anpassen.",
+        )
+    if n_weich_unreachable > 0:
+        return _verdict(
+            "Zielkompatibilität", "gelb",
+            f"{n_weich_unreachable} weich definierte(s) Ziel(e) nicht erreichbar.{open_note}",
+            "Zieldefinition, Priorität oder Anlagestrategie besprechen.",
         )
     if n_knapp > 0:
         return _verdict(
             "Zielkompatibilität", "gelb",
-            f"{n_knapp} Ziel(e) knapp erreichbar.",
+            f"{n_knapp} Ziel(e) knapp erreichbar.{open_note}",
             "Reserven oder Beitragsdisziplin diskutieren.",
+        )
+    # P5c / N-930-01: fail-closed -- "komfortabel erreicht" nur, wenn jedes Ziel
+    # laut M-3 "erreichbar" ist (nicht bewertbar/nicht beurteilbar/ausserhalb
+    # Horizont sind keine Erreichbarkeitsaussage).
+    if n_open > 0:
+        return _verdict(
+            "Zielkompatibilität", "nicht_beurteilbar",
+            f"Für {n_open} Ziel(e) liegt keine bewertbare Zielerreichung vor.",
+            "Anlagestrategie neu berechnen.",
         )
     return _verdict(
         "Zielkompatibilität", "gruen",
@@ -2197,6 +2441,10 @@ def _build_asset_allocation(
             "band_max_bps": int(b.get("band_max_bps", 0) or 0),
             "in_band": b.get("in_band"),
         })
+    if ist_basiert_auf_soll:
+        # KN4-B / E2E4-04: ein (teilweise) aus Zielbetraegen abgeleitetes IST wird
+        # nie als "IST" gedruckt -- nur SOLL und der Hinweis.
+        _hide_derived_ist(items)
     default_anm = _default_anmerkungen_asset_allocation(items)
     anmerkungen = _override_or_default(
         getattr(notes, "aa_anmerkungen", None) if notes is not None else None,
@@ -2237,9 +2485,9 @@ def _build_asset_allocation(
         }
     return {
         "items": items,
-        "ist_bps": ist_bps,
+        "ist_bps": None if ist_basiert_auf_soll else ist_bps,
         "soll_bps": soll_bps,
-        "drift_bps": drift_bps,
+        "drift_bps": None if ist_basiert_auf_soll else drift_bps,
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
         "target_allocation_stale": False,
         "soll_ausgeblendet": False,
@@ -2293,22 +2541,42 @@ def _build_risikowaehrungen(
             "staleness_hinweis": hinweis,
             "erklaerung": hinweis,
         }
-    default_erkl = _default_erklaerung_waehrungen(items)
+    if ist_basiert_auf_soll:
+        # KN4-B / E2E4-04: ein (teilweise) aus Zielbetraegen abgeleitetes IST wird
+        # nie als "IST" gedruckt -- nur SOLL und der Hinweis.
+        _hide_derived_ist(items)
+    default_erkl = _DERIVED_IST_NOTE if ist_basiert_auf_soll else _default_erklaerung_waehrungen(items)
     erklaerung = _override_or_default(
         getattr(notes, "waehrungen_erklaerung", None) if notes is not None else None,
         default_erkl,
     )
     return {
         "items": items,
-        "ist_bps": {it["label"]: it["ist_bps"] for it in items},
+        "ist_bps": None if ist_basiert_auf_soll else {it["label"]: it["ist_bps"] for it in items},
         "soll_bps": {it["label"]: it["soll_bps"] for it in items},
-        "drift_bps": {it["label"]: it["drift_bps"] for it in items},
+        "drift_bps": None if ist_basiert_auf_soll else {it["label"]: it["drift_bps"] for it in items},
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
         "target_allocation_stale": False,
         "soll_ausgeblendet": False,
         "staleness_hinweis": None,
         "erklaerung": erklaerung,
     }
+
+
+_DERIVED_IST_NOTE = (
+    "Der IST-Vergleich ist nicht beurteilbar: Der Bestand je Titel der Empfehlung "
+    "ist nicht vollständig erfasst."
+)
+
+
+def _hide_derived_ist(items: list[dict[str, Any]]) -> None:
+    """KN4-B / E2E4-04: IST (teilweise) aus Zielbetraegen -> IST, Drift und
+    Bandstatus "nicht beurteilbar" (None); SOLL bleibt sichtbar."""
+    for it in items:
+        it["ist_bps"] = None
+        it["drift_bps"] = None
+        if "in_band" in it:
+            it["in_band"] = None
 
 
 def _hide_stale_exposure_items(items: list[dict[str, Any]]) -> None:
@@ -2392,16 +2660,20 @@ def _build_branchen(
             "staleness_hinweis": hinweis,
             "analyse": hinweis,
         }
-    default_analyse = _default_analyse_branchen(items)
+    if ist_basiert_auf_soll:
+        # KN4-B / E2E4-04: ein (teilweise) aus Zielbetraegen abgeleitetes IST wird
+        # nie als "IST" gedruckt -- nur SOLL und der Hinweis.
+        _hide_derived_ist(items)
+    default_analyse = _DERIVED_IST_NOTE if ist_basiert_auf_soll else _default_analyse_branchen(items)
     analyse = _override_or_default(
         getattr(notes, "branchen_analyse", None) if notes is not None else None,
         default_analyse,
     )
     return {
         "items": items,
-        "ist_bps": {it["label"]: it["ist_bps"] for it in items},
+        "ist_bps": None if ist_basiert_auf_soll else {it["label"]: it["ist_bps"] for it in items},
         "soll_bps": {it["label"]: it["soll_bps"] for it in items},
-        "drift_bps": {it["label"]: it["drift_bps"] for it in items},
+        "drift_bps": None if ist_basiert_auf_soll else {it["label"]: it["drift_bps"] for it in items},
         "anteil_aktien_bps": anteil_aktien_bps,
         "hinweis": _sector_basis_note(anteil_aktien_bps),
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
@@ -2440,6 +2712,12 @@ def _default_anmerkungen_asset_allocation(items: list[dict[str, Any]]) -> str:
         it["label"] for it in items
         if it.get("in_band") is False
     ]
+    if not out_of_band and any(it.get("in_band") is None for it in items):
+        # H-172 / KN4-B: ohne bewertbares IST keine Bandaussage.
+        return (
+            "Die Einhaltung der Toleranzbänder kann nicht beurteilt werden: "
+            "Der Bestand je Titel der Empfehlung ist nicht vollständig erfasst."
+        )
     if not out_of_band:
         return (
             "Die aktuelle Allokation liegt innerhalb der definierten "
@@ -2549,7 +2827,8 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 "target_date": str(getattr(meta, "target_date", "") or ""),
                 "hardness": str(getattr(meta, "hardness", "") or ""),
                 "probability_bps": None,
-                "status": "data_pending",
+                # P5c / N-930-01: ohne M-3 "nicht bewertbar" (fail-closed).
+                **goal_status_display(GOAL_STATUS_NOT_ASSESSABLE),
                 # Formgleichheit mit dem Pfad unten: driften die beiden
                 # Rueckgabeformen auseinander, laeuft ein Konsument genau im
                 # Datenlueckenfall in einen KeyError.
@@ -2596,7 +2875,9 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
             "target_date": str(getattr(meta, "target_date", "") or ""),
             "hardness": str(r.get("hardness", "") or ""),
             "probability_bps": int(round(probability * 10000)),
-            "status": str(r.get("status", "") or ""),
+            # P5c / N-930-01: M-3-Status der kanonischen Zeile samt Wort/Farbe.
+            "status": str(r.get("status", "") or GOAL_STATUS_NOT_ASSESSABLE),
+            **goal_status_fields(r),
             # GOAL-OUTSIDE-HORIZON-001 (2026-10-12): mitgefuehrt, damit ein
             # Konsument die 0 % NICHT als Messung liest. Der Optimizer meldet
             # fuer ein Ziel, dessen Zahlungsplan komplett hinter dem Horizont
@@ -2749,16 +3030,17 @@ def _build_monte_carlo_paths_section(
             return _build_monte_carlo_paths_section(db, mandate)
     from services.monte_carlo_paths import (
         _data_pending_response,
-        compute_quantile_paths,
+        report_fan_from_artifact,
         report_mc_death_year_index,
+        resolve_allocation_cma,
     )
+    from services.portfolio_engine import build_target_payload_from_allocation
     from services.mortality.horizon import resolve_mortality_cutoff
     from services.portfolio_engine_mc_simulation import (
         _simulation_horizon_derivation,
     )
 
     client = _load_client_or_raise(db, mandate)
-    initial_wealth = _compute_beratungsvermoegen_rappen(db, client)
     # SIM-HORIZON-FROM-RISK-PROFILE-001: derselbe Prognosehorizont wie Solver
     # und Zielanalyse (Risikoprofil / Ziele / Lebenserwartung) statt des
     # frueheren Pensionierungs-Horizonts.
@@ -2776,6 +3058,27 @@ def _build_monte_carlo_paths_section(
         "mortality_mode": None,
         "mortality_cutoff_year_index": None,
     }
+    # CCX-P3-FX: Startvermoegen, Cashflows und Zufluesse gehen nur ueber EINE
+    # gebundene FX-Basis in die Prognose (zeilenweise konvertiert). Fehlt oder
+    # veraltet ein Kurs, wird keine Prognose publiziert (typisierter Blocker).
+    basis = _cached_report_fx_basis(db, mandate)
+    unavailable["amount_currency"] = basis.target_currency
+    unavailable["fx_basis_hash"] = basis.fx_basis_hash
+    unavailable["valuation_as_of"] = basis.as_of
+    try:
+        initial_wealth = _compute_beratungsvermoegen_rappen(db, client, mandate)
+        _assert_flows_convertible(db, mandate, basis)
+    except FxBasisError as exc:
+        return _data_pending_response(horizon_years, None) | unavailable | {
+            "amount_currency": None,
+            "projection_status": "blocked",
+            "reason_code": str(_fx_reason(exc.reason_code)),
+            "fx_status": _fx_block_status(exc, basis),
+            "note": (
+                "Die Prognose wird nicht ausgewiesen: für mindestens eine Währung "
+                "fehlt ein belegter, aktueller Wechselkurs (" + exc.reason_code + ")."
+            ),
+        }
     gate = _cached_projection_gate(db, mandate)
     if gate.is_hidden:
         return _data_pending_response(horizon_years, initial_wealth) | unavailable | {
@@ -2787,50 +3090,114 @@ def _build_monte_carlo_paths_section(
     except Exception:  # noqa: BLE001 - aktiviertes Feature: Solver waere fail-closed
         return _data_pending_response(horizon_years, initial_wealth) | unavailable | {
             "note": (
-                "Die Mortalitaets-Simulation ist aktiviert, aber die Angaben "
-                "zu Geburtsjahr/Geschlecht sind unvollstaendig. Bitte Angaben "
-                "ergaenzen und Strategie neu berechnen."
+                "Die Mortalitäts-Simulation ist aktiviert, aber die Angaben "
+                "zu Geburtsjahr/Geschlecht sind unvollständig. Bitte Angaben "
+                "ergänzen und Strategie neu berechnen."
             ),
             "projection_status": "blocked",
         }
     death_year_index = report_mc_death_year_index(
         offset_years, horizon_years=horizon_years,
     )
-    result = compute_quantile_paths(
-        db,
-        mandate,
-        initial_wealth_rappen=initial_wealth,
-        horizon_years=horizon_years,
-        death_year_index=death_year_index,
-    )
-    if not result.get("data_pending"):
-        result["projection_status"] = "current"
+    # CCX-P3-FX (eine Simulation): der Faecher ist das Monte-Carlo-Artefakt der
+    # Strategie-Payload -- dieselbe Funktion, dieselben (konvertierten) Inputs
+    # und derselbe Seed wie die App (GET .../target-allocation/current/payload).
+    # Keine zweite, stille Neuberechnung im Bericht.
+    try:
+        payload = _strategy_payload_for_report(
+            db, mandate, build=build_target_payload_from_allocation, resolve_cma=resolve_allocation_cma,
+        )
+    except ValueError as exc:
+        return _data_pending_response(horizon_years, initial_wealth) | unavailable | {
+            "projection_status": "blocked",
+            "note": str(exc),
+        }
+    if payload is None or not (payload.get("monte_carlo") or {}).get("target_p50_series_rappen"):
+        return _data_pending_response(horizon_years, initial_wealth) | unavailable | {
+            "note": (
+                "Keine aktuelle Anlagestrategie hinterlegt — bitte zuerst "
+                "die Soll-Allokation berechnen und freigeben."
+            ),
+        }
+    result = report_fan_from_artifact(payload)
+    result["projection_status"] = "current"
     result["horizon_note"] = horizon["sentence"]
+    result["amount_currency"] = basis.target_currency
+    result["fx_basis_hash"] = basis.fx_basis_hash
+    result["valuation_as_of"] = basis.as_of
     result["mortality_mode"] = mortality_mode
     result["mortality_cutoff_year_index"] = death_year_index
     return result
 
 
-def _compute_beratungsvermoegen_rappen(db: Session, client: Client) -> int:
-    """Summiert WealthPositions des Kunden mit assignment="Beratungsvermögen".
+def _assert_flows_convertible(db: Session, mandate: Mandate, basis: Any) -> None:
+    """Jeder Cashflow und jeder erfasste Zufluss ist konvertierbar (Waehrung
+    belegt, Kurs belegt und frisch) -- sonst FxBasisError. Bewusst auch
+    unsichere Zufluesse: ein erfasster Betrag ohne Waehrung ist nie gueltig."""
+    for cf in _cached_active_cashflows(db, str(getattr(mandate, "client_id", "") or "")):
+        basis.convert(_safe_int(getattr(cf, "amount_rappen", 0)), getattr(cf, "currency", None))
+    for inflow in _cached_active_inflows(db, str(mandate.client_id)):
+        if getattr(inflow, "mandate_id", None) and str(inflow.mandate_id) != str(mandate.id):
+            continue
+        basis.convert(_safe_int(getattr(inflow, "amount_rappen", 0)), getattr(inflow, "currency", None))
 
-    V1 Implementation: direkte Query, kein Cache. WealthPositions werden
-    sonst nur in _build_wealth_summary geladen — Drift-Risk gering, da
-    beide Stellen denselben Filter haben.
-    """
-    from models.wealth import WealthPosition
 
-    rows = (
-        db.query(WealthPosition)
-        .filter(
-            WealthPosition.client_id == client.id,
-            WealthPosition.is_active == 1,
-            WealthPosition.deleted_at.is_(None),
-            WealthPosition.assignment == "Beratungsvermögen",
-        )
-        .all()
+def _strategy_payload_for_report(
+    db: Session, mandate: Mandate, *, build: Any, resolve_cma: Any,
+) -> dict[str, Any] | None:
+    """Dieselbe Strategie-Payload wie die App (Snapshot-Anker der Soll-Allokation)."""
+    ta = _cached_current_ta(db, mandate)
+    assessment = _cached_current_ra_is_current(db, mandate)
+    if ta is None or assessment is None:
+        return None
+    # MC-CONTEXT-001: zuerst der CMA-Anker (Altbestand ohne Anker -> blockiert,
+    # ohne weitere Query); danach die Policy (Identity-Map, meist schon geladen).
+    cma, cma_note = resolve_cma(db, ta)
+    if cma is None:
+        raise ValueError(cma_note)
+    policy = db.get(OptimizerPolicy, ta.policy_id) if ta.policy_id else None
+    if policy is None:
+        raise ValueError("Die Soll-Allokation referenziert keine verfügbare Optimizer-Policy.")
+    return _aggregator_cache_get(
+        db, ("strategy_payload", str(mandate.id), str(ta.id)),
+        lambda: build(
+            db=db, mandate=mandate, allocation=ta, policy=policy, cma=cma,
+            assessment=assessment, preferences=None,
+        ),
     )
-    return sum(_safe_int(getattr(wp, "current_value_rappen", 0)) for wp in rows)
+
+
+def _compute_beratungsvermoegen_rappen(db: Session, client: Client, mandate: Mandate) -> int:
+    """Beratungsvermoegen in der Mandatswaehrung (CCX-P3-FX).
+
+    Jede Position wird zuerst einzeln mit der gebundenen FX-Basis des Berichts
+    konvertiert (Provenienz je Zeile: source_currency/source_amount_minor,
+    target_currency/converted_amount_minor, fx_rate, fx_source,
+    source_observed_at, fx_basis_hash); erst die konvertierten Minor Units
+    werden summiert. Fehlt/veraltet ein Kurs, wirft ``basis.convert``
+    ``FxBasisError`` (CCX_FX_BASIS_MISSING/_STALE/_MISMATCH) -- keine Summe.
+    """
+    basis = _cached_report_fx_basis(db, mandate)
+    lines = [
+        basis.convert(_safe_int(getattr(wp, "current_value_rappen", 0)), getattr(wp, "currency", None))
+        for wp in _beratungsvermoegen_positions(db, client)
+    ]
+    if any(
+        line.target_currency != basis.target_currency or line.fx_basis_hash != basis.fx_basis_hash
+        or (line.source_currency != line.target_currency and not line.source_observed_at)
+        for line in lines
+    ):
+        raise ValueError("Beratungsvermögen: gemischte oder unbelegte FX-Basis")
+    return sum(line.converted_amount_minor for line in lines)
+
+
+def _beratungsvermoegen_positions(db: Session, client: Client) -> list[Any]:
+    # Dieselbe Filterung wie bisher (aktiv, nicht geloescht, Beratungsvermoegen),
+    # aus der call-scoped Positionsliste (eine Query je Bericht).
+    return [
+        wp for wp in _cached_active_positions(db, str(client.id))
+        if getattr(wp, "assignment", None) == "Beratungsvermögen"
+    ]
 
 
 def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:
@@ -2941,8 +3308,8 @@ def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:
 
 
 _INPUT_STALE_ALLOCATION_TEXT = (
-    "Soll-Allokation ist veraltet: Vermoegen, Cashflows oder Ziele haben "
-    "sich seit der Berechnung geaendert"
+    "Soll-Allokation ist veraltet: Vermögen, Cashflows oder Ziele haben "
+    "sich seit der Berechnung geändert"
 )
 
 
@@ -2955,7 +3322,7 @@ def _stale_allocation_hinweis(dc: dict[str, Any]) -> str:
     if dc.get("target_allocation_inputs_stale"):
         return "Hinweis: " + _INPUT_STALE_ALLOCATION_TEXT + "."
     return (
-        "Hinweis: Soll-Allokation basiert auf einem frueheren, nicht "
+        "Hinweis: Soll-Allokation basiert auf einem früheren, nicht "
         "mehr aktuellen Risikoprofil."
     )
 
@@ -3254,7 +3621,7 @@ def _build_beratungsprotokoll(db: Session, mandate: Mandate) -> dict[str, Any]:
 
     return {
         "total_active": total_active,
-        "latest_entry": serialize_response(latest) if latest else None,
+        "latest_entry": serialize_response(latest, db) if latest else None,
         "last_review_date": last_review_date,
         "days_since_last_review": days_since,
         "suitability_mismatches": mismatches,
@@ -3555,7 +3922,7 @@ def _build_ab_backtest(db: Session, mandate: Mandate) -> dict[str, Any]:
     if comparison is None:
         return {
             "data_pending": True,
-            "note": "Keine zweite OptimizerPolicy für einen A/B-Vergleich vorhanden.",
+            "note": "Kein zweites Strategiemodell für einen A/B-Vergleich vorhanden.",
             "policy_a": _ab_policy_reference(comparison),
             "policy_b": _ab_policy_reference(current),
             "buckets_diff": [],
@@ -3878,10 +4245,12 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
         }
 
     entries = []
+    integrity_failed_ids: list[str] = []
     counts_by_type: dict[str, int] = {}
     has_unacknowledged = False
     has_undisclosed = False
     has_indeterminate = False
+    reader = ProtocolReader(db)
     for row in rows:
         ctype = str(getattr(row, "conflict_type", "") or "unknown")
         counts_by_type[ctype] = counts_by_type.get(ctype, 0) + 1
@@ -3896,10 +4265,13 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
             has_undisclosed = True
         if resolution_state in _CONFLICT_INDETERMINATE_STATES:
             has_indeterminate = True
+        texts = conflict_text_view(db, row, client_id=getattr(mandate, "client_id", None), reader=reader)
+        if texts["text_state"] == PROTOCOL_TEXT_TAMPERED:
+            integrity_failed_ids.append(str(getattr(row, "id", "") or ""))
         entries.append({
             "id": getattr(row, "id", None),
             "conflict_type": ctype,
-            "description": getattr(row, "description", "") or "",
+            "description": texts["description"],
             "inducement_provider": getattr(row, "inducement_provider", None),
             "inducement_amount_rappen": getattr(row, "inducement_amount_rappen", None),
             "inducement_frequency": getattr(row, "inducement_frequency", None),
@@ -3907,7 +4279,7 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
             "disclosed_at": getattr(row, "disclosed_at", None),
             "client_acknowledged": ack,
             "client_acknowledged_at": getattr(row, "client_acknowledged_at", None),
-            "mitigation_action": getattr(row, "mitigation_action", None),
+            "mitigation_action": texts["mitigation_action"],
             "document_id": getattr(row, "document_id", None),
             "resolution_state": resolution_state,
             "missing_evidence": missing_evidence,
@@ -3933,7 +4305,7 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
     else:
         evidence_status = "clear"
 
-    return {
+    result = {
         "entries": entries,
         "counts": {"total": len(entries), "by_type": counts_by_type},
         "has_unacknowledged": has_unacknowledged,
@@ -3942,6 +4314,10 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
         "evidence_status": evidence_status,
         "fidleg_basis": "Art. 9 / Art. 26 FIDLEG",
     }
+    if integrity_failed_ids:
+        # L2c: nur bei veraenderten Freitexten (Kundenkanaele sperren).
+        result["integrity_failed_ids"] = integrity_failed_ids
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -3998,7 +4374,9 @@ def _build_suitability_compliance(db: Session, mandate: Mandate) -> dict[str, An
     """
     try:
         from services.suitability_audit import audit_mandate_suitability
-        return audit_mandate_suitability(db, mandate)
+        # N-888-12: Praeferenz-Status nicht laden (Query-Budget, im Report
+        # nicht angezeigt); Eignungs-Endpunkt und Gates liefern ihn.
+        return audit_mandate_suitability(db, mandate, include_sustainability_preference=False)
     except Exception:  # noqa: BLE001
         return {
             "total_advisory_logs": 0,
@@ -4229,7 +4607,7 @@ def _recompute_reserve_reasoning(
     # selbst auf Default-Kurse zurueck; dieser aeussere except greift
     # praktisch nie. fx_source=None wuerde die Konvertierung komplett
     # deaktivieren statt eine Naeherung zu zeigen.
-    fx_source = _cached_fx_source(db)
+    fx_source = _cached_fx_source(db, mandate)
     target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
 
     # FX-DRIFT-001 (Audit-Finding, 2026-10-07): diese Summen fielen bisher aus
@@ -4307,15 +4685,7 @@ def _recompute_reserve_reasoning(
         target_currency=target_currency,
     )
 
-    inflows = (
-        db.query(WealthInflow)
-        .filter(
-            WealthInflow.client_id == mandate.client_id,
-            WealthInflow.deleted_at.is_(None),
-            WealthInflow.is_active == 1,
-        )
-        .all()
-    )
+    inflows = list(_cached_active_inflows(db, str(mandate.client_id)))
     # CASHFLOW-TAB-PENSION-PAYOUTS-001 (2026-10-21): Zufluss-Scope wie die
     # Engine (mandatslose + dieses Mandat) und automatische Vorsorgebezuege aus
     # DERSELBEN Ledger-Quelle (PensionTransferLedgerV1 via pension_payout_view).
@@ -4331,6 +4701,7 @@ def _recompute_reserve_reasoning(
     inflow_projection_series_rappen = pension_payout_view(
         _wealth_inflow_series_rappen(
             inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
+            fx_source=fx_source, target_currency=target_currency,
         ),
         positions,
         inflows,
@@ -4397,7 +4768,7 @@ def _build_reserve_explainability(db: Session, mandate: Mandate) -> dict[str, An
         "composition_available": False,
         "narrative": [],
         "drift_detected": False,
-        "hinweis": "Keine Reserve-Herleitung verfuegbar (keine aktive Soll-Allokation).",
+        "hinweis": "Keine Reserve-Herleitung verfügbar (keine aktive Soll-Allokation).",
         "fidleg_basis": "Art. 8 / Art. 9 FIDLEG (Transparenz Kosten- und Anlageentscheid)",
     }
     try:
@@ -4436,7 +4807,7 @@ def _build_reserve_explainability(db: Session, mandate: Mandate) -> dict[str, An
                 "external_reserve_rappen": 0,
                 "saa_liquidity_ceiling_bps": saa_ceiling_bps,
                 "composition_available": True,
-                "narrative": ["Fuer dieses Mandat besteht aktuell kein zusaetzlicher Liquiditaetsreserve-Bedarf."],
+                "narrative": ["Für dieses Mandat besteht aktuell kein zusätzlicher Liquiditätsreserve-Bedarf."],
                 "hinweis": None,
             }
 
@@ -4467,8 +4838,8 @@ def _build_reserve_explainability(db: Session, mandate: Mandate) -> dict[str, An
 
         external_reserve_recommended = external_reserve_rappen > 0
         external_reserve_reason = (
-            "Der Liquiditaetsbedarf uebersteigt die strategische SAA-Liquiditaets-"
-            f"Obergrenze von {saa_ceiling_bps / 100:.1f}%. Der Ueberschuss wird als "
+            "Der Liquiditätsbedarf übersteigt die strategische SAA-Liquiditäts-"
+            f"Obergrenze von {saa_ceiling_bps / 100:.1f}%. Der Überschuss wird als "
             "externe Reserve ausserhalb des Beratungsmandats empfohlen."
             if external_reserve_recommended else None
         )
@@ -4477,9 +4848,9 @@ def _build_reserve_explainability(db: Session, mandate: Mandate) -> dict[str, An
         if drift_detected:
             hinweis = (
                 "Hinweis: Die Reserve-Zusammensetzung konnte nicht im Detail "
-                "hergeleitet werden, weil sich Cashflows, Ziele oder Praeferenzen "
-                "seit der letzten Allokations-Generierung geaendert haben. Die "
-                "angezeigten Reserve-Betraege sind unveraendert die bei der "
+                "hergeleitet werden, weil sich Cashflows, Ziele oder Präferenzen "
+                "seit der letzten Allokations-Generierung geändert haben. Die "
+                "angezeigten Reserve-Beträge sind unverändert die bei der "
                 "Generierung persistierten Werte. Strategie neu berechnen, um die "
                 "Herleitung zu aktualisieren."
             )
@@ -4598,7 +4969,7 @@ def _detect_is_status_from_reasoning(reasoning_text: str) -> tuple[bool, str]:
     """
     lower = reasoning_text.lower()
     if any(p in lower for p in _IS_AKTIV_PATTERNS):
-        return True, "Importance Sampling aktiv (Tail-Schutz fuer Shortfall-Berechnung)"
+        return True, "Importance Sampling aktiv (Tail-Schutz für Shortfall-Berechnung)"
     if any(p in lower for p in _IS_INAKTIV_PATTERNS):
         return False, "Standard-MC (uniformer Sample-Mean)"
     return False, ""
@@ -4788,7 +5159,7 @@ def _build_performance_attribution(
         )
         if resolution.row is None:
             empty = _performance_attribution_empty(
-                "Keine eindeutige House-Matrix-Referenz fuer das Risikoprofil "
+                "Keine eindeutige House-Matrix-Referenz für das Risikoprofil "
                 f"({resolution.reason_code}): {resolution.detail}"
             )
             empty["reason_code"] = resolution.reason_code
@@ -4813,7 +5184,7 @@ def _build_performance_attribution(
         )
         if cma is None:
             return _performance_attribution_empty(
-                "Keine aktuelle CMA verfuegbar."
+                "Keine aktuelle CMA verfügbar."
             )
         returns_bps = {
             "equities": _safe_int(getattr(cma, "equity_ch_return_bps", 0)),
@@ -4858,3 +5229,38 @@ def _performance_attribution_empty(reason: str) -> dict[str, Any]:
         ),
         "error": reason,
     }
+
+
+def apply_fx_wealth_totals(db, clients: list[dict], *, tenant_id=None) -> None:
+    """K1 / CK-01 (Dashboard-Liste): Betraege je Kunde zeilenweise ueber die
+    strikte FX-Basis (services.fx_basis.compute_wealth_totals), nie die nominale
+    Mischsumme der View. Ein FX-Block betrifft nur diesen Kunden: Betraege None
+    plus ``amount_block_reason_code``; die Liste bleibt lesbar."""
+    ids = [c["client_id"] for c in clients]
+    if not ids:
+        return
+    positions: dict = {cid: [] for cid in ids}
+    for pos in db.query(WealthPosition).filter(
+        WealthPosition.client_id.in_(ids), WealthPosition.deleted_at.is_(None), WealthPosition.is_active == 1,
+    ).all():
+        positions[pos.client_id].append(pos)
+    mandates: dict = {cid: [] for cid in ids}
+    for mandate in db.query(Mandate).filter(Mandate.client_id.in_(ids), Mandate.deleted_at.is_(None)).all():
+        mandates[mandate.client_id].append(mandate)
+    amount_keys = ("gross_wealth_rappen", "liabilities_rappen", "net_worth_rappen", "advisory_wealth_rappen",
+                   "net_worth_chf", "advisory_wealth_chf")
+    for c in clients:
+        cid = c["client_id"]
+        try:
+            totals = compute_wealth_totals(db, positions[cid], mandates[cid], tenant_id=tenant_id)
+        except DomainError as exc:
+            c.update({key: None for key in amount_keys})
+            c.update(amount_currency=None, fx_basis_hash=None, amount_block_reason_code=str(exc.reason_code))
+            continue
+        c.update(
+            gross_wealth_rappen=totals.gross_wealth_rappen, liabilities_rappen=totals.liabilities_rappen,
+            net_worth_rappen=totals.net_worth_rappen, advisory_wealth_rappen=totals.advisory_wealth_rappen,
+            net_worth_chf=totals.net_worth_rappen / 100, advisory_wealth_chf=totals.advisory_wealth_rappen / 100,
+            amount_currency=totals.amount_currency, fx_basis_hash=totals.fx_basis_hash,
+            amount_block_reason_code=None,
+        )
