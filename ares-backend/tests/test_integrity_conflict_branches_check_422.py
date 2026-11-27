@@ -96,6 +96,7 @@ def api(session_factory, root_user, advisor_user, monkeypatch):
     from config import settings
 
     monkeypatch.setattr(settings, "tenant_admin_ui_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "deployment_mode", "multi_tenant", raising=False)
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_current_user] = lambda: root_user
     monkeypatch.setattr(app.router, "lifespan_context", noop_lifespan)

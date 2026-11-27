@@ -16,15 +16,28 @@ Tier 3 sind diese Endpoints deaktiviert via settings.tenant_admin_ui_enabled.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from core.db_integrity import raise_if_check_violation
 from sqlalchemy.orm import Session
 
 from config import settings
-from database import get_db, new_uuid
+from database import (
+    DEPLOYMENT_MANIFEST_TABLE,
+    DEPLOYMENT_MODE_CHANGED,
+    TenantDeploymentError,
+    assert_single_company_database,
+    assert_tenant_creation_allowed,
+    current_deployment_mode,
+    get_db,
+    new_uuid,
+    session_for_engine,
+)
 from models.client_login import ClientLogin
 from models.clients import Client
 from models.tenant import DEFAULT_TENANT_ID, Tenant
@@ -186,6 +199,15 @@ def create_tenant(
     Pre-Check: settings.tenant_admin_ui_enabled muss True sein (Tier 2).
     """
     _check_tenant_admin_ui_enabled()
+    # Tier-1-Einzelfirmen-Gate: derselbe Pre-Check wie der Default-Seed
+    # (database.ensure_default_tenant). single_company -> 409.
+    try:
+        assert_tenant_creation_allowed(db)
+    except TenantDeploymentError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code, "message": exc.message},
+        )
     # Slug-Konflikt-Check
     existing = db.query(Tenant).filter(Tenant.slug == body.slug).first()
     if existing is not None:
@@ -405,3 +427,63 @@ def assign_user_to_tenant(
         "tenant_id": tenant_id,
         "assigned_at": user.updated_at,
     }
+
+
+# ---------------------------------------------------------------------------
+# Tier-1-Einzelfirmen-Gate: Moduswechsel + Startpruefung (CH-RC 27.11.2026)
+# ---------------------------------------------------------------------------
+# Zaehl-/Anlageregeln zentral in database.py. Hier (Tenant-Domaene, von main.py
+# ohnehin importiert) haelt der Start den Modus unveraenderlich: ein Wechsel von
+# deployment_mode verlangt deployment_mode_change_confirmation="<alt>-><neu>" und
+# wird im hash-verketteten Audit-Manifest (audit_log, table_name=
+# 'deployment_manifest') als DEPLOYMENT_MODE_CHANGED festgehalten.
+_startup_logger = logging.getLogger(__name__)
+
+
+def recorded_deployment_mode(db: Session) -> str | None:
+    """Zuletzt im Audit-Manifest festgehaltener Modus (None = nie gewechselt,
+    die Instanz laeuft seit Beginn im Default single_company)."""
+    row = db.execute(
+        text(
+            "SELECT new_value FROM audit_log WHERE table_name = :t AND action = :a "
+            "ORDER BY created_at DESC, id DESC LIMIT 1"
+        ),
+        {"t": DEPLOYMENT_MANIFEST_TABLE, "a": DEPLOYMENT_MODE_CHANGED},
+    ).first()
+    return row[0] if row is not None else None
+
+
+def enforce_deployment_mode_at_startup(target_engine: Engine | None = None) -> None:
+    """Beim Start (main.py-lifespan, nach init_db): Moduswechsel nur mit
+    Bestaetigung und Audit-Eintrag, danach Firmenzahl pruefen. Jeder Verstoss
+    bricht den Start mit typisiertem Fehler ab."""
+    mode = current_deployment_mode()
+    with session_for_engine(target_engine) as db:
+        recorded = recorded_deployment_mode(db) or "single_company"
+        if mode != recorded:
+            expected = f"{recorded}->{mode}"
+            confirmation = str(getattr(settings, "deployment_mode_change_confirmation", "") or "").strip()
+            if confirmation != expected:
+                raise TenantDeploymentError(
+                    DEPLOYMENT_MODE_CHANGED,
+                    f"deployment_mode wurde von {recorded} auf {mode} geaendert. Der Modus ist "
+                    "unveraenderlich; ein bewusster Wechsel verlangt "
+                    f"deployment_mode_change_confirmation={expected}.",
+                )
+            if mode == "single_company":
+                assert_single_company_database(db)
+            log(
+                db,
+                user_id="system",
+                user_name="System (Start)",
+                table_name=DEPLOYMENT_MANIFEST_TABLE,
+                record_id="deployment_mode",
+                action=DEPLOYMENT_MODE_CHANGED,
+                field_name="deployment_mode",
+                old_value=recorded,
+                new_value=mode,
+                tenant_id=DEFAULT_TENANT_ID,
+            )
+            db.commit()
+            _startup_logger.warning("Tier-1-Gate: deployment_mode %s -> %s bestaetigt und protokolliert", recorded, mode)
+        assert_single_company_database(db)

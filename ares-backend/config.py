@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 import base64
 import contextlib
 import contextvars
@@ -650,6 +650,18 @@ class Settings(BaseSettings):
     tenancy_mode: str = "single"
     # Tenant-Admin-UI fuer Super-Admin. Tier 2 = True, sonst False.
     tenant_admin_ui_enabled: bool = False
+    # Tier-1-Einzelfirmen-Gate (CH-RC 27.11.2026): eine Ares-Instanz bedient
+    # standardmaessig genau EINE Firma ('single_company'). Mehrere Firmen auf
+    # einer Instanz nur mit ausdruecklichem 'multi_tenant' (Tier 2, strikte
+    # Mandantentrennung). Fail-closed: ohne Angabe gilt 'single_company'; eine
+    # zweite Firma wird mit SECOND_TENANT_FORBIDDEN abgelehnt, eine Datenbank
+    # mit mehr als einer Firma startet nicht (TENANT_COUNT_INVALID). Der Modus
+    # ist nach dem ersten Start unveraenderlich: ein Wechsel verlangt die
+    # Bestaetigung deployment_mode_change_confirmation="<alt>-><neu>" und wird
+    # als DEPLOYMENT_MODE_CHANGED im hash-verketteten Audit-Manifest
+    # (audit_log, table_name='deployment_manifest') festgehalten.
+    deployment_mode: Literal["single_company", "multi_tenant"] = "single_company"
+    deployment_mode_change_confirmation: str = ""
     # E1 (2026-06-14): Strikte Mandanten-Trennung. Default False = BC (Rows mit
     # tenant_id IS NULL gelten als zum eigenen Tenant gehoerig). True (Multi-Firma/
     # Staging) = NUR exakter Tenant-Match, NULL-Rows sind unsichtbar. Voraussetzung:
@@ -1068,6 +1080,20 @@ class Settings(BaseSettings):
         if self.tenant_admin_ui_enabled and not effective_strict:
             raise ValueError(
                 'tenant_admin_ui_enabled=true erfordert strikte Mandantentrennung: '
+                'strict_tenant_isolation=true oder deployment_tier=tier2 bzw. '
+                'tenancy_mode=multi setzen.'
+            )
+        # Tier-1-Einzelfirmen-Gate: die Tenant-Admin-UI legt weitere Firmen an
+        # und ist deshalb nur im ausdruecklichen Modus multi_tenant zulaessig;
+        # multi_tenant selbst verlangt strikte Mandantentrennung.
+        if self.tenant_admin_ui_enabled and self.deployment_mode != 'multi_tenant':
+            raise ValueError(
+                'tenant_admin_ui_enabled=true erfordert deployment_mode=multi_tenant '
+                '(Tier-1-Einzelfirmen-Gate: single_company erlaubt genau eine Firma).'
+            )
+        if self.deployment_mode == 'multi_tenant' and not effective_strict:
+            raise ValueError(
+                'deployment_mode=multi_tenant erfordert strikte Mandantentrennung: '
                 'strict_tenant_isolation=true oder deployment_tier=tier2 bzw. '
                 'tenancy_mode=multi setzen.'
             )

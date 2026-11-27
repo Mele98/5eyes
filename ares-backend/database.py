@@ -234,6 +234,11 @@ def _resolve_engine(target_engine: Engine | None = None) -> Engine:
     return target_engine if target_engine is not None else engine
 
 
+def session_for_engine(target_engine: Engine | None = None) -> Session:
+    """Oeffentlicher Alias von ``_session_for`` (Tier-1-Gate, routers.tenants)."""
+    return _session_for(target_engine)
+
+
 def _session_for(target_engine: Engine | None = None) -> Session:
     """Session auf ``target_engine``; ohne Argument unveraendert ``SessionLocal()``."""
     if target_engine is None:
@@ -3575,6 +3580,82 @@ def ensure_purge_history_table(target_engine: Engine | None = None) -> None:
         ))
 
 
+# ---------------------------------------------------------------------------
+# Tier-1-Einzelfirmen-Gate (CH-RC 27.11.2026)
+# ---------------------------------------------------------------------------
+# Eine Ares-Instanz bedient im Modus ``single_company`` (Default, fail-closed)
+# genau EINE Firma. Alle Wege, die eine Firma (Tenant) anlegen oder eine
+# Datenbank in Betrieb nehmen, laufen ueber dieselben zwei Pruefungen:
+#   - assert_tenant_creation_allowed: Tenant-Admin-API UND Default-Seed
+#   - assert_single_company_database: Start (main.py-lifespan) und Restore
+# Der Modus selbst ist nach dem ersten Start unveraenderlich; ein Wechsel ist
+# nur mit ausdruecklicher Bestaetigung moeglich und wird im hash-verketteten
+# Audit-Manifest (audit_log, table_name='deployment_manifest') zu
+# deployment_mode festgehalten (routers/tenants.py, beim Start).
+
+SECOND_TENANT_FORBIDDEN = "SECOND_TENANT_FORBIDDEN"
+TENANT_COUNT_INVALID = "TENANT_COUNT_INVALID"
+DEPLOYMENT_MODE_CHANGED = "DEPLOYMENT_MODE_CHANGED"
+DEPLOYMENT_MANIFEST_TABLE = "deployment_manifest"
+DEPLOYMENT_MODES = ("single_company", "multi_tenant")
+
+
+class TenantDeploymentError(RuntimeError):
+    """Typisierter, fail-closed Abbruch des Einzelfirmen-Gates."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(f"{code}: {message}")
+        self.code = code
+        self.message = message
+
+
+def current_deployment_mode() -> str:
+    """Konfigurierter Modus; jeder unbekannte Wert gilt als single_company."""
+    mode = str(getattr(settings, "deployment_mode", "single_company") or "")
+    return mode if mode in DEPLOYMENT_MODES else "single_company"
+
+
+def count_tenants(db: Session) -> int:
+    """Anzahl Firmen (Tenants) in der Datenbank -- inklusive inaktiver und
+    soft-geloeschter Eintraege: auch eine ruhende zweite Firma ist eine
+    zweite Firma."""
+    # SELECT count(*) FROM tenants: dieselbe Zaehlung fuer Start (lifespan,
+    # routers.tenants), Restore-Vorpruefung und Tenant-Anlage.
+    return int(db.execute(text("SELECT count(*) FROM tenants")).scalar() or 0)
+
+
+def assert_tenant_creation_allowed(db: Session) -> None:
+    """Vor JEDEM Anlegen einer Firma: im Modus single_company nur, solange noch
+    keine Firma existiert (Default-Seed 'main'). Sonst SECOND_TENANT_FORBIDDEN."""
+    if current_deployment_mode() == "multi_tenant":
+        return
+    existing = count_tenants(db)
+    if existing >= 1:
+        raise TenantDeploymentError(
+            SECOND_TENANT_FORBIDDEN,
+            "Diese Ares-Instanz ist fuer genau eine Firma eingerichtet "
+            f"(deployment_mode=single_company, vorhanden: {existing}). "
+            "Eine weitere Firma braucht eine eigene Instanz.",
+        )
+
+
+def assert_single_company_database(db: Session, *, allow_empty: bool = False) -> None:
+    """Im Modus single_company muss die Datenbank genau eine Firma enthalten;
+    sonst TENANT_COUNT_INVALID (Start bzw. Restore wird abgebrochen).
+    ``allow_empty`` (nur Restore-Vorpruefung): eine Sicherung ganz ohne Firma
+    ist zulaessig, weil der anschliessende Start genau 'main' anlegt und dann
+    erneut mit der strengen Regel prueft."""
+    if current_deployment_mode() == "multi_tenant":
+        return
+    found = count_tenants(db)
+    if found > 1 or (found == 0 and not allow_empty):
+        raise TenantDeploymentError(
+            TENANT_COUNT_INVALID,
+            f"deployment_mode=single_company erwartet genau eine Firma, gefunden: {found}. "
+            "Die Datenbank wird nicht in Betrieb genommen.",
+        )
+
+
 def ensure_default_tenant(target_engine: Engine | None = None) -> None:
     """Sprint T1 (2026-06-08): legt den Default-Tenant 'main' an wenn nicht da.
 
@@ -3601,6 +3682,8 @@ def ensure_default_tenant(target_engine: Engine | None = None) -> None:
             ).first()
             if existing is not None:
                 return
+            # Tier-1-Einzelfirmen-Gate: derselbe Pre-Check wie die Tenant-API.
+            assert_tenant_creation_allowed(db)
             now = datetime.now(timezone.utc).strftime(
                 "%Y-%m-%dT%H:%M:%S.%f"
             )[:-3] + "Z"

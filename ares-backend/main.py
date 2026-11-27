@@ -16,7 +16,7 @@ from core.middleware import (
     RequestContextMiddleware,
     install_exception_handlers,
 )
-from database import init_db
+from database import TenantDeploymentError, init_db
 from price_updater import start_price_scheduler, stop_price_scheduler
 from backup_scheduler import start_backup_scheduler, stop_backup_scheduler
 
@@ -72,7 +72,10 @@ from routers.snapshots import router as snapshots_router
 # services.audit bereits importiert; dort im Operator-Bypass fuer PG-RLS) --
 # keine neue Modulkante fuer main.
 from routers.system import backup_snapshot_anchor, router as system_router, run_startup_audit_chain_check
-from routers.tenants import router as tenants_router  # Sprint T4 (2026-06-08)
+from routers.tenants import (  # Sprint T4 (2026-06-08); Tier-1-Einzelfirmen-Gate (27.11.2026)
+    enforce_deployment_mode_at_startup,
+    router as tenants_router,
+)
 from routers.tax import router as tax_router
 from routers.wealth import router as wealth_router
 from routers.onsite_signature import router as onsite_signature_router  # SIGN-001 (2026-10-27)
@@ -128,6 +131,14 @@ async def lifespan(app: FastAPI):
         logger.critical('Start abgebrochen: %s', exc)
         raise
     init_db()
+    # Tier-1-Einzelfirmen-Gate: nach Schema/Seed und vor jedem Dienst. Moduswechsel
+    # nur bestaetigt und auditiert; im Modus single_company genau eine Firma
+    # (count der Tenants) -- sonst bricht der Start hier ab (fail-closed).
+    try:
+        enforce_deployment_mode_at_startup()
+    except TenantDeploymentError as exc:
+        logger.critical('Start abgebrochen: %s', exc)
+        raise
     # H10 C-DSG-03 (DSG-Technikaudit 2026-11-11): ab hier laeuft jede
     # ausgehende Verbindung durch das Egress-Manifest (fail-closed); vor den
     # Schedulern, die Marktdaten holen.

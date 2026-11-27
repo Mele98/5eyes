@@ -15,7 +15,13 @@ from sqlalchemy.orm import Session
 
 from config import DEFAULT_SECRET_KEY, settings
 from core.logging_setup import resolve_log_file
-from database import SQLCIPHER_AVAILABLE, resolve_db_file
+from database import (
+    SQLCIPHER_AVAILABLE,
+    TenantDeploymentError,
+    assert_single_company_database,
+    create_app_engine,
+    resolve_db_file,
+)
 from services import backup as backup_engine
 from services import erasure_restore
 
@@ -206,6 +212,41 @@ def create_backup(snapshot_anchor=None) -> dict[str, Any]:
     }
 
 
+def _check_single_company_file(db_file: Path, *, db_key: str | None) -> None:
+    """assert_single_company_database gegen eine Datenbankdatei: mehr als eine
+    Firma -> TENANT_COUNT_INVALID. Eine Sicherung ohne Firma (oder von vor der
+    Mandantenfaehigkeit, ohne Tabelle ``tenants``) ist zulaessig: der Start legt
+    dann genau die eine Firma 'main' an und prueft streng (genau eine)."""
+    engine = create_app_engine(db_path=db_file, db_key=db_key)
+    try:
+        with Session(bind=engine) as db:
+            has_tenants = db.execute(text(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tenants'"
+            )).first() is not None
+            if has_tenants:
+                assert_single_company_database(db, allow_empty=True)
+    finally:
+        engine.dispose()
+
+
+def _assert_restorable_single_company(backup_path: Path, *, db_key: str | None) -> None:
+    """Prueft die Sicherung an einer temporaeren Kopie (die Sicherung selbst
+    bleibt byte-identisch, Hash/HMAC-Sidecars gelten weiter)."""
+    import shutil
+    import tempfile
+
+    if not backup_path.is_file():
+        return  # restore_database meldet die fehlende Datei typisiert
+    with tempfile.TemporaryDirectory(prefix="ares-restore-check-") as tmp:
+        probe = Path(tmp) / "probe.db"
+        shutil.copyfile(backup_path, probe)
+        try:
+            _check_single_company_file(probe, db_key=db_key)
+        except TenantDeploymentError:
+            logger.error("Restore abgelehnt (Tier-1-Einzelfirmen-Gate): %s", backup_path.name)
+            raise
+
+
 def restore_backup(
     backup_path: str | Path,
     *,
@@ -235,6 +276,10 @@ def restore_backup(
     No-Op, das Restore-Verhalten ist 1:1 wie vorher.
     """
     target = resolve_db_file(target_db_path) if target_db_path else resolve_db_file(settings.db_path)
+    # Tier-1-Einzelfirmen-Gate: die Sicherung wird VOR dem Ueberschreiben an
+    # einer Arbeitskopie geprueft (single_company -> genau eine Firma), damit
+    # eine fremde Mehrfirmen-Sicherung die laufende Datenbank nie ersetzt.
+    _assert_restorable_single_company(Path(backup_path), db_key=db_key)
     result = backup_engine.restore_database(
         backup_path=backup_path,
         target_db_path=target,
@@ -242,6 +287,9 @@ def restore_backup(
         verify_hmac=verify_hmac,
         db_key=db_key,
     )
+    # Zweite Pruefung am wiederhergestellten Ziel, bevor der Dienst die Datei
+    # wieder oeffnet (gleiche Regel wie beim Start).
+    _check_single_company_file(Path(target), db_key=db_key)
     erasure_reapply = erasure_restore.reapply_erasures_after_restore(target, db_key=db_key)
     if erasure_reapply.get("reapplied"):
         logger.info(

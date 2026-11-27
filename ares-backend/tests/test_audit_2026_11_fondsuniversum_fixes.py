@@ -459,7 +459,8 @@ def test_n855_3_tenant_admin_ui_without_strict_isolation_rejected():
 def test_n855_3_tenant_admin_ui_with_effective_strict_isolation_allowed(overrides):
     from config import Settings
     base = {"app_env": "development", "deployment_tier": "tier1", "tenancy_mode": "single",
-            "tenant_admin_ui_enabled": True, "strict_tenant_isolation": False}
+            "tenant_admin_ui_enabled": True, "strict_tenant_isolation": False,
+            "deployment_mode": "multi_tenant"}
     cfg = Settings(**{**base, **overrides})
     assert cfg.tenant_admin_ui_enabled is True
 
