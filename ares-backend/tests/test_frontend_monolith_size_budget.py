@@ -229,6 +229,8 @@ RC-Kopf (27.11.2026): L2d und UX-L0 zusammengefuehrt (beide Script-Einbindungen 
 Zeile) -> Monolith 26252/1612542.
 UX-L1a (UX-CH-05, Sie-Ansprache): reine Textaenderung in bestehenden Zeilen, Sie-Formen
 sind laenger -> Monolith 26252/1612646 auf dem UX-Strang, im RC-Kopf 26252/1612619 (+77 B, keine neue Logik, keine neue Zeile).
+UX-L1b (UX-Vertrag 27.11.2026, WCAG AA): im Dark-Theme zeigt --text-muted auf --n5 (6.4:1 auf
+--surface statt 4.23:1); --n4 bleibt fuer Grafik/Linien. ares.css 1143/90094 (+24 B, keine neue Zeile).
 """
 from __future__ import annotations
 
@@ -244,7 +246,7 @@ TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
 EXTRACTED_PART_BUDGETS = {
-    "ares.css": (1143, 90070),
+    "ares.css": (1143, 90094),
     "aa-chart.css": (66, 5978),
     "intro-sequence.js": (761, 36764),
     "aa-chart.js": (316, 20608),

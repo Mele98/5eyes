@@ -50,7 +50,7 @@
   --pos:#2fbf72; --pos-lt:#123322;
   --neg:#e0564f; --neg-lt:#341616;
   --warn:#d9a520; --warn-lt:#2e2208;
-  --surface:#101b2c; --bg:#070d16; --bg2:#0c1524;
+  --surface:#101b2c; --bg:#070d16; --bg2:#0c1524; --text-muted:var(--n5);
   --b1:rgba(226,236,247,0.09); --b2:rgba(226,236,247,0.18);
   --chart-axis:#7d93b8; --chart-grid:rgba(226,236,247,0.10);
   /* AA-UX-COLORS-001: Dark = HSL-Helligkeit +18 Punkte; Aktien +20, damit die
