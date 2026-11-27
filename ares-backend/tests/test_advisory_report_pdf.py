@@ -1,4 +1,4 @@
-"""Sprint U-P26 PR A — Tests fuer den Advisory-Report Server-PDF.
+"""Sprint U-P26 PR A — Tests für den Advisory-Report Server-PDF.
 
 PR A deckt nur Cover + Disclaimer + TOC ab. Spaetere Sprints fuegen
 weitere Sektion-Tests hinzu.
@@ -52,7 +52,7 @@ def _make_minimal_payload() -> dict:
         "disclaimer": {
             "hinweise": [
                 "Dieser Bericht dient ausschliesslich Beratungszwecken.",
-                "Vergangene Performance ist kein Indikator fuer kuenftige Renditen.",
+                "Vergangene Performance ist kein Indikator für künftige Renditen.",
                 "Monte-Carlo-Simulationen sind Modellrechnungen mit Modell-Risiken.",
             ],
         },
@@ -70,6 +70,7 @@ def _make_minimal_payload() -> dict:
                 "risikoprofil": "Defensiv",
                 "anlageziel": "Frühpension mit 60",
                 "liquiditaetsbedarf_rappen": 6_600_000,
+                "liquiditaetsbedarf_currency": "CHF",  # G7 N4: Server-Feld
                 "steuerdomizil": "CH",
                 "referenzwaehrung": "CHF",
             },
@@ -347,7 +348,7 @@ def _make_minimal_payload() -> dict:
         },
         "ab_backtest": {
             "data_pending": True,
-            "note": "Keine zweite OptimizerPolicy für einen A/B-Vergleich vorhanden.",
+            "note": "Kein zweites Strategiemodell für einen A/B-Vergleich vorhanden.",
             "policy_a": None,
             "policy_b": None,
             "buckets_diff": [],
@@ -388,7 +389,7 @@ def _make_payload_with_stress_replay() -> dict:
     payload = _make_minimal_payload()
     payload["stress_replay"] = {
         "data_pending": False,
-        "note": "Replay mit historischen jährlichen Returns pro Asset-Klasse.",
+        "note": "Nachrechnung mit historischen Jahresrenditen je Anlageklasse.",
         "weights_bps": {
             "equities": 5500,
             "bonds": 2500,
@@ -442,7 +443,7 @@ def _make_payload_with_mc_paths() -> dict:
         {
             "goal_id": "g-reach",
             "label": "Retirement Goal",
-            "goal_type": "Vermoegen",
+            "goal_type": "Vermögen",
             "target_amount_rappen": 210_000_000,
             "target_date": "2029-01-01",
             "hardness": "primaer",
@@ -462,7 +463,7 @@ def _make_payload_with_mc_paths() -> dict:
         {
             "goal_id": "g-hard",
             "label": "Safety Goal",
-            "goal_type": "Vermoegen",
+            "goal_type": "Vermögen",
             "target_amount_rappen": 200_000_000,
             "target_date": "2026-01-01",
             "hardness": "hart",
@@ -472,7 +473,7 @@ def _make_payload_with_mc_paths() -> dict:
         {
             "goal_id": "g-later",
             "label": "Later Goal",
-            "goal_type": "Vermoegen",
+            "goal_type": "Vermögen",
             "target_amount_rappen": 220_000_000,
             "target_date": "2035-01-01",
             "hardness": "primaer",
@@ -781,7 +782,7 @@ def test_ausgangslage_shows_six_key_metrics():
     flat_text = " ".join(page_text.split())
     for label in [
         "Risikobehafteter Anteil", "Erfolgs-Wkt. gesamt", "Erw. Volatilität",
-        "Erw. Rendite", "Max Drawdown", "VaR 95",
+        "Median-Rendite (simuliert)", "Max Drawdown", "VaR 95",
     ]:
         assert label in flat_text, f"KPI-Karte '{label}' fehlt"
     # Werte: 4250 bps -> 42.5 %, 8500 -> 85.0 %, 1100 -> 11.0 %
@@ -898,7 +899,7 @@ def test_erkenntnisse_shows_all_pruefpunkte_with_ampel():
 
 
 def test_erkenntnisse_renders_all_four_ampel_labels():
-    """gruen→OK / gelb→Achtung / rot→Handeln / nicht_beurteilbar→Pendant.
+    """gruen→OK / gelb→Achtung / rot→Handeln / nicht_beurteilbar→Ausstehend.
 
     pypdf bricht schmale Cell-Texte teils auf zwei Zeilen um — wir
     vergleichen daher gegen den Text ohne Zeilenwechsel/Whitespace,
@@ -910,14 +911,14 @@ def test_erkenntnisse_renders_all_four_ampel_labels():
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     raw = reader.pages[6].extract_text() or ""
     normalized = "".join(raw.split())  # whitespace incl. \n weg
-    for label in ["OK", "Achtung", "Handeln", "Pendant"]:
+    for label in ["OK", "Achtung", "Handeln", "Ausstehend"]:
         assert label in normalized, (
             f"Ampel-Label '{label}' fehlt. Normalisiert: {normalized[:600]}"
         )
 
 
 def test_erkenntnisse_unknown_bewertung_falls_back_to_pendant():
-    """Unbekannte Ampel-Werte → 'Pendant' (kein Crash)."""
+    """Unbekannte Ampel-Werte → 'Ausstehend' (kein Crash)."""
     pypdf = pytest.importorskip("pypdf")
     payload = _make_minimal_payload()
     payload["erkenntnisse"]["checks"] = [{
@@ -929,7 +930,7 @@ def test_erkenntnisse_unknown_bewertung_falls_back_to_pendant():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     page_text = reader.pages[6].extract_text() or ""
-    assert "Pendant" in page_text
+    assert "Ausstehend" in page_text
 
 
 def test_erkenntnisse_handles_empty_checks():
@@ -1102,9 +1103,10 @@ def test_goals_section_shows_status_pills():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     normalized = "".join((reader.pages[10].extract_text() or "").split())
-    # Pills für die Stati
-    assert "Erreichbar" in normalized
-    assert "Knapp" in normalized
+    # Pills für die Stati -- P5c / N-930-01: Woerter aus GOAL_STATUS_DISPLAY (M-3).
+    assert "erreichbar" in normalized
+    assert "knapp" in normalized
+    assert "Schwierig" not in normalized
 
 
 def test_goals_section_renders_mc_pending_hint():
@@ -1153,28 +1155,37 @@ def test_goals_pdf_data_pending_keeps_hint_and_omits_chart():
     assert "Pfade werden live berechnet" in page_text
 
 
-def test_goals_pdf_mc_status_pills_follow_frontend_boundaries():
+def test_goals_pdf_has_no_mc_status_column_and_shows_only_the_m3_status():
+    """P5c / N-930-01 (CTO 2026-11-21): die Spalte "MC-Status" (Einstufung aus den
+    Faecherquantilen) entfaellt; einziger Status ist der M-3-Status der Zeile
+    (Wort aus core/goal_metric_contract.GOAL_STATUS_DISPLAY). Die Quantile bleiben
+    als Grafik (Klassifikation nur fuer die Markerlage)."""
+    from core.goal_metric_contract import goal_status_display
+
     payload = _make_payload_with_mc_paths()
     classifications = classify_goals(
         payload["goal_based_investing"]["goals"],
         payload["goal_based_investing"]["monte_carlo_paths"],
     )
     by_id = {c["goal_id"]: c["status"] for c in classifications}
-    assert by_id["g-reach"] == "erreichbar"
-    assert by_id["g-tight"] == "knapp"
-    assert by_id["g-hard"] == "nicht_erreichbar"
+    assert by_id["g-reach"] == "erreichbar"  # Faecher sagt "erreichbar" ...
+    goals = payload["goal_based_investing"]["goals"]
+    for goal in goals:
+        if goal["goal_id"] == "g-reach":
+            goal.update(goal_status_display("knapp"))  # ... M-3 sagt "knapp"
 
     pdf = render_advisory_report_pdf_from_payload(payload)
     pypdf = pytest.importorskip("pypdf")
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     normalized = "".join((reader.pages[10].extract_text() or "").split())
-    assert "MC-Status" in normalized
-    assert "Erreichbar" in normalized
-    assert "Knapp" in normalized
-    assert "Schwierig" in normalized
+    assert "MC-Status" not in normalized
+    assert "Schwierig" not in normalized and "Erreichbar" not in normalized
+    assert "knapp" in normalized
+    # Ohne M-3 (data_pending im Fixture): "nicht bewertbar", nie eine Ampel.
+    assert "nichtbewertbar" in normalized
 
 
-def test_goals_pdf_beyond_horizon_status_is_visible_in_mc_status_column():
+def test_goals_pdf_beyond_horizon_has_no_own_status_word():
     payload = _make_payload_with_mc_paths()
     classifications = classify_goals(
         payload["goal_based_investing"]["goals"],
@@ -1187,7 +1198,7 @@ def test_goals_pdf_beyond_horizon_status_is_visible_in_mc_status_column():
     pypdf = pytest.importorskip("pypdf")
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     normalized = "".join((reader.pages[10].extract_text() or "").split())
-    assert "JenseitsHorizont" in normalized
+    assert "JenseitsHorizont" not in normalized
 
 
 def test_goals_pdf_misaligned_mc_paths_do_not_crash_or_render_chart():
@@ -1401,8 +1412,8 @@ def test_page_chrome_shows_total_pages_after_single_pass_build():
 
 
 def test_two_pass_render_builds_story_twice():
-    """U-13 (2026-06-02): Two-Pass-Render fuer echte Seitenzahlen.
-    Pass 1 zaehlt + sammelt TOC-Anker, Pass 2 zeichnet mit echten Seiten.
+    """U-13 (2026-06-02): Two-Pass-Render für echte Seitenzahlen.
+    Pass 1 zählt + sammelt TOC-Anker, Pass 2 zeichnet mit echten Seiten.
     Beide Passes rufen _build_all_flowables auf."""
     import services.pdf.documents.advisory_report as advisory_pdf
     payload = _make_minimal_payload()
@@ -1468,12 +1479,21 @@ def test_beratungsprotokoll_shows_latest_entry_details():
 
 
 def test_beratungsprotokoll_shows_integrity_marker():
+    # KN8 / N-929-01: dieser Test pinnte das feste «verifiziert» -- die Fixture
+    # hat kein ``integrity_verified``. Jetzt: ohne Pruefergebnis «nicht geprüft»,
+    # «verifiziert» nur mit integrity_verified=True (Details:
+    # test_kn8_protocol_integrity_display.py).
     pypdf = pytest.importorskip("pypdf")
     payload = _make_minimal_payload()
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = reader.pages[15].extract_text() or ""
-    assert "verifiziert" in text.lower()
+    assert "nicht geprüft" in text
+    assert "verifiziert" not in text.lower()
+    payload["beratungsprotokoll"]["latest_entry"]["integrity_verified"] = True
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    text = pypdf.PdfReader(__import__("io").BytesIO(pdf)).pages[15].extract_text() or ""
+    assert "verifiziert" in text.lower() and "nicht geprüft" not in text
 
 
 def test_beratungsprotokoll_shows_mismatch_banner_when_active():
@@ -1588,8 +1608,8 @@ def test_ab_backtest_section_renders_pending_hint():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = "\n".join((page.extract_text() or "") for page in reader.pages)
-    assert "Policy-A/B-Vergleich" in text
-    assert "Keine zweite OptimizerPolicy" in text
+    assert "Strategievergleich A/B" in text
+    assert "Kein zweites Strategiemodell" in text
 
 
 def test_ab_backtest_section_renders_policy_metric_table():
@@ -1598,7 +1618,7 @@ def test_ab_backtest_section_renders_policy_metric_table():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = "\n".join((page.extract_text() or "") for page in reader.pages)
-    assert "Policy-A/B-Vergleich" in text
+    assert "Strategievergleich A/B" in text
     assert "Policy 2025" in text
     assert "Policy 2026" in text
     assert "Erwartete Rendite" in text
@@ -1622,7 +1642,7 @@ def test_ab_backtest_section_shows_stress_diff():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = "\n".join((page.extract_text() or "") for page in reader.pages)
-    assert "Stress-Replay-Differenz" in text
+    assert "Stress-Szenarien: Differenz" in text
     assert "Dotcom 2000-2002" in text
     assert "GFC 2008" in text
 
@@ -1632,13 +1652,17 @@ def test_ab_backtest_section_shows_stress_diff():
 # ---------------------------------------------------------------------------
 
 def test_suitability_section_renders_header_and_status_pill():
-    """Sektion 27 hat Header + Pill 'Eignung gegeben' bei result=passed."""
+    """Sektion 27 hat Header + Pill 'Eignung gegeben' bei result=passed.
+
+    KN7 / N-928-01: nur wenn Sektion 19 die Geeignetheitspruefung ebenfalls
+    bestaetigt (Pruefgrundlage risk_assessment, konform)."""
     pypdf = pytest.importorskip("pypdf")
     payload = _make_minimal_payload()
+    payload["suitability_compliance"] = {"suitability_basis": "risk_assessment", "is_compliant": True}
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = "\n".join((page.extract_text() or "") for page in reader.pages)
-    assert "Eignungspruefung" in text
+    assert "Eignungsprüfung" in text
     assert "Eignung gegeben" in text
     assert "Anna Beispiel" in text
     assert "Suitability" in text
@@ -1689,7 +1713,7 @@ def test_suitability_section_shows_missing_info_block_when_incomplete():
         "result": "incomplete",
         "missing_information": [
             "Aktualisierter Anlagehorizont fehlt",
-            "Liquiditaetsbedarf nicht dokumentiert",
+            "Liquiditätsbedarf nicht dokumentiert",
         ],
     }
     pdf = render_advisory_report_pdf_from_payload(payload)
@@ -1731,7 +1755,14 @@ def test_suitability_section_empty_state_when_no_check():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = "\n".join((page.extract_text() or "") for page in reader.pages)
-    assert "Noch keine Eignungspruefung" in text
+    # KN7 / N-928-01: Leerzustand je Pruefgrundlage; ohne dokumentierte
+    # Grundlage neutral, ohne Aufforderung «im System zu hinterlegen».
+    assert "Prüfgrundlage nicht dokumentiert" in text
+    assert "Noch keine Eignungsprüfung" not in text and "im System zu hinterlegen" not in text
+    payload["suitability_compliance"] = {"suitability_basis": "risk_assessment", "is_compliant": False}
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    text = " ".join((page.extract_text() or "") for page in pypdf.PdfReader(__import__("io").BytesIO(pdf)).pages)
+    assert "Noch keine gültige Eignungsprüfung dokumentiert" in text
 
 
 # ---------------------------------------------------------------------------
@@ -1768,7 +1799,7 @@ def test_hidden_section_text_does_not_appear_in_pdf():
 
 
 def test_ab_backtest_pattern_still_works_when_key_present_but_falsy():
-    """Regressionsschutz fuer das bereits VOR der HUD-Konfiguration bestehende
+    """Regressionsschutz für das bereits VOR der HUD-Konfiguration bestehende
     Muster: ab_backtest wird bedingt gerendert, auch wenn der Key vorhanden,
     aber sein Wert leer/falsy ist (anders als die neuen 'in payload'-Checks)."""
     pypdf = pytest.importorskip("pypdf")

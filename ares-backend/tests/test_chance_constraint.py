@@ -452,6 +452,13 @@ def test_generate_persists_achievability_and_reload_returns_same(session_factory
     assert result["limiting_factor"] == "risikoprofil"
     assert CONFLICT_PROFILE_LIMITS in [msg["code"] for msg in result["messages"]]
     assert json.loads(ta.goal_achievability_json) == achievability
-    assert reloaded["goal_achievability"] == achievability
+    # P5c / N-930-01: der Lesepfad zeigt die kanonische Anzeige-Zeile (M-3-Status
+    # samt Wort/Farbe); alle uebrigen Felder bleiben die gespeicherten.
+    def _sans_status(rows):
+        return [{k: v for k, v in r.items() if k != "status" and not k.startswith("status_")} for r in rows]
+
+    assert _sans_status(reloaded["goal_achievability"]) == _sans_status(achievability)
+    assert reloaded["goal_achievability"][0]["status"] == result["goal_achievability"][0]["status"]
+    assert reloaded["goal_achievability"][0]["status_label"]
     assert reloaded["limiting_factor"] == "risikoprofil"
     assert reloaded["messages"] == result["messages"]

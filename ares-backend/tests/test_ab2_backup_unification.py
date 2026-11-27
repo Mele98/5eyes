@@ -4,7 +4,7 @@
 Deckt die Akzeptanzkriterien ab:
   (1) create_backup() schreibt in settings.backup_dir (Test mit backup_dir !=
       db_path.parent/'backups') — NICHT neben die DB.
-  (2) Erzeugter Dateiname matcht 5eyes-backup-YYYYMMDD-HHMMSS.db — kein T…Z.
+  (2) Erzeugter Dateiname matcht ares-backup-YYYYMMDD-HHMMSS.db — kein T…Z.
   (3) maintenance.list_backups und backup.list_backups ueber dasselbe
       Verzeichnis liefern dieselbe Menge.
   (4) Manuell erzeugtes Backup ist WAL-konsistent (PRAGMA integrity_check == "ok").
@@ -27,7 +27,7 @@ from services import backup as backup_engine  # noqa: E402
 from services import maintenance  # noqa: E402
 
 
-_FILENAME_RE = re.compile(r"^5eyes-backup-\d{8}-\d{6}\.db$")
+_FILENAME_RE = re.compile(r"^ares-backup-\d{8}-\d{6}\.db$")
 
 
 def _seed_db(path: Path, rows: int = 30) -> None:
@@ -95,11 +95,11 @@ def test_create_backup_writes_to_settings_backup_dir(unified_env):
     assert written.parent == backup_dir.expanduser().resolve()
     # … und NICHT im alten db_path.parent/'backups'.
     legacy_dir = db_dir / "backups"
-    assert not legacy_dir.exists() or list(legacy_dir.glob("5eyes-backup-*.db")) == []
+    assert not legacy_dir.exists() or list(legacy_dir.glob("ares-backup-*.db")) == []
 
 
 # ---------------------------------------------------------------------------
-# (2) Dateiname matcht 5eyes-backup-YYYYMMDD-HHMMSS.db (kein T…Z)
+# (2) Dateiname matcht ares-backup-YYYYMMDD-HHMMSS.db (kein T…Z)
 # ---------------------------------------------------------------------------
 
 def test_filename_pattern_has_no_tz_marker(unified_env):
@@ -107,7 +107,7 @@ def test_filename_pattern_has_no_tz_marker(unified_env):
     name = Path(payload["backup_file"]).name
     assert _FILENAME_RE.match(name), f"unerwarteter Name: {name}"
     # Das alte %Y%m%dT%H%M%SZ-Muster darf nicht mehr auftauchen.
-    assert "T" not in name.replace("5eyes-backup-", "")
+    assert "T" not in name.replace("ares-backup-", "")
     assert "Z" not in name
 
 

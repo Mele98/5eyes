@@ -332,6 +332,30 @@ def _seed_products(s: Session, n: int) -> None:
         ))
 
 
+def _seed_subject_requests(s: Session, n: int) -> None:
+    # H10 C-DSG-02: Betroffenenanfragen des Mandanten ``main``.
+    from models.privacy import PrivacySubjectRequest
+
+    for i in range(n):
+        s.add(PrivacySubjectRequest(
+            id=f"qb-dsar-{i}", tenant_id="main", client_id=_CLIENT_ID, request_type="ACCESS",
+            status="RECEIVED", received_at=_NOW, received_channel="LETTER", requester_relation="SELF",
+            due_at="2026-11-25", opened_by=_ADMIN_ID, created_at=_NOW, updated_at=_NOW,
+        ))
+
+
+def _seed_incidents(s: Session, n: int) -> None:
+    # H10 C-DSG-04: Sicherheitsvorfaelle des Mandanten ``main``.
+    from models.privacy import PrivacySecurityIncident
+
+    for i in range(n):
+        s.add(PrivacySecurityIncident(
+            id=f"qb-inc-{i}", tenant_id="main", reference=f"INC-QB-{i}", status="OPEN", discovered_at=_NOW,
+            incident_type="AVAILABILITY", description="Testvorfall", affected_data_categories_json="[]",
+            evidence_json="[]", recorded_by=_ADMIN_ID, created_at=_NOW, updated_at=_NOW,
+        ))
+
+
 def _len_list(body) -> int:
     return len(body)
 
@@ -364,6 +388,10 @@ CASES: tuple[_Case, ...] = (
     _Case("suitability_checks", f"/mandates/{_MANDATE_ID}/suitability-checks", _seed_suitability_checks, budget=2),
     _Case("audit_log", "/admin/system/audit-log", _seed_audit_log, budget=2, size=_len_audit_page),
     _Case("products", "/products", _seed_products, budget=1),
+    # H10 C-DSG-02: Liste der Betroffenenanfragen (Admin, keine Rollenabfrage).
+    _Case("subject_requests", "/privacy/subject-requests", _seed_subject_requests, budget=1),
+    # H10 C-DSG-04: Liste der Sicherheitsvorfaelle.
+    _Case("security_incidents", "/privacy/incidents", _seed_incidents, budget=1),
 )
 
 

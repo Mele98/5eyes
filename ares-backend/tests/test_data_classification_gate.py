@@ -360,7 +360,7 @@ def test_wealth_inflow_create_and_update_enforce_gate(auth_client, monkeypatch):
         "label": "Synthetic Erbschaft",
         "source_type": "Erbschaft",
         "amount_rappen": 50_000_00,
-        "expected_year": 2030,
+        "currency": "CHF", "expected_year": 2030,
     }
 
     blocked_create = auth_client.post(

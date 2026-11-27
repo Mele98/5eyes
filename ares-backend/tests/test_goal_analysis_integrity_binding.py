@@ -150,17 +150,22 @@ def test_tampered_goal_analysis_is_not_published_by_readers(generated):
     from services.portfolio_engine_payload import _stored_goal_achievability
 
     session_factory, allocation_id = generated
-    intact = _load(session_factory, allocation_id)
-    assert bound_goal_achievability_json(intact) == intact.goal_achievability_json
-    assert _stored_goal_achievability(intact)
+    # P5b / N-925-03: die Anzeige liest Mandat und Ziele (M-3-Payload) ueber die
+    # Allokation -- Leser laufen wie in der App mit offener Sitzung.
+    with session_factory() as s:
+        intact = s.query(TargetAllocation).filter(TargetAllocation.id == allocation_id).one()
+        assert bound_goal_achievability_json(intact) == intact.goal_achievability_json
+        assert _stored_goal_achievability(intact)
+        intact_json = intact.goal_achievability_json
     _rewrite(
         session_factory, allocation_id,
-        goal_achievability_json=_tampered_goal_analysis(intact.goal_achievability_json),
+        goal_achievability_json=_tampered_goal_analysis(intact_json),
     )
-    tampered = _load(session_factory, allocation_id)
-    assert bound_goal_achievability_json(tampered) is None
-    assert _load_goal_achievability_view(tampered) == ([], None)
-    assert _stored_goal_achievability(tampered) == []
+    with session_factory() as s:
+        tampered = s.query(TargetAllocation).filter(TargetAllocation.id == allocation_id).one()
+        assert bound_goal_achievability_json(tampered) is None
+        assert _load_goal_achievability_view(tampered) == ([], None)
+        assert _stored_goal_achievability(tampered) == []
 
 
 def test_lifecycle_invalidation_is_not_an_integrity_error(generated):

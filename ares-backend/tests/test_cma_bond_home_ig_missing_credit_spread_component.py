@@ -135,7 +135,7 @@ def test_bonds_home_ig_return_includes_credit_spread_over_pure_sovereign_yield(
     raw_sovereign_5y_bps = _raw_sovereign_5y_yield_bps()
 
     with session_factory() as db:
-        cma = dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30")
+        cma = dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30", created_by_user_id="test-user")
         db.commit()
 
         persisted_bonds_home_ig_bps = cma.bonds_home_ig_return_bps

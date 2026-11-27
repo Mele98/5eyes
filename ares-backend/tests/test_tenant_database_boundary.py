@@ -78,7 +78,7 @@ def _inflow(iid: str, client_id: str, **extra) -> WealthInflow:
         created_at=NOW, updated_at=NOW,
     )
     values.update(extra)
-    return WealthInflow(**values)
+    return WealthInflow(currency="CHF", **values)
 
 
 def _seed_two_tenants(session) -> None:

@@ -32,7 +32,17 @@ from sqlalchemy.orm import Session
 
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
-from services.depot_check import _select_latest_run, compute_depot_check
+from models.snapshots import DepotSnapshot
+from services.depot_check import _select_latest_run, compute_depot_check, has_external_holdings
+from services.holdings_valuation import (
+    ValuationError,
+    ValuationProjection,
+    assert_fx_evidence_current,
+    mandate_has_recorded_depot_holdings,
+    primary_reason,
+    project_holdings_valuation,
+    quality_reason,
+)
 from services.depot_snapshot import (
     DepotSnapshotIntegrityError,
     _canonical,
@@ -358,13 +368,53 @@ def load_depot_check_analysis(db: Session, mandate: Mandate, analysis_id: str | 
 
 def assert_analysis_matches_current_allocation(db: Session, mandate: Mandate, analysis: dict) -> None:
     """Das PDF kombiniert den gespeicherten Depot-Check mit der aktuellen
-    Strategie: nur zulaessig, wenn beide auf derselben Soll-Allokation beruhen."""
+    Strategie: nur zulaessig, wenn beide auf derselben Soll-Allokation beruhen.
+
+    CCX-P3: kein Depot-Claim ohne COMPLETE -- jede Depotposition des
+    Bewertungs-Snapshots (``services.holdings_valuation``) muss mit belegtem
+    Preis, Stichtag und frischem Kurs bewertet sein (``coverage_status`` der
+    Depotzeilen COMPLETE, ``source_observed_at`` belegt); sonst typisiert
+    ``CCX_VALUATION_INCOMPLETE`` / ``CCX_VALUATION_STALE`` / ``CCX_FX_BASIS_*``."""
     if analysis.get("target_allocation_id") != _current_target_allocation_id(db, mandate):
         raise ValueError(
             "Depot-Check kann nicht erstellt werden: die Soll-Allokation hat sich seit "
             "dem gespeicherten Depot-Check geaendert. Bitte den Depot-Check zum "
             "Depot-Snapshot neu speichern."
         )
+    assert_depot_rows_complete(project_holdings_valuation(db, mandate))
+    # N-909-02: die Kursevidenz des GESPEICHERTEN Depot-Snapshots muss heute
+    # belegt sein (kein Alt-/Ersatzkurs im gedruckten Depot-Check).
+    stored = _stored_snapshot_fx_evidence(db, mandate, analysis)
+    if stored is not None:
+        assert_fx_evidence_current(db, mandate, stored)
+
+
+def _stored_snapshot_fx_evidence(db: Session, mandate: Mandate, analysis: dict):
+    snapshot_id = analysis.get("snapshot_id")
+    if not snapshot_id:
+        return None
+    row = db.query(DepotSnapshot).filter(
+        DepotSnapshot.id == str(snapshot_id), DepotSnapshot.mandate_id == str(mandate.id),
+    ).first()
+    if row is None:
+        return None
+    return verify_persisted_depot_snapshot(row, mandate_id=str(mandate.id)).get("fx_evidence")
+
+
+def assert_depot_rows_complete(projection: ValuationProjection) -> None:
+    """Nur die Depotzeilen zaehlen fuer den Depot-Claim; unbekannt blockiert."""
+    depot_rows = [row for row in projection.rows if row.source_kind == "depot_holding"]
+    codes = sorted({str(quality_reason(row.data_quality)) for row in depot_rows if row.data_quality != "OK"})
+    if not codes:
+        return
+    raise ValuationError(
+        primary_reason(codes),
+        "Depot-Check kann nicht erstellt werden: nicht jede Depotposition ist mit belegtem "
+        "Preis, Stichtag und Kurs bewertet (CCX_VALUATION_INCOMPLETE). Bitte Bestand und "
+        "Marktdaten ergaenzen.",
+        extra={"coverage_status": "UNKNOWN", "blocker_codes": codes,
+               "snapshot_hash": projection.snapshot_hash},
+    )
 
 
 def mandate_has_recorded_holdings(db: Session, mandate: Mandate) -> bool:
@@ -372,12 +422,10 @@ def mandate_has_recorded_holdings(db: Session, mandate: Mandate) -> bool:
     Holding je Produkt mit Stueckzahl oder Marktwert > 0) -- derselbe Filter
     wie die Bestandsbewertung des Depot-Snapshots. Nur bei ``False`` ist ein
     Depot-Check-PDF ohne Snapshot-Bindung (reine SOLL-Analyse) zulaessig."""
-    from services.portfolio_engine_live_rebalancing import _latest_holdings_by_product_for_mandate
-
-    return any(
-        int(row.units_milli or 0) > 0 or int(row.market_value_rappen or 0) > 0
-        for row in _latest_holdings_by_product_for_mandate(db, mandate.id).values()
-    )
+    if mandate_has_recorded_depot_holdings(db, mandate.id):
+        return True
+    # K3 / N-915-06: auch erfasster Fremdbestand ist ein Depotbestand.
+    return has_external_holdings(db, mandate)
 
 
 def ensure_current_depot_check_analysis(
