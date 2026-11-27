@@ -49,6 +49,7 @@ from models.product_eligibility import ProductEvidenceItem, ProductEvidenceSnaps
 from models.review import ProductUniverseEntry, RecommendationRun
 from models.snapshots import AdvisoryDecisionEnvelope, AdvisoryEnvelopeBinding
 from services.advisory_envelope_integrity import envelope_integrity_defect, verify_root_hash
+from product_evidence_test_support import synthetic_values
 from tests.test_c_comp_02_product_evidence import (  # noqa: F401
     TENANT, _code, _complete, _mandate_view, _now, _product, _raw_item, _run, db, engine,
 )
@@ -464,6 +465,7 @@ def test_alembic_head_admits_v2_envelopes_and_guards_identity_and_dimensions(tmp
         triggers = {row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type = 'trigger'"))}
     assert "'ares/advisory-envelope/2'" in ddl
     assert {"trg_product_evidence_identity_insert", "trg_product_evidence_identity_update",
+            "trg_products_evidence_identity_insert",
             "trg_product_evidence_snapshot_binding_insert"} <= triggers
     command.downgrade(cfg, "9f4c2a7e1b63")
     with engine.connect() as conn:
@@ -484,6 +486,7 @@ def test_postgres_revision_sql_widens_the_envelope_check_and_installs_both_trigg
     assert "ares/advisory-envelope/2" in sql
     assert "CREATE TRIGGER trg_product_evidence_identity BEFORE INSERT OR UPDATE OF" in sql
     assert "CREATE TRIGGER trg_product_evidence_snapshot_binding BEFORE INSERT" in sql
+    assert "CREATE TRIGGER trg_products_evidence_identity AFTER INSERT ON products" in sql
 
 
 def test_reproducer_scenario_direct_foreign_row_cannot_reach_evaluation(db):  # noqa: F811
@@ -508,3 +511,46 @@ def test_spelled_out_trigger_sql_matches_the_single_identity_and_binding_rule():
          for dimension, column in contract.DIMENSION_COLUMNS.items()]
         + [f"NEW.schema_version = '{contract.PRODUCT_EVIDENCE_SCHEMA}'"]
     )
+
+
+@pytest.mark.parametrize("item_sc,rejected", [(None, False), ("synthetic-other-share-class", True)])
+def test_evidence_flushed_before_its_product_cannot_bypass_the_identity_trigger(db, item_sc, rejected):  # noqa: F811
+    """Ohne ORM-Beziehung schreibt eine Sitzung den Nachweis VOR dem Produkt
+    (SQLite prueft FKs hier nicht). Die Gegenrichtung auf ``products`` faengt
+    die fremde Anteilsklassenzeile dann beim Produkt-Insert ab (Deep-Contracts-
+    Reproducer-Fall); die passende Zeile bleibt Positivkontrolle."""
+    from sqlalchemy import event
+
+    order: list[str] = []
+    bind = db.get_bind()
+
+    def _record(_conn, _cursor, statement, *_args):
+        if statement.startswith("INSERT INTO product"):
+            order.append(statement.split()[2])
+
+    product = _product("same-flush")
+    values = synthetic_values(product, "kid", share_class_id=item_sc)
+    payload = values.pop("payload")
+    canonical, digest = evidence.product_evidence_item_payload_hash(payload)
+    values.update(id=new_uuid(), tenant_id=TENANT, product_id=product.id, canonical_payload_json=canonical,
+                  canonical_payload_hash=digest, status="draft", created_by="creator", created_at=_now(),
+                  updated_at=_now())
+    event.listen(bind, "before_cursor_execute", _record)
+    try:
+        db.add(product)
+        db.add(ProductEvidenceItem(**values))
+        if rejected:
+            with pytest.raises(IntegrityError, match="PRODUCT_EVIDENCE_SHARE_CLASS_MISMATCH"):
+                db.flush()
+            db.rollback()
+        else:
+            db.flush()
+    finally:
+        event.remove(bind, "before_cursor_execute", _record)
+    assert order[0] == "product_evidence_items"  # der Umgehungsweg wird tatsaechlich genommen
+    assert db.query(ProductEvidenceItem).count() == (0 if rejected else 1)
+
+
+def test_spelled_out_product_side_trigger_sql_matches_the_rule():
+    assert contract.SQLITE_PRODUCT_IDENTITY_MISMATCH_SQL == contract.product_identity_mismatch_sql("sqlite")
+    assert contract.PG_PRODUCT_IDENTITY_MISMATCH_SQL == contract.product_identity_mismatch_sql("postgresql")

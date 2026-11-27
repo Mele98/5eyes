@@ -11,7 +11,8 @@
   bleiben unberuehrt (Snapshots sind unveraenderlich) und werden STALE.
 * 6.4 ``product_evidence_items``: Produkt-/Anteilsklassenidentitaet per
   Trigger (INSERT und UPDATE der Identitaetsspalten); eine fremde oder
-  abweichende Anteilsklassenzeile scheitert an der Datenbank.
+  abweichende Anteilsklassenzeile scheitert an der Datenbank -- auch wenn sie
+  VOR ihrem Produkt eingefuegt wird (Gegenrichtung: INSERT auf ``products``).
 
 SQL eingefroren (Stand dieser Revision; Quelle core/product_evidence.py).
 SQLite: der Envelope-CHECK wird nach dem dokumentierten writable_schema-
@@ -53,6 +54,10 @@ PG_IDENTITY_FUNCTION = "\nCREATE OR REPLACE FUNCTION product_evidence_items_iden
 PG_IDENTITY_TRIGGER = 'CREATE TRIGGER trg_product_evidence_identity BEFORE INSERT OR UPDATE OF product_id, stable_instrument_id, share_class_id ON product_evidence_items FOR EACH ROW EXECUTE FUNCTION product_evidence_items_identity()'
 PG_SNAPSHOT_BINDING_FUNCTION = "\nCREATE OR REPLACE FUNCTION product_evidence_snapshots_binding()\nRETURNS trigger AS $$\nBEGIN\n    IF NOT ((NEW.eligibility_snapshot_id IS NOT NULL AND substr(NEW.eligibility_snapshot_id, 1, 12) = 'eligibility:' AND length(NEW.eligibility_snapshot_id) = 76 AND ltrim(substr(NEW.eligibility_snapshot_id, 13), '0123456789abcdef') = '') AND (NEW.cost_snapshot_id IS NOT NULL AND substr(NEW.cost_snapshot_id, 1, 5) = 'cost:' AND length(NEW.cost_snapshot_id) = 69 AND ltrim(substr(NEW.cost_snapshot_id, 6), '0123456789abcdef') = '') AND (NEW.conflict_snapshot_id IS NOT NULL AND substr(NEW.conflict_snapshot_id, 1, 9) = 'conflict:' AND length(NEW.conflict_snapshot_id) = 73 AND ltrim(substr(NEW.conflict_snapshot_id, 10), '0123456789abcdef') = '') AND NEW.schema_version = 'ares-product-evidence/v2') THEN\n        RAISE EXCEPTION 'product_evidence_snapshots: Eignungs-, Kosten- und Konfliktsnapshot muessen gebunden sein (Schema ares-product-evidence/v2)';\n    END IF;\n    RETURN NEW;\nEND;\n$$ LANGUAGE plpgsql\n"
 PG_SNAPSHOT_BINDING_TRIGGER = 'CREATE TRIGGER trg_product_evidence_snapshot_binding BEFORE INSERT ON product_evidence_snapshots FOR EACH ROW EXECUTE FUNCTION product_evidence_snapshots_binding()'
+# Gegenrichtung auf products (nur INSERT): Nachweis vor Produkt eingefuegt.
+SQLITE_PRODUCT_IDENTITY_TRIGGER = "CREATE TRIGGER IF NOT EXISTS trg_products_evidence_identity_insert AFTER INSERT ON products FOR EACH ROW WHEN EXISTS (SELECT 1 FROM product_evidence_items e WHERE e.product_id = NEW.id AND (NULLIF(trim(e.stable_instrument_id, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)), '') IS NOT COALESCE(NULLIF(trim(NEW.isin, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)), ''), NULLIF(trim(NEW.internal_product_id, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)), ''), NULLIF(trim(NEW.figi, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)), ''), NEW.id) OR NULLIF(trim(e.share_class_id, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)), '') IS NOT NULLIF(trim(NEW.share_class_figi, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)), ''))) BEGIN SELECT RAISE(ABORT, 'PRODUCT_EVIDENCE_SHARE_CLASS_MISMATCH: product_evidence_items: Nachweis gehoert nicht zur Produkt- oder Anteilsklassenidentitaet'); END"
+PG_PRODUCT_IDENTITY_FUNCTION = "\nCREATE OR REPLACE FUNCTION products_evidence_identity()\nRETURNS trigger AS $$\nBEGIN\n    IF EXISTS (SELECT 1 FROM product_evidence_items e WHERE e.product_id = NEW.id AND (NULLIF(btrim(e.stable_instrument_id::text, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)), '') IS DISTINCT FROM COALESCE(NULLIF(btrim(NEW.isin::text, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)), ''), NULLIF(btrim(NEW.internal_product_id::text, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)), ''), NULLIF(btrim(NEW.figi::text, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)), ''), NEW.id) OR NULLIF(btrim(e.share_class_id::text, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)), '') IS DISTINCT FROM NULLIF(btrim(NEW.share_class_figi::text, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)), ''))) THEN\n        RAISE EXCEPTION 'PRODUCT_EVIDENCE_SHARE_CLASS_MISMATCH: product_evidence_items: Nachweis gehoert nicht zur Produkt- oder Anteilsklassenidentitaet';\n    END IF;\n    RETURN NEW;\nEND;\n$$ LANGUAGE plpgsql\n"
+PG_PRODUCT_IDENTITY_TRIGGER = 'CREATE TRIGGER trg_products_evidence_identity AFTER INSERT ON products FOR EACH ROW EXECUTE FUNCTION products_evidence_identity()'
 
 
 def _sqlite_rewrite_envelope_check(pattern: "re.Pattern[str]", replacement: str) -> None:
@@ -90,11 +95,13 @@ def upgrade() -> None:
         op.create_check_constraint(ENVELOPE_CHECK, ENVELOPES, ENVELOPE_CHECK_V2)
         op.execute(PG_IDENTITY_FUNCTION)
         op.execute(PG_IDENTITY_TRIGGER)
+        op.execute(PG_PRODUCT_IDENTITY_FUNCTION)
+        op.execute(PG_PRODUCT_IDENTITY_TRIGGER)
         op.execute(PG_SNAPSHOT_BINDING_FUNCTION)
         op.execute(PG_SNAPSHOT_BINDING_TRIGGER)
     elif dialect == "sqlite":
         _sqlite_rewrite_envelope_check(_LEGACY_CHECK, _WIDE_CHECK)
-        for statement in SQLITE_IDENTITY_TRIGGERS:
+        for statement in SQLITE_IDENTITY_TRIGGERS + (SQLITE_PRODUCT_IDENTITY_TRIGGER,):
             op.execute(statement)
         op.execute(SQLITE_SNAPSHOT_BINDING_TRIGGER)
 
@@ -111,6 +118,8 @@ def downgrade() -> None:
         op.execute("DROP TRIGGER IF EXISTS trg_product_evidence_snapshot_binding ON product_evidence_snapshots")
         op.execute("DROP FUNCTION IF EXISTS product_evidence_snapshots_binding()")
         op.execute("DROP TRIGGER IF EXISTS trg_product_evidence_identity ON product_evidence_items")
+        op.execute("DROP TRIGGER IF EXISTS trg_products_evidence_identity ON products")
+        op.execute("DROP FUNCTION IF EXISTS products_evidence_identity()")
         op.execute("DROP FUNCTION IF EXISTS product_evidence_items_identity()")
         op.drop_constraint(ENVELOPE_CHECK, ENVELOPES, type_="check")
         op.create_check_constraint(ENVELOPE_CHECK, ENVELOPES, ENVELOPE_CHECK_V1)
@@ -118,4 +127,5 @@ def downgrade() -> None:
         op.execute("DROP TRIGGER IF EXISTS trg_product_evidence_snapshot_binding_insert")
         op.execute("DROP TRIGGER IF EXISTS trg_product_evidence_identity_insert")
         op.execute("DROP TRIGGER IF EXISTS trg_product_evidence_identity_update")
+        op.execute("DROP TRIGGER IF EXISTS trg_products_evidence_identity_insert")
         _sqlite_rewrite_envelope_check(_WIDE_CHECK_PATTERN, "CHECK (" + ENVELOPE_CHECK_V1 + ")")

@@ -110,8 +110,7 @@ _SQLITE_BLANK = "' ' || char(9) || char(10) || char(11) || char(12) || char(13)"
 _PG_BLANK = "' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)"
 
 
-def identity_mismatch_sql(dialect: str) -> str:
-    """Bedingung ``Nachweisidentitaet != Produktidentitaet`` fuer einen Trigger."""
+def _identity_differs(dialect: str, evidence: str, product: str) -> str:
     if dialect == "postgresql":
         def norm(expr: str) -> str:
             return f"NULLIF(btrim({expr}::text, {_PG_BLANK}), '')"
@@ -120,11 +119,33 @@ def identity_mismatch_sql(dialect: str) -> str:
         def norm(expr: str) -> str:
             return f"NULLIF(trim({expr}, {_SQLITE_BLANK}), '')"
         differs = "IS NOT"
-    stable = f"COALESCE({norm('p.isin')}, {norm('p.internal_product_id')}, {norm('p.figi')}, p.id)"
+    stable = (
+        f"COALESCE({norm(product + '.isin')}, {norm(product + '.internal_product_id')}, "
+        f"{norm(product + '.figi')}, {product}.id)"
+    )
+    return (
+        f"{norm(evidence + '.stable_instrument_id')} {differs} {stable} "
+        f"OR {norm(evidence + '.share_class_id')} {differs} {norm(product + '.share_class_figi')}"
+    )
+
+
+def identity_mismatch_sql(dialect: str) -> str:
+    """Bedingung ``Nachweisidentitaet != Produktidentitaet`` fuer einen Trigger
+    auf ``product_evidence_items`` (NEW = Nachweis)."""
     return (
         "EXISTS (SELECT 1 FROM products p WHERE p.id = NEW.product_id AND ("
-        f"{norm('NEW.stable_instrument_id')} {differs} {stable} "
-        f"OR {norm('NEW.share_class_id')} {differs} {norm('p.share_class_figi')}))"
+        f"{_identity_differs(dialect, 'NEW', 'p')}))"
+    )
+
+
+def product_identity_mismatch_sql(dialect: str) -> str:
+    """Gegenrichtung auf ``products`` (NEW = Produkt): ein Produkt darf nicht
+    NACH bereits vorhandenen, abweichenden Nachweisen eingefuegt werden. Sonst
+    umginge die Einfuegereihenfolge einer Sitzung (Nachweis vor Produkt, SQLite
+    ohne FK-Pruefung) die Nachweis-Seite des Triggers."""
+    return (
+        "EXISTS (SELECT 1 FROM product_evidence_items e WHERE e.product_id = NEW.id AND ("
+        f"{_identity_differs(dialect, 'e', 'NEW')}))"
     )
 
 
@@ -175,6 +196,49 @@ PG_IDENTITY_TRIGGER = (
     "CREATE TRIGGER trg_product_evidence_identity BEFORE INSERT OR UPDATE OF "
     "product_id, stable_instrument_id, share_class_id ON product_evidence_items FOR EACH ROW "
     "EXECUTE FUNCTION product_evidence_items_identity()"
+)
+# Gegenrichtung (products, nur INSERT): ausgeschrieben, identisch mit
+# ``product_identity_mismatch_sql`` (Test sichert die Deckung).
+SQLITE_PRODUCT_IDENTITY_MISMATCH_SQL = (
+    'EXISTS (SELECT 1 FROM product_evidence_items e WHERE e.product_id = NEW.id AND (NULLIF(trim(e.st'
+    "able_instrument_id, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)), '') IS NOT "
+    "COALESCE(NULLIF(trim(NEW.isin, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)), "
+    "''), NULLIF(trim(NEW.internal_product_id, ' ' || char(9) || char(10) || char(11) || char(12) || "
+    "char(13)), ''), NULLIF(trim(NEW.figi, ' ' || char(9) || char(10) || char(11) || char(12) || char"
+    "(13)), ''), NEW.id) OR NULLIF(trim(e.share_class_id, ' ' || char(9) || char(10) || char(11) || c"
+    "har(12) || char(13)), '') IS NOT NULLIF(trim(NEW.share_class_figi, ' ' || char(9) || char(10) ||"
+    " char(11) || char(12) || char(13)), '')))"
+)
+PG_PRODUCT_IDENTITY_MISMATCH_SQL = (
+    'EXISTS (SELECT 1 FROM product_evidence_items e WHERE e.product_id = NEW.id AND (NULLIF(btrim(e.s'
+    "table_instrument_id::text, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)), '') IS DI"
+    "STINCT FROM COALESCE(NULLIF(btrim(NEW.isin::text, ' ' || chr(9) || chr(10) || chr(11) || chr(12)"
+    " || chr(13)), ''), NULLIF(btrim(NEW.internal_product_id::text, ' ' || chr(9) || chr(10) || chr(1"
+    "1) || chr(12) || chr(13)), ''), NULLIF(btrim(NEW.figi::text, ' ' || chr(9) || chr(10) || chr(11)"
+    " || chr(12) || chr(13)), ''), NEW.id) OR NULLIF(btrim(e.share_class_id::text, ' ' || chr(9) || c"
+    "hr(10) || chr(11) || chr(12) || chr(13)), '') IS DISTINCT FROM NULLIF(btrim(NEW.share_class_figi"
+    "::text, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)), '')))"
+)
+SQLITE_PRODUCT_IDENTITY_TRIGGER = (
+    "CREATE TRIGGER IF NOT EXISTS trg_products_evidence_identity_insert "
+    "AFTER INSERT ON products FOR EACH ROW "
+    f"WHEN {SQLITE_PRODUCT_IDENTITY_MISMATCH_SQL} "
+    f"BEGIN SELECT RAISE(ABORT, '{IDENTITY_MISMATCH_MESSAGE}'); END"
+)
+PG_PRODUCT_IDENTITY_FUNCTION = f"""
+CREATE OR REPLACE FUNCTION products_evidence_identity()
+RETURNS trigger AS $$
+BEGIN
+    IF {PG_PRODUCT_IDENTITY_MISMATCH_SQL} THEN
+        RAISE EXCEPTION '{IDENTITY_MISMATCH_MESSAGE}';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql
+"""
+PG_PRODUCT_IDENTITY_TRIGGER = (
+    "CREATE TRIGGER trg_products_evidence_identity AFTER INSERT ON products FOR EACH ROW "
+    "EXECUTE FUNCTION products_evidence_identity()"
 )
 
 # Deutsche Meldungen; technische Details stehen nur im Audit.
@@ -767,6 +831,8 @@ __all__ = [
     "TENANT_MISMATCH_MESSAGE", "TENANT_MISMATCH_SQL",
     "IDENTITY_MISMATCH_MESSAGE", "PG_IDENTITY_FUNCTION", "PG_IDENTITY_TRIGGER", "SQLITE_IDENTITY_TRIGGERS",
     "identity_mismatch_sql", "PG_IDENTITY_MISMATCH_SQL", "SQLITE_IDENTITY_MISMATCH_SQL",
+    "PG_PRODUCT_IDENTITY_FUNCTION", "PG_PRODUCT_IDENTITY_MISMATCH_SQL", "PG_PRODUCT_IDENTITY_TRIGGER",
+    "SQLITE_PRODUCT_IDENTITY_MISMATCH_SQL", "SQLITE_PRODUCT_IDENTITY_TRIGGER", "product_identity_mismatch_sql",
     "bound_rate_terms", "bound_term", "configure_synthetic_evidence", "evaluate_items", "evidence_identity", "identity_matches", "is_sha256", "is_synthetic",
     "item_binding", "item_sort_key", "item_terms", "lifecycle_fingerprint", "payload_defect_code",
     "product_identity", "rate_terms", "run_evidence_state", "stored_json_hash", "synthetic_evidence_allowed",

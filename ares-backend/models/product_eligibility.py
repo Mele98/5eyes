@@ -23,7 +23,8 @@ from sqlalchemy.orm import relationship
 from database import Base
 from core import product_eligibility_override_schema as _override_schema
 from core.product_evidence import (
-    PG_IDENTITY_FUNCTION, PG_IDENTITY_TRIGGER, PG_SNAPSHOT_BINDING_FUNCTION, PG_SNAPSHOT_BINDING_TRIGGER,
+    PG_IDENTITY_FUNCTION, PG_IDENTITY_TRIGGER, PG_PRODUCT_IDENTITY_FUNCTION, PG_PRODUCT_IDENTITY_TRIGGER,
+    PG_SNAPSHOT_BINDING_FUNCTION, PG_SNAPSHOT_BINDING_TRIGGER, SQLITE_PRODUCT_IDENTITY_TRIGGER,
     PRODUCT_EVIDENCE_KINDS, PRODUCT_EVIDENCE_SCHEMA, SQLITE_IDENTITY_TRIGGERS, SQLITE_SNAPSHOT_BINDING_TRIGGER,
     SQLITE_TENANT_TRIGGERS, TENANT_MISMATCH_MESSAGE, TENANT_MISMATCH_SQL,
 )
@@ -419,7 +420,10 @@ _PEI_SQLITE_UNCHANGED = " AND ".join(
     f"NEW.{column} IS OLD.{column}" for column in PRODUCT_EVIDENCE_IMMUTABLE_COLUMNS
 )
 # C-COMP-02 (6.4): Identitaetstrigger (core.product_evidence) neben der Tenantgrenze.
+# Der Produkt-Trigger (Gegenrichtung) liegt auf ``products``, wird aber hier
+# angelegt -- erst jetzt existieren beide Tabellen.
 PRODUCT_EVIDENCE_SQLITE_TRIGGERS: tuple[str, ...] = SQLITE_TENANT_TRIGGERS + SQLITE_IDENTITY_TRIGGERS + (
+    SQLITE_PRODUCT_IDENTITY_TRIGGER,
     "CREATE TRIGGER IF NOT EXISTS trg_product_evidence_immutable_update "
     "BEFORE UPDATE ON product_evidence_items FOR EACH ROW "
     "WHEN OLD.status <> 'draft' AND NOT (OLD.status = 'approved' "
@@ -476,6 +480,8 @@ for _product_evidence_pg_ddl in (
     PRODUCT_EVIDENCE_PG_TRIGGER,
     PG_IDENTITY_FUNCTION,
     PG_IDENTITY_TRIGGER,
+    PG_PRODUCT_IDENTITY_FUNCTION,
+    PG_PRODUCT_IDENTITY_TRIGGER,
 ):
     event.listen(
         ProductEvidenceItem.__table__,

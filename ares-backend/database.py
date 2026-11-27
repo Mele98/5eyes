@@ -28,6 +28,7 @@ from core import property_gate  # K1 Property-Gate (Stdlib-Blatt)
 from services import advisory_log_integrity as _advisory_log_integrity
 from core.product_evidence import (
     SQLITE_IDENTITY_TRIGGERS,
+    SQLITE_PRODUCT_IDENTITY_TRIGGER,
     SQLITE_SNAPSHOT_BINDING_TRIGGER,
     SQLITE_TENANT_TRIGGERS,
 )
@@ -3327,7 +3328,8 @@ def ensure_product_evidence_tenant_triggers(target_engine: Engine) -> None:
     # der Produkte (Laufzeit-Patch) vorhanden sind.
     identity = {'isin', 'internal_product_id', 'figi', 'share_class_figi'} <= product_columns
     with target_engine.begin() as connection:
-        for statement in SQLITE_TENANT_TRIGGERS + (SQLITE_IDENTITY_TRIGGERS if identity else ()):
+        identity_triggers = SQLITE_IDENTITY_TRIGGERS + (SQLITE_PRODUCT_IDENTITY_TRIGGER,)
+        for statement in SQLITE_TENANT_TRIGGERS + (identity_triggers if identity else ()):
             connection.execute(text(statement))
         if 'product_evidence_snapshots' in tables:
             # C-COMP-02 (6.3): neue Saetze nur mit gebundenen Dimensions-Snapshots.
