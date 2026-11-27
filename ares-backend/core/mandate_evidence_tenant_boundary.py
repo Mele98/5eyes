@@ -49,6 +49,14 @@ MANDATE_EVIDENCE_TENANT_TABLES: tuple[str, ...] = (
 # Tables with own mandate_id + client_id (guard: mandate tenant + client).
 MANDATE_BOUND_TENANT_TABLES: tuple[str, ...] = MANDATE_EVIDENCE_TENANT_TABLES + (
     "depot_check_analysis_snapshots",
+    # E1 Nachhaltigkeitspraeferenzen (Dok. 106): neue Tabelle, PG-Guard in
+    # Alembic f3a8c1e5b7d2 (gleiche Funktion mandate_evidence_tenant_from_mandate).
+    "investment_preference_decisions",
+    # H-179 L2/L3: PG-Guard in Alembic c7e1a9d3f5b2 (gleiche Funktion).
+    "advice_rationales",
+    "w033_client_declarations",
+    # L2c (H-192): Berichtsnotiz-Versionen, PG-Guard in Alembic e2b7c4d9a1f3.
+    "mandate_report_note_versions",
 )
 # Tables bound to a recommendation run (guard: tenant of the run's mandate).
 RUN_BOUND_TENANT_TABLES: tuple[str, ...] = ("product_eligibility_overrides",)

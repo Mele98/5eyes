@@ -150,6 +150,11 @@ def _seed_recommendation_with_ter(
             asset_class="equities",
             currency="CHF",
             ter_bps=ter_bps,
+            # N-861-2 (P1): "voll befuellt" heisst seit P1 auch: Retrozession
+            # bekannt (hier ausdruecklich 0 mit Quelle). Ohne Satz waere der
+            # Ausweis zu Recht nicht vollstaendig (Art. 26 FIDLEG).
+            retrocession_bps=0,
+            retrocession_source="Testannahme",
             created_at=_now(),
             updated_at=_now(),
         )
@@ -461,8 +466,9 @@ def test_endpoint_ter_unvollstaendig_meldet_warnung(
     assert resp.status_code == 200
     body = resp.json()
     assert body["is_complete"] is False
-    # Coverage < 100% (nur die Haelfte hat TER)
-    assert 0 < body["product_cost_coverage_bps"] < 10000
+    # C-COMP-02: ein Produkt ohne belegte TER macht den ganzen Nachweissatz
+    # unbindbar -- unbekannt statt teilweise aus Stammdaten.
+    assert body["product_cost_coverage_bps"] == 0
     # Eine Warnung muss die TER-Luecke explizit nennen
     assert any("TER" in w for w in body["warnings"])
 

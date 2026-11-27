@@ -33,6 +33,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from models.clients import Client, ClientNationality, ClientOptHistory
@@ -43,36 +44,74 @@ SCHEMA_VERSION = 1
 # DSG-konforme Aufbewahrungs-Hinweise pro Tabelle. Wird im Export
 # mit-geliefert, damit der Kunde versteht, warum welcher Datensatz
 # wie lange aufbewahrt wird.
+#
+# H7 C-6 (Compliance-Audit 2026-11-07, Luecke 6): die frueheren Texte
+# zitierten "OR Art. 962" (betrifft anerkannte Rechnungslegungsstandards,
+# nicht die Aufbewahrung) und FIDLEG-Artikel als Aufbewahrungsnorm (Art. 6,
+# 9, 11, 19, 21). FIDLEG regelt die Dokumentation (Art. 15), aber keine
+# eigene Frist; die 10 Jahre folgen aus GwG Art. 7 Abs. 3 (Sorgfaltspflicht-
+# Belege), OR 958f (Buecher und Buchungsbelege) und der Beweissicherung waehrend
+# der Verjaehrungsfrist (OR 127). Fristbeginn ist das Ende der Kunden-
+# beziehung bzw. des Mandats, nicht der Eintrag. Die Hinweise gehen an
+# Kundinnen und Kunden (DSG Art. 19/25): nur gesicherte Zitate.
+_RELATIONSHIP_EVIDENCE = (
+    "Während der Kundenbeziehung und 10 Jahre nach deren Ende "
+    "(Beweissicherung während der Verjährungsfrist, OR Art. 127)."
+)
+_FIDLEG_DOCUMENTATION = (
+    "Während des Mandats und 10 Jahre nach dessen Ende (Dokumentationspflicht "
+    "Art. 15 FIDLEG; Frist zur Beweissicherung, OR Art. 127)."
+)
 RETENTION_NOTES: dict[str, str] = {
     "clients": (
-        "Aufbewahrung waehrend der Kundenbeziehung plus 10 Jahre nach Ende "
-        "(GwG Art. 7, OR Art. 962)."
+        "Während der Kundenbeziehung und mindestens 10 Jahre nach deren Ende "
+        "(GwG Art. 7 Abs. 3; Beweissicherung, OR Art. 127)."
     ),
-    "mandates": "10 Jahre nach Ende des Mandats (OR Art. 962).",
-    "risk_assessments": "10 Jahre nach Erfassung (FIDLEG Art. 11).",
-    "risk_assessment_answers": "10 Jahre nach Erfassung (FIDLEG Art. 11).",
-    "suitability_checks": "10 Jahre nach Pruefung (FIDLEG Art. 12, Art. 21).",
-    "client_knowledge": "10 Jahre nach letzter Bestaetigung (FIDLEG Art. 6).",
-    "advisory_log": "10 Jahre nach Beratungsgespraech (FIDLEG Art. 19).",
-    "recommendation_runs": "10 Jahre nach Erstellung (FIDLEG Art. 11).",
-    "recommendation_positions": "10 Jahre nach Erstellung (FIDLEG Art. 11).",
-    "recommendation_holdings": "10 Jahre nach Erstellung (FIDLEG Art. 11).",
-    "target_allocations": "10 Jahre nach Erstellung (FIDLEG Art. 11).",
-    "strategy_snapshots": "10 Jahre nach Erstellung (FIDLEG Art. 11).",
-    "wealth_positions": "Kundenbeziehung + 10 Jahre (OR Art. 962).",
-    "cashflows": "Kundenbeziehung + 10 Jahre (OR Art. 962).",
-    "wealth_inflows": "Kundenbeziehung + 10 Jahre (OR Art. 962).",
-    "goals": "Kundenbeziehung + 10 Jahre.",
-    "planning_assumptions": "Kundenbeziehung + 10 Jahre.",
-    "contract_documents": "10 Jahre nach Vertragsende (OR Art. 962).",
-    "conflict_of_interest_disclosure": "10 Jahre nach Erfassung (FIDLEG Art. 9).",
-    "mandate_report_notes": "10 Jahre nach Erstellung (FIDLEG Art. 11).",
-    "review_trigger": "10 Jahre nach Auflage (FIDLEG Art. 11).",
-    "protocol_baustein_selections": "10 Jahre nach Erstellung (FIDLEG Art. 11).",
-    "client_nationalities": "Kundenbeziehung + 10 Jahre (GwG Art. 7).",
-    "client_opt_history": "10 Jahre nach Klassifikationswechsel (FIDLEG Art. 4).",
+    "mandates": (
+        "Während des Mandats und 10 Jahre nach dessen Ende (Beweissicherung, "
+        "OR Art. 127; Buchungsbelege OR Art. 958f)."
+    ),
+    "risk_assessments": _FIDLEG_DOCUMENTATION,
+    "risk_assessment_answers": _FIDLEG_DOCUMENTATION,
+    "suitability_checks": _FIDLEG_DOCUMENTATION,
+    "client_knowledge": _FIDLEG_DOCUMENTATION,
+    "advisory_log": _FIDLEG_DOCUMENTATION,
+    "recommendation_runs": _FIDLEG_DOCUMENTATION,
+    "recommendation_positions": _FIDLEG_DOCUMENTATION,
+    "recommendation_holdings": _FIDLEG_DOCUMENTATION,
+    "target_allocations": _FIDLEG_DOCUMENTATION,
+    "strategy_snapshots": _FIDLEG_DOCUMENTATION,
+    "wealth_positions": _RELATIONSHIP_EVIDENCE,
+    "cashflows": _RELATIONSHIP_EVIDENCE,
+    "wealth_inflows": _RELATIONSHIP_EVIDENCE,
+    "goals": _RELATIONSHIP_EVIDENCE,
+    "planning_assumptions": _RELATIONSHIP_EVIDENCE,
+    "contract_documents": (
+        "Während des Vertrags und 10 Jahre nach dessen Ende (Beweissicherung, "
+        "OR Art. 127; soweit Buchungsbeleg OR Art. 958f)."
+    ),
+    "conflict_of_interest_disclosure": _FIDLEG_DOCUMENTATION,
+    "mandate_report_notes": _FIDLEG_DOCUMENTATION,
+    # L2c (H-192): versionierte Berichtsnotizen und Gruende der Empfehlung.
+    "mandate_report_note_versions": _FIDLEG_DOCUMENTATION,
+    "advice_rationales": _FIDLEG_DOCUMENTATION,
+    # L2c: append-only Nachweise mit versiegelten Freitexten (Auskunft
+    # vollstaendig, CTO-Entscheid "alle Personendaten").
+    "risk_override_decisions": _FIDLEG_DOCUMENTATION,
+    "risk_profile_signoffs": _FIDLEG_DOCUMENTATION,
+    "financial_coverage_attestations": _FIDLEG_DOCUMENTATION,
+    "investment_preference_decisions": _FIDLEG_DOCUMENTATION,
+    "goal_revision_decisions": _RELATIONSHIP_EVIDENCE,
+    "review_trigger": _FIDLEG_DOCUMENTATION,
+    "protocol_baustein_selections": _FIDLEG_DOCUMENTATION,
+    "client_nationalities": (
+        "Während der Kundenbeziehung und mindestens 10 Jahre nach deren Ende "
+        "(GwG Art. 7 Abs. 3)."
+    ),
+    "client_opt_history": _FIDLEG_DOCUMENTATION,
     "audit_log": (
-        "10 Jahre nach Eintrag (interne Compliance + Beweissicherung)."
+        "Mindestens 10 Jahre; kundenbezogene Einträge bis 10 Jahre nach Ende "
+        "der Kundenbeziehung (Beweissicherung, OR Art. 127)."
     ),
 }
 
@@ -213,6 +252,18 @@ def export_client_data(db: Session, client_id: str) -> dict[str, Any]:
         "mandate_report_notes": _s(
             "mandate_report_notes", lambda: _query_mandate_report_notes(db, mandate_ids)
         ),
+        "mandate_report_note_versions": _s(
+            "mandate_report_note_versions",
+            lambda: _query_rows_by_mandate(db, "mandate_report_note_versions", mandate_ids, "version"),
+        ),
+        "advice_rationales": _s(
+            "advice_rationales",
+            lambda: _query_rows_by_mandate(db, "advice_rationales", mandate_ids, "recorded_at"),
+        ),
+        **{
+            table: _s(table, lambda table=table: _query_rows_by_mandate(db, table, mandate_ids, "id"))
+            for table in _SEALED_EVIDENCE_SECTIONS
+        },
         "review_trigger": _s("review_trigger", lambda: _query_review_trigger(db, mandate_ids)),
         "strategy_snapshots": _s(
             "strategy_snapshots", lambda: _query_strategy_snapshots(db, mandate_ids)
@@ -242,9 +293,9 @@ def export_client_data(db: Session, client_id: str) -> dict[str, Any]:
         "legal_basis": {
             "primary": "DSG Art. 25 (Recht auf Auskunft, Schweiz, in Kraft seit 2023)",
             "supplementary": [
-                "FIDLEG Art. 11 (Dokumentationspflicht)",
-                "GwG Art. 7 (Sorgfaltspflicht-Belege)",
-                "OR Art. 962 (10-Jahres-Aufbewahrung)",
+                "FIDLEG Art. 15 (Dokumentationspflicht)",
+                "GwG Art. 7 Abs. 3 (Sorgfaltspflicht-Belege, 10 Jahre nach Ende der Geschäftsbeziehung)",
+                "OR Art. 958f (Aufbewahrung Bücher und Buchungsbelege, 10 Jahre)",
             ],
             "format": "Maschinenlesbares JSON, UTF-8.",
         },
@@ -270,8 +321,16 @@ _SECTION_TABLES: dict[str, str] = {
 def _apply_privacy_restrictions(
     db: Session, client_id: str, sections: dict[str, Any], section_status: dict[str, str],
 ) -> dict[str, list[str]]:
-    from services.privacy_erasure import evidence_types_for_table, restricted_evidence_types
+    from services.privacy_erasure import (
+        evidence_types_for_table,
+        restricted_evidence_types,
+        reveal_sealed_export_values,
+    )
 
+    # L2c (H-192, CTO-Entscheid): die Auskunft enthaelt ALLE Personendaten,
+    # auch die versiegelten Freitexte -- geoeffnet mit dem Schluessel dieses
+    # Kunden, geloeschte als «Gelöscht (DSG).». Nie ein Umschlag im Export.
+    reveal_sealed_export_values(db, client_id, sections)
     restricted = restricted_evidence_types(db, client_id=client_id)
     if not restricted:
         return {}
@@ -636,6 +695,27 @@ def _query_mandate_report_notes(
         .all()
     )
     return _serialize_list(rows)
+
+
+# L2c: weitere append-only Nachweise mit versiegelten Freitexten (pii_vault).
+_SEALED_EVIDENCE_SECTIONS = (
+    "risk_override_decisions", "risk_profile_signoffs", "goal_revision_decisions",
+    "financial_coverage_attestations", "investment_preference_decisions",
+)
+
+
+def _query_rows_by_mandate(
+    db: Session, table: str, mandate_ids: list[str], order_column: str,
+) -> list[dict[str, Any]]:
+    """L2c: Zeilen einer Mandats-Evidenztabelle (ohne Modellimport)."""
+    if not mandate_ids:
+        return []
+    rows = db.execute(
+        text(f'SELECT * FROM "{table}" WHERE mandate_id IN :ids ORDER BY mandate_id, "{order_column}", id')
+        .bindparams(bindparam("ids", expanding=True)),
+        {"ids": list(mandate_ids)},
+    ).mappings().all()
+    return [{key: _coerce_jsonable(value) for key, value in row.items()} for row in rows]
 
 
 def _query_review_trigger(

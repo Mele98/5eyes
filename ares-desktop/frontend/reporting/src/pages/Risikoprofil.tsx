@@ -7,45 +7,34 @@
  *
  * FINMA-Disziplin: §2 Risikoprofil ist nur ANGEZEIGT, nicht editierbar
  * in der Sub-App. Override geht über die Hauptapp ares.html.
+ *
+ * H9 (Owner-Vorgabe 2026-11-08): kein Plausibilitaets-/Widerspruchshinweis
+ * zur Risikofaehigkeit in dieser Sektion -- Kundenangaben werden respektiert,
+ * die Pruefung bleibt intern (Evidenz + Audit).
  */
 import type {
   ProjectionGateData,
   RisikoprofilierungData,
   RiskQuestion,
 } from '@/api/types';
-import type { RiskCapacityPlausibilityCompact } from '@/api/riskCapacityPlausibility';
-import { useUserRole } from '@/api/useUserRole';
 import { ReportPage } from '@/components/ReportPage';
 import { formatBpsAsPct, formatInteger } from '@/lib/format';
-import { RiskCapacityPlausibilityNotice } from '@/sections/profiling/RiskCapacityPlausibilityPanel';
-import { RiskCapacityRecheck } from '@/sections/profiling/RiskCapacityRecheckNotice';
 
 interface RisikoprofilProps {
   data: RisikoprofilierungData;
-  /**
-   * RISK-CAPACITY-REPORT-001: betragsfreier Auszug der Plausibilitaets-
-   * pruefung (suitability_summary.risk_capacity_plausibility). Nur in der
-   * Berater-Ansicht (canEdit) sichtbar und nie im Druck.
-   */
-  capacityPlausibility?: RiskCapacityPlausibilityCompact | null;
   /**
    * MC-CONTEXT-001 (Codex-Closure-Review PR #663): das Risikobudget stammt
    * aus der Soll-Allokation. Bei projections_hidden (z.B. neues Profil nach
    * der Allokation) wird es nicht gezeigt, sondern der Gate-Hinweis.
    */
   projectionGate?: ProjectionGateData;
-  /** RISK-CAPACITY-RECHECK-UI-001: Mandat fuer den Hinweis "neu zu prüfen". */
-  mandateId?: string;
 }
 
 export function Risikoprofil({
   data,
-  capacityPlausibility,
   projectionGate,
-  mandateId,
 }: RisikoprofilProps) {
   const projectionsHidden = projectionGate?.projections_hidden === true;
-  const { canEdit } = useUserRole();
   return (
     <ReportPage
       nr={12}
@@ -69,13 +58,6 @@ export function Risikoprofil({
       </section>
 
       {data.is_overridden ? <OverrideNotice reason={data.override_reason} /> : null}
-
-      {canEdit ? (
-        <div className="mt-section">
-          <RiskCapacityPlausibilityNotice data={capacityPlausibility} />
-          {mandateId ? <RiskCapacityRecheck mandateId={mandateId} /> : null}
-        </div>
-      ) : null}
 
       {data.questions && data.questions.length > 0 ? (
         <section className="mt-section">

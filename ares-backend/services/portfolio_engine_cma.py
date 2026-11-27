@@ -44,6 +44,7 @@ Fehlern nie durch Swiss Defaults/Identity ersetzt. Erwartete Renditen bleiben
 vorzeichenbehaftet; negative Netto-Erwartungen werden nicht auf 0 bps geklemmt.
 """
 from __future__ import annotations
+from core.risk_parameter_set import ParameterSetMissing
 
 import json
 import math
@@ -728,7 +729,10 @@ def _portfolio_weighted_ter_bps(
         weighted_ter = 0
         for prod in products:
             weight = max(0, int((prod or {}).get("target_weight_bps", 0) or 0))
-            ter = max(0, int((prod or {}).get("ter_bps", 0) or 0))
+            raw_ter = (prod or {}).get("ter_bps")
+            if raw_ter is None and (prod or {}).get("ter_status") != "not_applicable":
+                continue  # C-COMP-02: unbekannte TER ist nie 0 (nicht verduennen)
+            ter = max(0, int(raw_ter)) if raw_ter is not None else 0
             if weight > 0:
                 weighted_ter += weight * ter
                 total_weight += weight
@@ -779,10 +783,11 @@ def _expected_metrics(
     }
 
 
-#: Dokumentierter Baseline-Default, wenn die CMA ueberhaupt keinen
-#: Inflationspfad traegt. Vorher war die 70 eine im Parser versteckte
-#: Konstante, die AUCH bei kaputtem JSON griff -- also eine erfundene
-#: Annahme statt eines Defaults.
+#: Frueherer Baseline-Default fuer eine CMA ohne Inflationspfad. Seit CCX P5
+#: (M-2, Dok. 113 E-113-1: "Inflations-Fallback entfaellt") wird er NICHT mehr
+#: als Ersatzwert verwendet -- eine CMA ohne Pfad endet typisiert mit
+#: ``CCX_PARAMETER_SET_MISSING``. Der Name bleibt nur als CH-Pack-Referenz
+#: (jurisdictions/ch/pack.yaml) stehen, bis das Pack-Paket ihn abloest.
 INFLATION_BASELINE_BPS = 70
 
 
@@ -815,11 +820,18 @@ def _inflation_path_series(cma: CapitalMarketAssumption, years: int, start_year:
     benutzen -- eine Domaene, eine Pruefung.
     """
     path = parse_inflation_path_json(cma.inflation_path_json)
+    if not path:
+        # CCX P5 / M-2: kein Ersatzwert (frueher 70 bps hier, 150 bps lokal in
+        # zwei weiteren Modulen) -- nur der provenienzgebundene CMA-Pfad.
+        raise ParameterSetMissing(
+            "Die Kapitalmarktannahmen enthalten keinen Inflationspfad. Ohne freigegebenen "
+            "Pfad werden reale Ziele, Cashflows und Reserven nicht gerechnet."
+        )
     return inflation_path_series(
         path,
         years=years,
         start_year=start_year,
-        baseline_bps=INFLATION_BASELINE_BPS,
+        baseline_bps=0,  # unerreichbar: ``path`` ist nicht leer
     )
 
 

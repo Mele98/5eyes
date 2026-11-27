@@ -14,6 +14,7 @@ CH-Bestand, siehe Auftrag Constraint 1.
 """
 from __future__ import annotations
 
+from core.customer_terms import customer_term
 import json
 import logging
 from typing import Any
@@ -116,7 +117,7 @@ def _resolve_jurisdiction_provisional_notice(db: Session | None, mandate: Any) -
         except (TypeError, ValueError):
             parsed = {}
         message = str(parsed.get("message") or "").strip() or (
-            f"Kapitalmarktannahmen fuer Jurisdiktion '{jurisdiction}' sind noch "
+            f"Kapitalmarktannahmen für Jurisdiktion '{jurisdiction}' sind noch "
             "nicht vom Investment Committee freigegeben."
         )
         return {
@@ -136,7 +137,7 @@ def _resolve_jurisdiction_provisional_notice(db: Session | None, mandate: Any) -
             "jurisdiction": jurisdiction,
             "cma_status": None,
             "message": (
-                f"Fuer Jurisdiktion '{jurisdiction}' liegen keine "
+                f"Für Jurisdiktion '{jurisdiction}' liegen keine "
                 "Kapitalmarkt-Referenzdaten vor. Dieses Dokument ist "
                 "PROVISORISCH und darf nicht als finales Kundendokument "
                 "verwendet werden."
@@ -149,7 +150,7 @@ def _resolve_jurisdiction_provisional_notice(db: Session | None, mandate: Any) -
         "jurisdiction": jurisdiction,
         "cma_status": cma_status,
         "message": (
-            f"Kapitalmarktannahmen fuer Jurisdiktion '{jurisdiction}' sind "
+            f"Kapitalmarktannahmen für Jurisdiktion '{jurisdiction}' sind "
             f"noch nicht vom Investment Committee freigegeben (status="
             f"{cma_status!r}). Dieses Dokument ist PROVISORISCH und darf "
             "ohne IC-Freigabe nicht als finales Kundendokument verwendet werden."
@@ -159,7 +160,7 @@ def _resolve_jurisdiction_provisional_notice(db: Session | None, mandate: Any) -
 
 def _escape(text: str) -> str:
     return (
-        str(text or "")
+        customer_term(str(text or ""))
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")

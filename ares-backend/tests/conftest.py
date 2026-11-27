@@ -2,7 +2,7 @@
 
 Many tests start the FastAPI app via ``TestClient(app)``; its lifespan calls
 ``init_db()`` on ``settings.db_path``, whose default is the LIVE desktop
-database ``~/5eyes/5eyes.db``. Parallel test runs therefore executed startup
+database ``~/ares/ares.db``. Parallel test runs therefore executed startup
 migrations against real client data and left an interrupted table rebuild
 (ANSWERS-MIGRATION-IDEMPOTENT-001).
 
@@ -59,10 +59,42 @@ elif not os.environ.get("DB_PATH") or is_live_db_path(os.environ["DB_PATH"]):
     _session_dir = tempfile.mkdtemp(prefix="ares-tests-")
     os.environ["DB_PATH"] = str(Path(_session_dir) / "ares_test.db")
 
+# A2b B-1: Auch Backup- und Log-Verzeichnis liegen neben der Test-DB, nie im
+# Datenordner des Benutzerprofils. Der ``config``-Default fuer ``backup_dir``
+# zeigt auf das Profil, und ``services.maintenance.ensure_backup_dir()`` legt
+# ihn an (etwa ueber den Maintenance-Status) -- eine Test-Session hinterliess
+# so ein leeres Backup-Verzeichnis im echten Profil. Immer gesetzt (wie
+# TENANT_MASTER_KEK_FILE unten), damit auch eine .env-Angabe nicht greift;
+# Tests mit eigenem Verzeichnis setzen ``settings.backup_dir`` auf tmp_path.
+_test_data_dir = Path(os.environ["DB_PATH"]).parent
+os.environ["BACKUP_DIR"] = str(_test_data_dir / "backups")
+os.environ["LOG_DIR"] = str(_test_data_dir / "logs")
+
 # RB-1: Keine Test-Session legt eine echte KEK-Ablage an (etwa im userData-
 # Ordner der Desktop-Shell). Leer gesetzt statt entfernt, damit auch eine
 # .env-Angabe nicht greift; Tests der Ablage arbeiten nur auf tmp_path.
 os.environ["TENANT_MASTER_KEK_FILE"] = ""
+# EXE-P (H-187): ebenso keine Ablage des Datenbankschluessels. (Ein TEST-
+# Referenzpaket gibt es im Server seit N-935-01 nicht mehr.)
+os.environ["DB_KEY_FILE"] = ""
+
+
+# W4-c: Die Master-KEK ist Pflicht (kein Rueckfall auf SECRET_KEY). Jede
+# Test-Session bekommt eine eigene, zufaellige Test-KEK, bevor ``config`` seine
+# Settings baut; eine explizit gesetzte KEK bleibt unberuehrt. xdist-Worker
+# erben sie vom Controller.
+if not os.environ.get("TENANT_MASTER_KEK", "").strip():
+    from cryptography.fernet import Fernet
+
+    os.environ["TENANT_MASTER_KEK"] = Fernet.generate_key().decode("ascii")
+
+
+# H11 Nachtrag 1: Schnappschuss des Owner-Profils (~/ares, ~/5eyes) vor jedem
+# Test (nur Controller bzw. serieller Lauf), Vergleich am Session-Ende.
+import _owner_profile_guard  # noqa: E402
+
+_OWNER_PROFILE_ROOTS = _owner_profile_guard.owner_profile_roots()
+_OWNER_PROFILE_BEFORE = None if _XDIST_WORKER else _owner_profile_guard.snapshot(_OWNER_PROFILE_ROOTS)
 
 
 def live_db_violation(db_path, database_url=None):
@@ -157,6 +189,12 @@ def pytest_sessionfinish(session, exitstatus):  # noqa: D103
         # status, so the findings travel back over the workeroutput channel.
         workeroutput[_WORKEROUTPUT_LEAK_KEY] = report.lines()
     worker_lines = session.config.stash.get(_WORKER_LEAK_LINES_KEY, [])
+    if _OWNER_PROFILE_BEFORE is not None:
+        touched = _owner_profile_guard.changes(
+            _OWNER_PROFILE_BEFORE, _owner_profile_guard.snapshot(_OWNER_PROFILE_ROOTS))
+        if touched:
+            sys.stderr.write("\nOWNER-PROFIL VERAENDERT (H11 N1) -- Lauf rot:\n  " + "\n  ".join(touched) + "\n")
+            session.exitstatus = _pytest.ExitCode.TESTS_FAILED
     lines = report.lines() + worker_lines
     if lines and guard.strict_enabled() and session.exitstatus == 0:
         session.exitstatus = _pytest.ExitCode.TESTS_FAILED
@@ -221,3 +259,85 @@ def pytest_unconfigure(config):  # noqa: D103
         supervision.emit("exit_watchdog_fired", after_s=seconds, exit_code=code)
 
     guard.arm_exit_watchdog(exit_status=exit_status, on_fire=_on_fire)
+
+
+@_pytest.fixture(autouse=True)
+def _pdf_missing_glyph_guard(request):
+    """N-877-07/09: JEDER Test laeuft unter dem Glyphen-Guard -- ein Zeichen
+    ohne Glyphe im eingebetteten Font (.notdef-Kasten) ist rot. Ohne PDF-Text
+    ist der Hook wirkungslos (nur Patch/Restore von TTFont.splitString), es
+    gibt deshalb kein Dateinamen-Muster mehr. Opt-out nur per
+    ``@pytest.mark.allow_missing_glyphs`` (Positivkontrollen)."""
+    import _pdf_glyph_guard as guard
+
+    if request.node.get_closest_marker("allow_missing_glyphs"):
+        yield
+        return
+    with guard.glyph_guard(request.node.nodeid):
+        yield
+
+
+@_pytest.fixture(autouse=True, scope="session")
+def _ccx_p5_direct_solver_test_vector():
+    """CCX P5 / M-2: Tests, die den Optimierer direkt ohne Engine aufrufen,
+    erhalten ausdruecklich den Testvektor (tests/p5_test_vectors.py). Der
+    Produktivpfad liest ihn nie; der Fail-closed-Fall ist in
+    tests/test_ccx_p5_parameter_set.py mit geloeschtem Vektor belegt."""
+    from services.optimizer.constraints import set_test_risky_fraction
+    from tests.p5_test_vectors import P5_TEST_RISKY_FRACTION
+
+    previous = set_test_risky_fraction(P5_TEST_RISKY_FRACTION)
+    yield
+    set_test_risky_fraction(previous)
+
+
+# EXE-P (H-187): TESTWERT. Die Vorlage-Policy des Laufzeit-Seedings traegt im
+# Produkt KEIN Gebuehrenmodell mehr (frueher 75 bps "Automatisch erzeugte
+# V1-Standard-Policy" -> erfundener Satz im Kostenausweis). Die Bestandstests
+# rechnen mit genau diesem Testgebuehrenmodell (byte-gleich zum frueheren
+# Default, damit Golden/Snapshots unveraendert bleiben). Der Produktfall ohne
+# Gebuehrenvereinbarung ist mit ``@pytest.mark.no_test_fee_model`` belegt
+# (tests/test_h187_exe_production_mode.py).
+TEST_ONLY_SEED_FEE_MODEL_JSON = '{"default_advisory_fee_bps": 75}'
+
+
+@_pytest.fixture(autouse=True)
+def _h187_test_only_seed_fee_model(request):
+    import services.portfolio_engine_house_matrix as _hm
+
+    previous = _hm.RUNTIME_SEED_FEE_MODEL_JSON
+    _hm.RUNTIME_SEED_FEE_MODEL_JSON = (
+        None if request.node.get_closest_marker("no_test_fee_model") else TEST_ONLY_SEED_FEE_MODEL_JSON
+    )
+    yield
+    _hm.RUNTIME_SEED_FEE_MODEL_JSON = previous
+
+
+@_pytest.fixture(autouse=True)
+def _ccx_p5_no_test_vector_marker(request):
+    """N-925-06: ``@pytest.mark.p5_no_test_vector`` loescht den Testvektor fuer
+    genau diesen Test -- dort muss jeder Pfad ohne uebergebenen Vektor mit
+    ``CCX_PARAMETER_SET_MISSING`` scheitern."""
+    if request.node.get_closest_marker("p5_no_test_vector") is None:
+        yield
+        return
+    from services.optimizer.constraints import set_test_risky_fraction
+
+    previous = set_test_risky_fraction(None)
+    yield
+    set_test_risky_fraction(previous)
+
+
+@_pytest.fixture(autouse=True, scope="module")
+def _c_comp_02_synthetic_product_evidence(request):
+    """C-COMP-02: nur die abschliessend gelisteten Bestandsmodule erhalten
+    synthetische Produktevidenz ueber den echten Entwurfs-/Freigabeweg
+    (tests/product_evidence_test_support.py); alle Gates bleiben aktiv. Jedes
+    andere Modul laeuft ohne Evidenz."""
+    import product_evidence_test_support as support
+
+    if os.path.basename(str(request.path)) not in support.SYNTHETIC_EVIDENCE_MODULES:
+        yield
+        return
+    with support.synthetic_evidence_for_existing_flows():
+        yield

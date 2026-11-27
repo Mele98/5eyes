@@ -270,3 +270,11 @@ def test_b3_create_various_amortization_labels_blocked(
         },
     )
     assert resp.status_code == 422, f"Label '{label}' sollte blockiert sein, war {resp.status_code}"
+
+
+# K1 Property-Gate: dieses Modul belegt die DORMANTE Mechanik (Wiedereinschaltung
+# nach P1); das Gate selbst belegt tests/test_k1_property_advanced_gate.py.
+import pytest  # noqa: E402
+from tests.property_gate_support import property_advanced_mechanics_enabled  # noqa: E402,F401
+
+pytestmark = pytest.mark.usefixtures("property_advanced_mechanics_enabled")

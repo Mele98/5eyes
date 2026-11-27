@@ -44,7 +44,6 @@ from __future__ import annotations
 
 import argparse
 import shutil
-import sqlite3
 import sys
 import tempfile
 import time
@@ -57,11 +56,18 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 
+def _connect(db_path: Path):
+    """H11 N2: roher Connect nur ueber config.guarded_sqlite_connect (Owner-Pfad-Pruefung)."""
+    from config import guarded_sqlite_connect
+
+    return guarded_sqlite_connect(str(db_path), context="restore_drill")
+
+
 def _create_sandbox_source_db(db_path: Path) -> str:
     """Minimale, synthetische DB mit einer Marker-Zeile. Gibt den Marker
     zurueck, damit der Aufrufer ihn nach dem Restore verifizieren kann."""
     marker = uuid.uuid4().hex
-    conn = sqlite3.connect(str(db_path))
+    conn = _connect(db_path)
     try:
         conn.execute(
             "CREATE TABLE restore_drill_marker (id INTEGER PRIMARY KEY, token TEXT NOT NULL)"
@@ -74,7 +80,7 @@ def _create_sandbox_source_db(db_path: Path) -> str:
 
 
 def _read_marker(db_path: Path) -> str | None:
-    conn = sqlite3.connect(str(db_path))
+    conn = _connect(db_path)
     try:
         row = conn.execute("SELECT token FROM restore_drill_marker LIMIT 1").fetchone()
         return row[0] if row else None
@@ -83,7 +89,7 @@ def _read_marker(db_path: Path) -> str | None:
 
 
 def _integrity_check(db_path: Path) -> str:
-    conn = sqlite3.connect(str(db_path))
+    conn = _connect(db_path)
     try:
         return conn.execute("PRAGMA integrity_check").fetchone()[0]
     finally:
@@ -102,7 +108,7 @@ def main() -> int:
     from services.backup import backup_database
     from services.maintenance import restore_backup
 
-    workdir = Path(tempfile.mkdtemp(prefix="5eyes-restore-drill-"))
+    workdir = Path(tempfile.mkdtemp(prefix="ares-restore-drill-"))
     source_db = workdir / "source" / "drill.db"
     backup_dir = workdir / "backups"
     source_db.parent.mkdir(parents=True, exist_ok=True)
