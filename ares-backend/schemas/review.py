@@ -2036,9 +2036,12 @@ class AdvisoryEnvelopeBindingResponse(BaseModel):
 
 class AdvisoryEnvelopeResponse(BaseModel):
     """CCX-P1: aktueller, integritaetsgepruefter Beratungsentscheid
-    (``ares/advisory-envelope/1``). Rohwerte und Hashes, keine Darstellung."""
+    (``ares/advisory-envelope/2``; V1 nur historisch). Rohwerte und Hashes,
+    keine Darstellung."""
     envelope_id: str
     schema_version: str
+    # C-COMP-02 (6.1): versiegelter Satz-Hash der Produktevidenz (V2).
+    product_evidence_set_hash: Optional[str] = None
     status: str
     mandate_id: str
     envelope_hash: str

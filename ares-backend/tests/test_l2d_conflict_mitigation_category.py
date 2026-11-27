@@ -161,7 +161,7 @@ def test_alembic_head_is_linear_and_fails_closed_on_legacy_free_text(tmp_path):
 
     url = f"sqlite:///{tmp_path / 'l2d.db'}"
     script = ScriptDirectory.from_config(alembic_cfg(url))
-    assert script.get_heads() == ["9f4c2a7e1b63"]  # C-COMP-02: neuer Kopf (hinter K3)
+    assert script.get_heads() == ["4b8e2d6f1a9c"]  # C-COMP-02 V2 (Vorab-Entscheide 6.1/6.3/6.4) hinter C-COMP-02 hinter K3
     assert script.get_revision("f3c8a1d6b2e4").down_revision == "e2b7c4d9a1f3"
     command.upgrade(alembic_cfg(url), "e2b7c4d9a1f3")
     engine = create_engine(url)

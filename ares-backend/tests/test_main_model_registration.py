@@ -251,7 +251,11 @@ GOLDEN_SORTED_TABLES_SHA256 = "6258603045555fc851307dad851ea39cc76e582af29c4e191
 # 99 hinzugefuegte, 3 geaenderte description-Zeilen, export_openapi.py).
 # C-COMP-02: neue Pfade /products/evidence/overview, /products/{product_id}/evidence(+/approve),
 # /products/evidence/{evidence_id}/retire|revoke samt Schemas ProductEvidence*; nur additiv.
-GOLDEN_OPENAPI_SHA256 = "fa0c3161aef7b00b252cfb21bc7a3ff643f392a5d7fc93f398f4f062be28ac60"
+# C-COMP-02 V2 (Vorab-Entscheid 6.1): AdvisoryEnvelopeResponse.product_evidence_set_hash
+# (optional, nur additiv) + description (V2, V1 nur historisch); kein Pfad, kein
+# bestehendes Feld geaendert (Feld-Diff api/openapi.json: 12 hinzugefuegte,
+# 1 geaenderte description-Zeile, export_openapi.py; TS-Typen per gen-api-types).
+GOLDEN_OPENAPI_SHA256 = "ae0d9e212c0481e097b9efab262b3358baca4d917c920d7f57a02c1df5bc449e"
 
 _PROBE = """
 import hashlib, json

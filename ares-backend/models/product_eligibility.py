@@ -23,7 +23,9 @@ from sqlalchemy.orm import relationship
 from database import Base
 from core import product_eligibility_override_schema as _override_schema
 from core.product_evidence import (
-    PRODUCT_EVIDENCE_KINDS, SQLITE_TENANT_TRIGGERS, TENANT_MISMATCH_MESSAGE, TENANT_MISMATCH_SQL,
+    PG_IDENTITY_FUNCTION, PG_IDENTITY_TRIGGER, PG_SNAPSHOT_BINDING_FUNCTION, PG_SNAPSHOT_BINDING_TRIGGER,
+    PRODUCT_EVIDENCE_KINDS, PRODUCT_EVIDENCE_SCHEMA, SQLITE_IDENTITY_TRIGGERS, SQLITE_SNAPSHOT_BINDING_TRIGGER,
+    SQLITE_TENANT_TRIGGERS, TENANT_MISMATCH_MESSAGE, TENANT_MISMATCH_SQL,
 )
 
 
@@ -339,6 +341,10 @@ class ProductEvidenceSnapshot(Base):
     product_ids_json = Column(String, nullable=False)
     item_ids_json = Column(String, nullable=False)
     item_hashes_json = Column(String, nullable=False)
+    # C-COMP-02 (6.3): je Dimension die inhaltsadressierte ID
+    # ``<dimension>:<sha256>`` des im Payload gebundenen Snapshots (``bound``
+    # oder typisiert ``not_applicable`` mit Quelle, Freigabe und Hash). Der
+    # Einfuege-Trigger verlangt alle drei; NULL tragen nur Altsaetze (STALE).
     eligibility_snapshot_id = Column(String)
     cost_snapshot_id = Column(String)
     conflict_snapshot_id = Column(String)
@@ -349,8 +355,10 @@ class ProductEvidenceSnapshot(Base):
     reason_codes_json = Column(String, nullable=False, default="[]")
     canonical_payload_json = Column(String, nullable=False)
     product_evidence_hash = Column(String, nullable=False, unique=True)
-    schema_version = Column(String, nullable=False, default="ares-product-evidence/v1")
-    evaluator_version = Column(String, nullable=False, default="ares-product-evidence/1")
+    # C-COMP-02 (6.3): neue Saetze nur noch mit Schema 2 (Trigger erzwingt es);
+    # die Server-Vorgabe bleibt fuer den Altbestand unveraendert.
+    schema_version = Column(String, nullable=False, default=PRODUCT_EVIDENCE_SCHEMA)
+    evaluator_version = Column(String, nullable=False, default="ares-product-evidence/2")
     created_at = Column(String, nullable=False)
 
     __table_args__ = (
@@ -369,6 +377,8 @@ for _product_evidence_snapshot_ddl in (
     "CREATE TRIGGER IF NOT EXISTS trg_product_evidence_snapshot_immutable_delete "
     "BEFORE DELETE ON product_evidence_snapshots FOR EACH ROW "
     "BEGIN SELECT RAISE(ABORT, 'product_evidence_snapshots: Snapshot ist unveränderlich'); END",
+    # C-COMP-02 (6.3): kein Satz ohne gebundene Dimensions-Snapshots.
+    SQLITE_SNAPSHOT_BINDING_TRIGGER,
 ):
     event.listen(
         ProductEvidenceSnapshot.__table__, "after_create",
@@ -388,6 +398,8 @@ for _product_evidence_snapshot_pg_ddl in (
     "CREATE TRIGGER trg_product_evidence_snapshot_immutable BEFORE UPDATE OR DELETE "
     "ON product_evidence_snapshots FOR EACH ROW "
     "EXECUTE FUNCTION product_evidence_snapshots_immutable()",
+    PG_SNAPSHOT_BINDING_FUNCTION,
+    PG_SNAPSHOT_BINDING_TRIGGER,
 ):
     event.listen(
         ProductEvidenceSnapshot.__table__, "after_create",
@@ -406,7 +418,8 @@ PRODUCT_EVIDENCE_IMMUTABLE_COLUMNS: tuple[str, ...] = tuple(
 _PEI_SQLITE_UNCHANGED = " AND ".join(
     f"NEW.{column} IS OLD.{column}" for column in PRODUCT_EVIDENCE_IMMUTABLE_COLUMNS
 )
-PRODUCT_EVIDENCE_SQLITE_TRIGGERS: tuple[str, ...] = SQLITE_TENANT_TRIGGERS + (
+# C-COMP-02 (6.4): Identitaetstrigger (core.product_evidence) neben der Tenantgrenze.
+PRODUCT_EVIDENCE_SQLITE_TRIGGERS: tuple[str, ...] = SQLITE_TENANT_TRIGGERS + SQLITE_IDENTITY_TRIGGERS + (
     "CREATE TRIGGER IF NOT EXISTS trg_product_evidence_immutable_update "
     "BEFORE UPDATE ON product_evidence_items FOR EACH ROW "
     "WHEN OLD.status <> 'draft' AND NOT (OLD.status = 'approved' "
@@ -461,6 +474,8 @@ PRODUCT_EVIDENCE_PG_TRIGGER = (
 for _product_evidence_pg_ddl in (
     PRODUCT_EVIDENCE_PG_FUNCTION,
     PRODUCT_EVIDENCE_PG_TRIGGER,
+    PG_IDENTITY_FUNCTION,
+    PG_IDENTITY_TRIGGER,
 ):
     event.listen(
         ProductEvidenceItem.__table__,

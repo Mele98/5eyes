@@ -118,6 +118,22 @@ def evidence_hash(payload: Any, *, scheme: str = SCHEME_V1) -> str:
 # Beleg (oder einem Kind-Hash) kollidieren kann.
 ADVISORY_ENVELOPE_SCHEMA = "ares/advisory-envelope/1"
 ADVISORY_ENVELOPE_DOMAIN = b"Ares\x00ares/advisory-envelope/1\x00"
+# C-COMP-02 (Vorab-Entscheid 6.1, 26.11.2026): ``product_evidence_set_hash``
+# ist ein neuer versiegelter Bestandteil des Entscheids -> eigene Schema-ID und
+# eigene Root-Domaene. Neue und erneut freigegebene Entscheide werden
+# ausschliesslich mit V2 versiegelt. V1 bleibt mit dem V1-Kanonisierer und der
+# V1-Root-Domaene bytegenau pruefbar (read-only, historisch); es gibt keine
+# Hochstufung und kein Neuversiegeln alter Artefakte. Die Kind-Domaenen
+# (``.../1/<kind>``, Manifest, Cache-Scope, Publikation) sind eigene,
+# unveraenderte Komponentenvertraege und bleiben unter ihrer bisherigen ID.
+ADVISORY_ENVELOPE_SCHEMA_V1 = ADVISORY_ENVELOPE_SCHEMA
+ADVISORY_ENVELOPE_SCHEMA_V2 = "ares/advisory-envelope/2"
+ADVISORY_ENVELOPE_DOMAIN_V2 = b"Ares\x00ares/advisory-envelope/2\x00"
+ADVISORY_ENVELOPE_SEAL_SCHEMA = ADVISORY_ENVELOPE_SCHEMA_V2
+ADVISORY_ENVELOPE_ROOT_DOMAINS: dict[str, bytes] = {
+    ADVISORY_ENVELOPE_SCHEMA_V1: ADVISORY_ENVELOPE_DOMAIN,
+    ADVISORY_ENVELOPE_SCHEMA_V2: ADVISORY_ENVELOPE_DOMAIN_V2,
+}
 
 
 def advisory_domain(kind: str | None = None) -> bytes:
@@ -137,7 +153,12 @@ def domain_sha256_hex(domain: bytes, canonical: bytes) -> str:
 
 __all__ = [
     "ADVISORY_ENVELOPE_DOMAIN",
+    "ADVISORY_ENVELOPE_DOMAIN_V2",
+    "ADVISORY_ENVELOPE_ROOT_DOMAINS",
     "ADVISORY_ENVELOPE_SCHEMA",
+    "ADVISORY_ENVELOPE_SCHEMA_V1",
+    "ADVISORY_ENVELOPE_SCHEMA_V2",
+    "ADVISORY_ENVELOPE_SEAL_SCHEMA",
     "SCHEMES",
     "SCHEME_LEGACY_SPACED",
     "SCHEME_LEGACY_SPACED_STR_DEFAULT",

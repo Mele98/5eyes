@@ -339,7 +339,9 @@ def test_finalize_seals_envelope_bindings_manifest_and_audit(session_factory):
         assert (envelope.status, envelope.optimistic_version, envelope.mandate_id) == ("SEALED", 2, mid)
         assert result.advisory_envelope_id == envelope.id
         assert result.advisory_envelope_hash == envelope.envelope_hash
-        assert root_hash(envelope.canonical_payload_json.encode()) == envelope.envelope_hash
+        # C-COMP-02 V2 (6.1): versiegelt wird V2; Root-Domaene folgt der Schema-Version.
+        assert envelope.schema_version == "ares/advisory-envelope/2"
+        assert root_hash(envelope.canonical_payload_json.encode(), envelope.schema_version) == envelope.envelope_hash
         kinds = sorted(b.binding_kind for b in db.query(AdvisoryEnvelopeBinding).all())
         # CCX-P3 (2026-11-14): Bewertungs-Snapshot und Entscheid je Position
         # sind zusaetzliche Kind-Bindungen desselben Envelopes.

@@ -330,6 +330,7 @@ SYNTHETIC_EVIDENCE_MODULES: frozenset[str] = frozenset({
     "test_audit_po16_finalize_saa_reconciliation.py",
     "test_c860_eligibility_timestamp_formats.py",
     "test_c_comp_02_channels.py",
+    "test_c_comp_02_v2_product_evidence_envelope.py",
     "test_ccx_p2_invalidation.py",
     "test_ccx_p3_n2_pdf_sweep.py",
     "test_ccx_p3_strict_fx_channels.py",

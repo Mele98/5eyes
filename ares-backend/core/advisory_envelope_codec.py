@@ -43,7 +43,9 @@ from decimal import Decimal
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from core.evidence import (
+    ADVISORY_ENVELOPE_ROOT_DOMAINS,
     ADVISORY_ENVELOPE_SCHEMA,
+    ADVISORY_ENVELOPE_SCHEMA_V2,
     advisory_domain,
     domain_sha256_hex,
 )
@@ -284,9 +286,14 @@ def canonical_bytes(payload: Mapping[str, Any], schema: Obj) -> bytes:
     return schema.encode(payload, "$").encode("utf-8")
 
 
-def root_hash(canonical: bytes) -> str:
-    """Envelope-Hash: SHA-256 ueber Root-Domaene + kanonische Bytes."""
-    return domain_sha256_hex(advisory_domain(), canonical)
+def root_hash(canonical: bytes, schema_version: str = ADVISORY_ENVELOPE_SCHEMA) -> str:
+    """Envelope-Hash: SHA-256 ueber die Root-Domaene der Schema-Version +
+    kanonische Bytes (V1: ``Ares<NUL>ares/advisory-envelope/1<NUL>``, V2:
+    ``.../2``). Eine unbekannte Version ist ein Fehler, nie ein Fallback."""
+    domain = ADVISORY_ENVELOPE_ROOT_DOMAINS.get(schema_version)
+    if domain is None:
+        raise CanonicalPayloadError(f"Unbekannte Envelope-Schema-Version: {schema_version!r}")
+    return domain_sha256_hex(domain, canonical)
 
 
 def child_hash(kind: str, canonical: bytes) -> str:
@@ -410,6 +417,37 @@ ENVELOPE_PAYLOAD_SCHEMA = Obj((
     ("bindings", SortedList(BINDING_SCHEMA, ("binding_kind", "ordinal", "object_id"))),
 ))
 
+# C-COMP-02 (Vorab-Entscheid 6.1): V2 = V1 + ``product_evidence_set_hash``
+# (Satz-Hash der gebundenen Produktevidenz, gleich dem Kind-Hash der Bindung
+# ``product_evidence_set``). V1 bleibt unveraendert bestehen, damit alte
+# Artefakte bytegenau mit dem V1-Kanonisierer pruefbar bleiben (read-only).
+ENVELOPE_PAYLOAD_SCHEMA_V1 = ENVELOPE_PAYLOAD_SCHEMA
+ENVELOPE_PAYLOAD_SCHEMA_V2 = Obj((
+    ("schema_version", const(ADVISORY_ENVELOPE_SCHEMA_V2)),
+    ("tenant_id", STR),
+    ("mandate_id", STR),
+    ("locale", STR),
+    ("base_currency", STR),
+    ("rounding_policy_version", STR),
+    ("predecessor_envelope_hash", HASH_NULLABLE),
+    ("effective_input_manifest_hash", HASH),
+    ("product_evidence_set_hash", HASH),
+    ("bindings", SortedList(BINDING_SCHEMA, ("binding_kind", "ordinal", "object_id"))),
+))
+ENVELOPE_PAYLOAD_SCHEMAS: dict[str, Obj] = {
+    ADVISORY_ENVELOPE_SCHEMA: ENVELOPE_PAYLOAD_SCHEMA_V1,
+    ADVISORY_ENVELOPE_SCHEMA_V2: ENVELOPE_PAYLOAD_SCHEMA_V2,
+}
+
+
+def envelope_payload_schema(schema_version: Any) -> Obj:
+    """Kanonisierer der gespeicherten Schema-Version (V1 nur zum Pruefen)."""
+    schema = ENVELOPE_PAYLOAD_SCHEMAS.get(schema_version) if isinstance(schema_version, str) else None
+    if schema is None:
+        raise CanonicalPayloadError(f"Unbekannte Envelope-Schema-Version: {schema_version!r}")
+    return schema
+
+
 MANIFEST_KIND = "effective-input-manifest"
 MANIFEST_SCHEMA_VERSION = ADVISORY_ENVELOPE_SCHEMA + "/" + MANIFEST_KIND
 # Komponenten des Effective-Input-Manifests (Vertrag §4), Schema-Reihenfolge.
@@ -443,8 +481,9 @@ def manifest_hash(record: Mapping[str, Any]) -> str:
 
 def envelope_hash(payload: Mapping[str, Any]) -> tuple[str, str]:
     """``(canonical_payload_json, envelope_hash)`` eines Envelope-Payloads."""
-    canonical = canonical_bytes(payload, ENVELOPE_PAYLOAD_SCHEMA)
-    return canonical.decode("utf-8"), root_hash(canonical)
+    version = payload.get("schema_version") if isinstance(payload, Mapping) else None
+    canonical = canonical_bytes(payload, envelope_payload_schema(version))
+    return canonical.decode("utf-8"), root_hash(canonical, version)
 
 
 __all__ = [
@@ -453,6 +492,10 @@ __all__ = [
     "CACHE_SCOPE_SCHEMA",
     "CanonicalPayloadError",
     "ENVELOPE_PAYLOAD_SCHEMA",
+    "ENVELOPE_PAYLOAD_SCHEMAS",
+    "ENVELOPE_PAYLOAD_SCHEMA_V1",
+    "ENVELOPE_PAYLOAD_SCHEMA_V2",
+    "envelope_payload_schema",
     "MANIFEST_COMPONENTS",
     "MANIFEST_KIND",
     "MANIFEST_SCHEMA",

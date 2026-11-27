@@ -489,7 +489,7 @@ def test_alembic_l2c_up_down_up_and_downgrade_fail_closed(tmp_path):
 
     url = f"sqlite:///{tmp_path / 'l2c.db'}"
     script = ScriptDirectory.from_config(alembic_cfg(url))
-    assert script.get_heads() == ["9f4c2a7e1b63"]  # C-COMP-02: neuer Kopf (hinter K3)
+    assert script.get_heads() == ["4b8e2d6f1a9c"]  # C-COMP-02 V2 (Vorab-Entscheide 6.1/6.3/6.4) hinter C-COMP-02 hinter K3
     assert script.get_revision("e2b7c4d9a1f3").down_revision == "c7e1a9d3f5b2"
     command.upgrade(alembic_cfg(url), "e2b7c4d9a1f3")
     engine = create_engine(url)

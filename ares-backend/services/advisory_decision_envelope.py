@@ -1,9 +1,18 @@
 """CCX-P1 Snapshot und Hash: Beratungsentscheid erzeugen, binden, versiegeln.
 
 Vertrag 2026-11-13 §4. Ein Beratungsentscheid (finalisierte Empfehlung) wird
-genau einmal als unveraenderlicher Envelope ``ares/advisory-envelope/1``
-versiegelt; alle Kanaele referenzieren spaeter (P5) denselben
-``envelope_hash``.
+genau einmal als unveraenderlicher Envelope versiegelt; alle Kanaele
+referenzieren spaeter (P5) denselben ``envelope_hash``.
+
+C-COMP-02 (Vorab-Entscheide 6.1/6.2 vom 26.11.2026): versiegelt wird
+ausschliesslich ``ares/advisory-envelope/2`` -- V1 plus
+``product_evidence_set_hash`` (Satz-Hash der gebundenen Produktevidenz). Ein
+V1-Envelope (``ares/advisory-envelope/1``) bleibt mit dem V1-Kanonisierer
+bytegenau pruefbar und read-only; er wird weder hochgestuft noch neu
+versiegelt und gilt nicht als beschaedigt. Fuer jede neue Kundenkanal-
+Auslieferung ist er LEGACY und damit STALE (``pull_freshness``:
+``CCX_INPUT_STALE``, Detail ``legacy_envelope_schema``); erforderlich ist eine
+erneute fachliche Pruefung und eine neue V2-Versiegelung.
 
 Ablauf ``seal_advisory_envelope`` (innerhalb der Finalisierungs-Transaktion,
 die Mandatszeile ist bereits gesperrt):
@@ -62,13 +71,13 @@ from core.advisory_envelope_codec import (
     manifest_hash as compute_manifest_hash,
     none_sort_key,
     parse_canonical,
-    ENVELOPE_PAYLOAD_SCHEMA,
+    envelope_payload_schema,
     rows_child_hash,
     utc_now,
 )
 from core import product_evidence
 from core.db_integrity import is_check_constraint_violation
-from core.evidence import ADVISORY_ENVELOPE_SCHEMA
+from core.evidence import ADVISORY_ENVELOPE_SEAL_SCHEMA
 from core.presentation_rounding import ROUNDING_POLICY_VERSION
 from core.reason_codes import DomainError, ReasonCode
 from database import new_uuid
@@ -513,7 +522,7 @@ def seal_advisory_envelope(
                              valuation=(snapshot.id, snapshot.snapshot_hash), ledger_hash=ledger_digest,
                              p5_hashes=p5_hashes)
         payload = {
-            "schema_version": ADVISORY_ENVELOPE_SCHEMA,
+            "schema_version": ADVISORY_ENVELOPE_SEAL_SCHEMA,
             "tenant_id": tenant_id,
             "mandate_id": str(mandate.id),
             "locale": locale,
@@ -521,6 +530,9 @@ def seal_advisory_envelope(
             "rounding_policy_version": ROUNDING_POLICY_VERSION,
             "predecessor_envelope_hash": predecessor.envelope_hash if predecessor is not None else None,
             "effective_input_manifest_hash": manifest_digest,
+            # C-COMP-02 (6.1): versiegelter Bestandteil, identisch mit dem
+            # Kind-Hash der Bindung ``product_evidence_set``.
+            "product_evidence_set_hash": run.product_evidence_hash,
             "bindings": bindings,
         }
         canonical, digest = compute_envelope_hash(payload)
@@ -552,7 +564,7 @@ def seal_advisory_envelope(
         db.add(manifest)
         db.add(AdvisoryDecisionEnvelope(
             id=envelope_id, tenant_id=tenant_id, mandate_id=str(mandate.id),
-            schema_version=ADVISORY_ENVELOPE_SCHEMA, status="DRAFT", locale=locale,
+            schema_version=ADVISORY_ENVELOPE_SEAL_SCHEMA, status="DRAFT", locale=locale,
             base_currency=base_currency, predecessor_id=predecessor.id if predecessor is not None else None,
             created_at=now, created_by=user.id, optimistic_version=1,
         ))
@@ -699,10 +711,12 @@ def seal_advisory_envelope(
 
 
 def envelope_view(envelope: AdvisoryDecisionEnvelope) -> dict[str, Any]:
-    payload = parse_canonical(envelope.canonical_payload_json, ENVELOPE_PAYLOAD_SCHEMA)
+    payload = parse_canonical(envelope.canonical_payload_json, envelope_payload_schema(envelope.schema_version))
     return {
         "envelope_id": envelope.id,
         "schema_version": envelope.schema_version,
+        # V1 (historisch) traegt keinen Satz-Hash: None, nie ein Ersatzwert.
+        "product_evidence_set_hash": payload.get("product_evidence_set_hash"),
         "status": envelope.status,
         "mandate_id": envelope.mandate_id,
         "envelope_hash": envelope.envelope_hash,
@@ -964,6 +978,11 @@ def pull_freshness(
     unterzeichneten Entscheid zaehlen Abweichungen der Hausmeinung (CMA/Policy/
     Benchmark) nicht. Eine Rueckkehr zu A macht einen STALE-Entscheid nie
     wieder FRESH -- dafuer braucht es eine neue Versiegelung."""
+    if is_legacy_envelope(envelope):
+        # C-COMP-02 (6.1/6.2): V1 ohne versiegelten Produktevidenz-Satz ist
+        # integer, aber fuer neue Kundenkanaele LEGACY/STALE -- lesend, ohne
+        # Ereignis und ohne Hochstufung oder Neuversiegeln.
+        return ReasonCode.CCX_INPUT_STALE, LEGACY_ENVELOPE_DETAIL, []
     if envelope.freshness_status == FRESHNESS_STALE:
         return ReasonCode.CCX_INPUT_STALE, f"stale_reason={envelope.stale_reason_code}", []
     if envelope.freshness_status != FRESHNESS_FRESH:
@@ -1031,6 +1050,16 @@ def pull_freshness(
     if empty:
         return ReasonCode.CCX_FRESHNESS_UNKNOWN, "empty=" + ",".join(empty), []
     return None, "", []
+
+
+LEGACY_ENVELOPE_DETAIL = "legacy_envelope_schema"
+
+
+def is_legacy_envelope(envelope: Any) -> bool:
+    """True fuer jeden Envelope, der nicht mit dem heutigen Siegelschema (V2)
+    versiegelt wurde -- insbesondere V1 vor der Produktevidenz. Historische
+    Pruefung bleibt gueltig (``verify_envelope``), Auslieferung nicht."""
+    return getattr(envelope, "schema_version", None) != ADVISORY_ENVELOPE_SEAL_SCHEMA
 
 
 def _product_evidence_state(db: Session, run: RecommendationRun):
@@ -1106,7 +1135,13 @@ def current_envelope_freshness(db: Session, *, mandate: Any) -> dict[str, Any]:
     status = envelope_freshness_status(envelope)
     # C-COMP-02: der Ablauf eines Nachweises ist keine Mutation (kein Ereignis);
     # die Anzeige prueft den gebundenen Satz deshalb zusaetzlich lesend.
-    if status["freshness_status"] == FRESHNESS_FRESH:
+    if is_legacy_envelope(envelope):
+        # C-COMP-02 (6.2): Altentscheid ohne gebundene Produktevidenz ->
+        # STALE fuer die Anzeige (nicht beschaedigt); neu pruefen und versiegeln.
+        status["freshness_status"] = FRESHNESS_STALE
+        status["stale_reason_code"] = ReasonCode.CCX_INPUT_STALE.value
+        causes.append(freshness_cause("product_evidence"))
+    elif status["freshness_status"] == FRESHNESS_FRESH:
         pull_code, pull_detail, _drift = pull_freshness(db, envelope, mandate=mandate)
         if pull_code == ReasonCode.CCX_INPUT_STALE and pull_detail.startswith("product_evidence="):
             status["freshness_status"] = FRESHNESS_STALE
@@ -1194,6 +1229,8 @@ __all__ = [
     "envelope_freshness_status",
     "envelope_view",
     "goal_binding_is_current",
+    "is_legacy_envelope",
+    "LEGACY_ENVELOPE_DETAIL",
     "lock_mandate_row",
     "mandate_tenant",
     "seal_advisory_envelope",

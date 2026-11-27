@@ -408,7 +408,7 @@
         "type": "object"
       },
       "AdvisoryEnvelopeResponse": {
-        "description": "CCX-P1: aktueller, integritaetsgepruefter Beratungsentscheid\n(``ares/advisory-envelope/1``). Rohwerte und Hashes, keine Darstellung.",
+        "description": "CCX-P1: aktueller, integritaetsgepruefter Beratungsentscheid\n(``ares/advisory-envelope/2``; V1 nur historisch). Rohwerte und Hashes,\nkeine Darstellung.",
         "properties": {
           "base_currency": {
             "title": "Base Currency",
@@ -470,6 +470,17 @@
               }
             ],
             "title": "Predecessor Id"
+          },
+          "product_evidence_set_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Evidence Set Hash"
           },
           "rounding_policy_version": {
             "title": "Rounding Policy Version",

@@ -66,6 +66,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import sqlite3
 import stat
 from dataclasses import dataclass, field
@@ -670,6 +671,18 @@ def upgrade_sqlite_check_in_lists(
         return CheckUpgradeResult(CheckUpgradeOutcome.MANUAL_MIGRATION_REQUIRED, problems=plan.manual)
     if not plan.new_sql:
         return noop
+    return _execute_plan(target_engine, db_file, plan, backup_dir=backup_dir, db_key=db_key)
+
+
+def _execute_plan(
+    target_engine: Engine,
+    db_file: Path,
+    plan: _Plan,
+    *,
+    backup_dir: str | Path | None,
+    db_key: str | None,
+) -> CheckUpgradeResult:
+    """Sicherung, Aenderung, Pruefung, Ruecksetzen/Wiederherstellung (s. o.)."""
     old_sql, new_sql, added = plan.old_sql, plan.new_sql, plan.added
 
     from config import settings
@@ -781,6 +794,120 @@ def upgrade_sqlite_check_in_lists(
     return CheckUpgradeResult(
         CheckUpgradeOutcome.APPLIED_VERIFIED, added=added, backup_file=backup_file,
     )
+
+
+# --------------------------------------------------------------------------
+# C-COMP-02 (Vorab-Entscheid 6.1): exakt bekannte Gleichheits-CHECKs lockern
+# --------------------------------------------------------------------------
+#
+# Der Envelope-Bestand traegt ``CHECK(schema_version = '.../1')``. Die neue
+# Schema-ID ``ares/advisory-envelope/2`` ist keine IN-Listen-Erweiterung und
+# wird deshalb hier als geschlossene, exakt bekannte Umschreibung gefuehrt
+# (Gleichheit -> IN-Liste mit dem alten Wert ZUERST): nur lockernd, bestehende
+# Zeilen erfuellen den neuen CHECK garantiert. Gleiche Absicherung wie oben
+# (Sicherung, writable_schema, Pruefung, Ruecksetzen/Quarantaene).
+
+@dataclass(frozen=True)
+class ExactCheckRewrite:
+    table: str
+    column: str
+    legacy_value: str
+    values: tuple[str, ...]
+
+    def legacy_pattern(self) -> "re.Pattern[str]":
+        return re.compile(
+            r"CHECK\s*\(\s*" + re.escape(self.column) + r"\s*=\s*'" + re.escape(self.legacy_value) + r"'\s*\)",
+            re.IGNORECASE,
+        )
+
+    def replacement(self) -> str:
+        return f"CHECK({self.column} IN (" + ",".join(f"'{value}'" for value in self.values) + "))"
+
+
+ENVELOPE_SCHEMA_CHECK_REWRITE = ExactCheckRewrite(
+    table="advisory_decision_envelopes",
+    column="schema_version",
+    legacy_value="ares/advisory-envelope/1",
+    values=("ares/advisory-envelope/1", "ares/advisory-envelope/2"),
+)
+EXACT_CHECK_REWRITES: tuple[ExactCheckRewrite, ...] = (ENVELOPE_SCHEMA_CHECK_REWRITE,)
+
+
+def _rewrite_plan(target_engine: Engine, rewrites: tuple[ExactCheckRewrite, ...]) -> _Plan:
+    old_sql: dict[str, str] = {}
+    new_sql: dict[str, str] = {}
+    added: dict[str, dict[str, list[str]]] = {}
+    manual: list[str] = []
+    with target_engine.connect() as conn:
+        for rewrite in rewrites:
+            table_sql = conn.execute(
+                text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :name"),
+                {"name": rewrite.table},
+            ).scalar_one_or_none()
+            if table_sql is None:
+                continue
+            try:
+                current = [
+                    check for check in parse_table_ddl(table_sql).checks
+                    if isinstance(check, SupportedCheck) and check.column == rewrite.column
+                ]
+            except DdlParseError as exc:
+                manual.append(f"{rewrite.table}: DDL nicht parsebar ({exc})")
+                continue
+            if current and {_literal_value(lit) for lit in current[0].literals} >= set(rewrite.values):
+                continue  # Zielzustand
+            matches = list(rewrite.legacy_pattern().finditer(table_sql))
+            if current or len(matches) != 1:
+                manual.append(f"{rewrite.table}.{rewrite.column}: unbekannte CHECK-Form")
+                continue
+            match = matches[0]
+            widened = table_sql[:match.start()] + rewrite.replacement() + table_sql[match.end():]
+            if not _ddl_parses(widened):
+                manual.append(f"{rewrite.table}: umgeschriebene DDL ungueltig")
+                continue
+            old_sql[rewrite.table], new_sql[rewrite.table] = table_sql, widened
+            added[rewrite.table] = {
+                rewrite.column: [f"'{value}'" for value in rewrite.values if value != rewrite.legacy_value],
+            }
+    return _Plan(old_sql, new_sql, added, tuple(manual))
+
+
+def upgrade_sqlite_exact_check_rewrites(
+    target_engine: Engine,
+    *,
+    rewrites: tuple[ExactCheckRewrite, ...] = EXACT_CHECK_REWRITES,
+    backup_dir: str | Path | None = None,
+    db_key: str | None = None,
+) -> CheckUpgradeResult:
+    """Wie :func:`upgrade_sqlite_check_in_lists`, fuer ``EXACT_CHECK_REWRITES``."""
+    noop = CheckUpgradeResult(CheckUpgradeOutcome.NOOP)
+    if target_engine.dialect.name != "sqlite":
+        return noop
+    db_file = _db_file(target_engine)
+    if db_file is None or not db_file.exists():
+        return noop
+    raise_if_quarantined(db_file)
+    plan = _rewrite_plan(target_engine, rewrites)
+    if plan.manual:
+        logger.error("CHECK-Umschreibung: manuelle Migration erforderlich, DB unveraendert: %s", plan.manual)
+        return CheckUpgradeResult(CheckUpgradeOutcome.MANUAL_MIGRATION_REQUIRED, problems=plan.manual)
+    if not plan.new_sql:
+        return noop
+    return _execute_plan(target_engine, db_file, plan, backup_dir=backup_dir, db_key=db_key)
+
+
+def ensure_sqlite_exact_check_rewrites_current(
+    target_engine: Engine,
+    *,
+    backup_dir: str | Path | None = None,
+    db_key: str | None = None,
+) -> dict[str, dict[str, list[str]]]:
+    """Startpfad, fail-closed wie :func:`ensure_sqlite_check_in_lists_current`."""
+    result = upgrade_sqlite_exact_check_rewrites(target_engine, backup_dir=backup_dir, db_key=db_key)
+    raise_if_startup_unsafe(result)
+    if result.outcome is CheckUpgradeOutcome.APPLIED_VERIFIED:
+        return dict(result.added)
+    return {}
 
 
 def ensure_sqlite_check_in_lists_current(

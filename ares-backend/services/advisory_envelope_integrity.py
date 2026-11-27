@@ -8,6 +8,13 @@ zusaetzliche Bindung, veraendertes Manifest) bricht damit die Kette:
 * Payload nicht kanonisch / Root-Hash weicht ab / Identitaet (Mandant,
   Mandat, Schema, Waehrung, Sprache) passt nicht zur Zeile
   -> ``CCX_ENVELOPE_HASH_MISMATCH``
+* C-COMP-02 (6.1): Kanonisierer und Root-Domaene folgen der gespeicherten
+  Schema-Version. Ein V1-Envelope wird historisch mit dem V1-Kanonisierer
+  bytegenau geprueft (read-only, nie hochgestuft); ein V2-Envelope muss
+  zusaetzlich ``product_evidence_set_hash`` == Kind-Hash der Bindung
+  ``product_evidence_set`` tragen. Integritaet ist nicht Aktualitaet: ein
+  integrer V1-Entscheid ist fuer neue Kundenkanaele LEGACY/STALE
+  (``advisory_decision_envelope.pull_freshness``).
 * Status nicht SEALED/SUPERSEDED oder Siegelfelder fehlen
   -> ``CCX_ENVELOPE_UNSEALED``
 * Bindungszeilen != Bindungen im Payload -> ``CCX_BINDING_MISSING``
@@ -19,27 +26,29 @@ Rein funktional: die Zeilen liest ``services/advisory_decision_envelope.py``.
 """
 from __future__ import annotations
 
+import json
 from typing import Any, Iterable, Mapping
 
 from core.advisory_envelope_codec import (
     BINDING_SCHEMA,
-    ENVELOPE_PAYLOAD_SCHEMA,
     MANIFEST_COMPONENTS,
     CanonicalPayloadError,
     Obj,
     SortedList,
     canonical_bytes,
     envelope_hash,
+    envelope_payload_schema,
     is_sha256_hex,
     manifest_hash,
     parse_canonical,
     root_hash,
 )
-from core.evidence import ADVISORY_ENVELOPE_SCHEMA
+from core.evidence import ADVISORY_ENVELOPE_SCHEMA_V2
 from core.reason_codes import ReasonCode
 from services.effective_input_manifest import build_effective_input_record
 
 MANIFEST_BINDING_KIND = "effective_input_manifest"
+PRODUCT_EVIDENCE_BINDING_KIND = "product_evidence_set"
 _BINDING_FIELDS = ("binding_kind", "ordinal", "object_type", "object_id", "object_version", "child_hash")
 _CHILDREN_KIND = "children"
 
@@ -64,9 +73,10 @@ def verify_root_hash(envelope: Mapping[str, Any]) -> bool:
     Alle Hashes sind domaenensepariert (Vertrag §3)."""
     try:
         if "canonical_payload_json" in envelope:
-            parse_canonical(envelope["canonical_payload_json"], ENVELOPE_PAYLOAD_SCHEMA)
+            version = envelope.get("schema_version") or _stored_schema_version(envelope["canonical_payload_json"])
+            parse_canonical(envelope["canonical_payload_json"], envelope_payload_schema(version))
             canonical = str(envelope["canonical_payload_json"]).encode("utf-8")
-            return root_hash(canonical) == envelope.get("envelope_hash")
+            return root_hash(canonical, version) == envelope.get("envelope_hash")
         if "payload" in envelope:
             return envelope_hash(envelope["payload"])[1] == envelope.get("envelope_hash")
         if "children" in envelope:
@@ -77,6 +87,16 @@ def verify_root_hash(envelope: Mapping[str, Any]) -> bool:
     except (CanonicalPayloadError, TypeError, ValueError):
         return False
     return False
+
+
+def _stored_schema_version(text: Any) -> Any:
+    """Schema-Version eines gespeicherten Payloads (nur zur Auswahl des
+    Kanonisierers; die Byte-Gleichheit prueft ``parse_canonical``)."""
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    return data.get("schema_version") if isinstance(data, dict) else None
 
 
 def _binding_tuple(item: Any) -> tuple:
@@ -100,27 +120,34 @@ def envelope_integrity_defect(
     stored_hash = getattr(envelope, "envelope_hash", None)
     if not isinstance(text, str) or not is_sha256_hex(stored_hash):
         return ReasonCode.CCX_ENVELOPE_HASH_MISMATCH, "payload"
+    schema_version = getattr(envelope, "schema_version", None)
     try:
-        payload = parse_canonical(text, ENVELOPE_PAYLOAD_SCHEMA)
+        payload = parse_canonical(text, envelope_payload_schema(schema_version))
+        if root_hash(text.encode("utf-8"), schema_version) != stored_hash:
+            return ReasonCode.CCX_ENVELOPE_HASH_MISMATCH, "root"
     except CanonicalPayloadError:
         return ReasonCode.CCX_ENVELOPE_HASH_MISMATCH, "canonical"
-    if root_hash(text.encode("utf-8")) != stored_hash:
-        return ReasonCode.CCX_ENVELOPE_HASH_MISMATCH, "root"
     identity = {
-        "schema_version": ADVISORY_ENVELOPE_SCHEMA,
+        "schema_version": schema_version,
         "tenant_id": getattr(envelope, "tenant_id", None),
         "mandate_id": getattr(envelope, "mandate_id", None),
         "locale": getattr(envelope, "locale", None),
         "base_currency": getattr(envelope, "base_currency", None),
     }
-    if getattr(envelope, "schema_version", None) != ADVISORY_ENVELOPE_SCHEMA or any(
-        payload.get(key) != value for key, value in identity.items()
-    ):
+    if any(payload.get(key) != value for key, value in identity.items()):
         return ReasonCode.CCX_ENVELOPE_HASH_MISMATCH, "identity"
     stored = sorted(_binding_tuple(row) for row in bindings)
     expected = sorted(_binding_tuple(item) for item in payload["bindings"])
     if stored != expected:
         return ReasonCode.CCX_BINDING_MISSING, "bindings"
+    if schema_version == ADVISORY_ENVELOPE_SCHEMA_V2:
+        evidence_bindings = [
+            item for item in payload["bindings"] if item["binding_kind"] == PRODUCT_EVIDENCE_BINDING_KIND
+        ]
+        if len(evidence_bindings) != 1:
+            return ReasonCode.CCX_BINDING_MISSING, "product_evidence_binding"
+        if evidence_bindings[0]["child_hash"] != payload["product_evidence_set_hash"]:
+            return ReasonCode.CCX_ENVELOPE_HASH_MISMATCH, "product_evidence_set_hash"
     manifest_bindings = [item for item in payload["bindings"] if item["binding_kind"] == MANIFEST_BINDING_KIND]
     if len(manifest_bindings) != 1:
         return ReasonCode.CCX_BINDING_MISSING, "manifest_binding"
@@ -147,4 +174,6 @@ def envelope_integrity_defect(
     return None
 
 
-__all__ = ["MANIFEST_BINDING_KIND", "envelope_integrity_defect", "verify_root_hash"]
+__all__ = [
+    "MANIFEST_BINDING_KIND", "PRODUCT_EVIDENCE_BINDING_KIND", "envelope_integrity_defect", "verify_root_hash",
+]

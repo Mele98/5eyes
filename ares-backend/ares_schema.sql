@@ -1789,6 +1789,10 @@ CREATE TABLE IF NOT EXISTS product_evidence_snapshots (
 CREATE INDEX IF NOT EXISTS ix_product_evidence_snapshot_run ON product_evidence_snapshots(recommendation_run_id);
 CREATE TRIGGER IF NOT EXISTS trg_product_evidence_snapshot_immutable_update BEFORE UPDATE ON product_evidence_snapshots FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'product_evidence_snapshots: Snapshot ist unveränderlich'); END;
 CREATE TRIGGER IF NOT EXISTS trg_product_evidence_snapshot_immutable_delete BEFORE DELETE ON product_evidence_snapshots FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'product_evidence_snapshots: Snapshot ist unveränderlich'); END;
+-- C-COMP-02 (6.3, Alembic 4b8e2d6f1a9c): neue Saetze nur mit gebundenen Dimensions-
+-- Snapshots (Schema 2). Identitaetstrigger der Nachweise (6.4) setzt der Laufzeit-
+-- Patch, weil products.isin/figi/share_class_figi im Rohschema erst dort entstehen.
+CREATE TRIGGER IF NOT EXISTS trg_product_evidence_snapshot_binding_insert BEFORE INSERT ON product_evidence_snapshots FOR EACH ROW WHEN NOT ((NEW.eligibility_snapshot_id IS NOT NULL AND substr(NEW.eligibility_snapshot_id, 1, 12) = 'eligibility:' AND length(NEW.eligibility_snapshot_id) = 76 AND ltrim(substr(NEW.eligibility_snapshot_id, 13), '0123456789abcdef') = '') AND (NEW.cost_snapshot_id IS NOT NULL AND substr(NEW.cost_snapshot_id, 1, 5) = 'cost:' AND length(NEW.cost_snapshot_id) = 69 AND ltrim(substr(NEW.cost_snapshot_id, 6), '0123456789abcdef') = '') AND (NEW.conflict_snapshot_id IS NOT NULL AND substr(NEW.conflict_snapshot_id, 1, 9) = 'conflict:' AND length(NEW.conflict_snapshot_id) = 73 AND ltrim(substr(NEW.conflict_snapshot_id, 10), '0123456789abcdef') = '') AND NEW.schema_version = 'ares-product-evidence/v2') BEGIN SELECT RAISE(ABORT, 'product_evidence_snapshots: Eignungs-, Kosten- und Konfliktsnapshot muessen gebunden sein (Schema ares-product-evidence/v2)'); END;
 
 -- ============================================================
 -- 21. REPORT ARCHIV
@@ -2135,7 +2139,7 @@ CREATE TABLE IF NOT EXISTS advisory_decision_envelopes (
     tenant_id               TEXT NOT NULL REFERENCES tenants(id),
     mandate_id              TEXT NOT NULL,
     schema_version          TEXT NOT NULL DEFAULT 'ares/advisory-envelope/1'
-                            CHECK(schema_version = 'ares/advisory-envelope/1'),
+                            CHECK(schema_version IN ('ares/advisory-envelope/1','ares/advisory-envelope/2')),
     status                  TEXT NOT NULL DEFAULT 'DRAFT'
                             CHECK(status IN ('DRAFT','SEALED','SUPERSEDED')),
     locale                  TEXT NOT NULL,

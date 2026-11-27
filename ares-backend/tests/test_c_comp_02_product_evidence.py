@@ -179,14 +179,36 @@ def test_contract_codes_are_catalogued_with_german_message_and_ui_mapping():
     (None, None, True), (None, "SC-A", False), ("SC-A", None, False), ("SC-A", "SC-B", False), ("SC-A", "SC-A", True),
 ])
 def test_share_class_binding_is_exact_and_symmetric(db, product_sc, item_sc, verified):
+    """C-COMP-02 V2 (6.4): dieselbe Identitaetsregel an DB-Grenze, Auswertung,
+    Erfassung und Snapshot-Pfad. Eine abweichende Anteilsklassenzeile laesst
+    sich nicht mehr direkt einfuegen; die Auswertung prueft dieselbe Regel auf
+    nicht persistierten Zeilen (Import-/Altbestandsfall) weiterhin selbst."""
     product = _product(share_class_figi=product_sc)
     db.add(product)
-    for kind in contract.PRODUCT_EVIDENCE_KINDS:
-        _raw_item(db, product, kind, share_class_id=item_sc)
-    result = evidence.evaluate_product_evidence(db, _mandate_view(), product)
     if verified:
+        for kind in contract.PRODUCT_EVIDENCE_KINDS:
+            _raw_item(db, product, kind, share_class_id=item_sc)
+        result = evidence.evaluate_product_evidence(db, _mandate_view(), product)
         assert result["status"] == "verified"
     else:
+        # DB-Grenze: direkter Insert einer fremden Anteilsklassenzeile scheitert.
+        with pytest.raises(IntegrityError, match="PRODUCT_EVIDENCE_SHARE_CLASS_MISMATCH"):
+            with db.begin_nested():
+                _raw_item(db, product, "kid", share_class_id=item_sc)
+        assert db.query(ProductEvidenceItem).count() == 0
+        # Serviceregel auf nicht persistierten Zeilen.
+        transient = []
+        for kind in contract.PRODUCT_EVIDENCE_KINDS:
+            values = synthetic_values(product, kind, share_class_id=item_sc)
+            payload = values.pop("payload")
+            canonical, digest = evidence.product_evidence_item_payload_hash(payload)
+            values.update(
+                id=new_uuid(), tenant_id=TENANT, product_id=product.id, canonical_payload_json=canonical,
+                canonical_payload_hash=digest, status="approved", created_by="creator", created_at=_now(),
+                updated_at=_now(), approved_by="approver", approved_at=_now(), approval_mode="four_eyes",
+            )
+            transient.append(ProductEvidenceItem(**values))
+        result = evidence.evaluate_product_evidence(db, _mandate_view(), product, rows=transient)
         assert result["status"] == "conflict"
         assert _codes(result) == {"PRODUCT_EVIDENCE_SHARE_CLASS_MISMATCH"}
     # Erfassung prueft dieselbe Identitaet.
@@ -197,7 +219,15 @@ def test_share_class_binding_is_exact_and_symmetric(db, product_sc, item_sc, ver
         assert create().share_class_id == product_sc
     else:
         assert _code(create) == "PRODUCT_EVIDENCE_SHARE_CLASS_MISMATCH"
-    # Snapshot-Pfad ebenso.
+    # Snapshot-Pfad ebenso: bei Abweichung entsteht sie ueber eine spaetere
+    # Produktaenderung (der einzige Weg, den die DB-Grenze noch zulaesst).
+    if not verified:
+        product.share_class_figi = item_sc
+        db.flush()
+        for kind in contract.PRODUCT_EVIDENCE_KINDS:
+            _raw_item(db, product, kind, share_class_id=item_sc)
+        product.share_class_figi = product_sc
+        db.flush()
     run, mandate = _run(db, product)
     bind = lambda: evidence.snapshot_run_product_evidence(db, mandate, run)  # noqa: E731
     if verified:
@@ -896,6 +926,10 @@ def test_database_enforces_one_active_line_tenant_scope_and_immutability(db):
 
 
 _REVISION = "9f4c2a7e1b63"
+# C-COMP-02 V2 (6.3/6.4): Identitaets- und Satzbindungstrigger kommen mit der
+# Folgerevision; der Paritaetsvergleich ORM/Alembic/Rohschema laeuft deshalb
+# gegen den Kopf.
+_HEAD_REVISION = "4b8e2d6f1a9c"
 _TABLES = ("product_evidence_items", "product_evidence_snapshots")
 
 
@@ -938,7 +972,7 @@ def test_orm_alembic_and_raw_schema_agree(tmp_path):
     from pathlib import Path
 
     url = f"sqlite:///{(tmp_path / 'a.db').as_posix()}"
-    command.upgrade(_alembic_cfg(url), _REVISION)
+    command.upgrade(_alembic_cfg(url), _HEAD_REVISION)
     orm = create_engine(f"sqlite:///{tmp_path / 'o.db'}")
     Base.metadata.create_all(orm)
     raw = create_engine(f"sqlite:///{tmp_path / 'r.db'}")
@@ -968,8 +1002,10 @@ def test_orm_alembic_and_raw_schema_agree(tmp_path):
     shapes = [shape(e) for e in engines]
     assert shapes[0] == shapes[1]
     assert {t: shapes[2][t] for t in _TABLES} == {t: shapes[0][t] for t in _TABLES}
-    tenant = {name for name in shapes[0]["triggers"] if "_tenant_" in name}
-    assert len(tenant) == 2
+    # Laufzeit-Patch-Trigger: Tenantgrenze und (6.4) Identitaet -- beide lesen
+    # products-Spalten, die das Rohschema erst nach dem Patch kennt.
+    tenant = {name for name in shapes[0]["triggers"] if "_tenant_" in name or "_identity_" in name}
+    assert len(tenant) == 4
     assert shapes[2]["triggers"] == {k: v for k, v in shapes[0]["triggers"].items() if k not in tenant}
     # Laufzeit-Patch: Rohschema + products.tenant_id -> dieselben Trigger.
     from database import ensure_product_evidence_tenant_triggers
@@ -978,6 +1014,10 @@ def test_orm_alembic_and_raw_schema_agree(tmp_path):
     assert shape(raw)["triggers"] == shapes[2]["triggers"]
     with raw.begin() as conn:
         conn.execute(text("ALTER TABLE products ADD COLUMN tenant_id TEXT"))
+        present = {row[1] for row in conn.execute(text("PRAGMA table_info(products)"))}
+        for column in ("internal_product_id", "figi", "share_class_figi"):
+            if column not in present:
+                conn.execute(text(f"ALTER TABLE products ADD COLUMN {column} TEXT"))
     ensure_product_evidence_tenant_triggers(raw)
     ensure_product_evidence_tenant_triggers(raw)
     assert shape(raw)["triggers"] == shapes[0]["triggers"]

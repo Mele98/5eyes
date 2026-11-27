@@ -26,7 +26,11 @@ from config import (
 from core import property_gate  # K1 Property-Gate (Stdlib-Blatt)
 # L2c: reines Modul ohne Projekt-Importe (Hash-Vertrag + Altbestand-Versiegelung).
 from services import advisory_log_integrity as _advisory_log_integrity
-from core.product_evidence import SQLITE_TENANT_TRIGGERS
+from core.product_evidence import (
+    SQLITE_IDENTITY_TRIGGERS,
+    SQLITE_SNAPSHOT_BINDING_TRIGGER,
+    SQLITE_TENANT_TRIGGERS,
+)
 from core.mandate_evidence_tenant_boundary import (
     MANDATE_BOUND_TENANT_TABLES,
     create_sqlite_guards_after_metadata_create,
@@ -1056,7 +1060,7 @@ ADVISORY_ENVELOPE_SQLITE_TABLE_DDL: tuple[str, ...] = (
     tenant_id               TEXT NOT NULL REFERENCES tenants(id),
     mandate_id              TEXT NOT NULL,
     schema_version          TEXT NOT NULL DEFAULT 'ares/advisory-envelope/1'
-                            CHECK(schema_version = 'ares/advisory-envelope/1'),
+                            CHECK(schema_version IN ('ares/advisory-envelope/1','ares/advisory-envelope/2')),
     status                  TEXT NOT NULL DEFAULT 'DRAFT'
                             CHECK(status IN ('DRAFT','SEALED','SUPERSEDED')),
     locale                  TEXT NOT NULL,
@@ -3316,11 +3320,18 @@ def ensure_product_evidence_tenant_triggers(target_engine: Engine) -> None:
     tables = set(inspector.get_table_names())
     if not {'products', 'product_evidence_items'} <= tables:
         return
-    if 'tenant_id' not in {column['name'] for column in inspector.get_columns('products')}:
+    product_columns = {column['name'] for column in inspector.get_columns('products')}
+    if 'tenant_id' not in product_columns:
         return
+    # C-COMP-02 (6.4): Identitaetstrigger erst, wenn die Identitaetsspalten
+    # der Produkte (Laufzeit-Patch) vorhanden sind.
+    identity = {'isin', 'internal_product_id', 'figi', 'share_class_figi'} <= product_columns
     with target_engine.begin() as connection:
-        for statement in SQLITE_TENANT_TRIGGERS:
+        for statement in SQLITE_TENANT_TRIGGERS + (SQLITE_IDENTITY_TRIGGERS if identity else ()):
             connection.execute(text(statement))
+        if 'product_evidence_snapshots' in tables:
+            # C-COMP-02 (6.3): neue Saetze nur mit gebundenen Dimensions-Snapshots.
+            connection.execute(text(SQLITE_SNAPSHOT_BINDING_TRIGGER))
 
 
 def ensure_snapshot_tables(target_engine: Engine | None = None) -> None:
@@ -4076,8 +4087,15 @@ def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -
     # Fail-closed (Closure-Review #675): wirft ManualMigrationRequired bzw.
     # FatalRecoveryFailed, wenn Vor- oder Zielzustand nicht verifiziert ist --
     # init_db() faehrt dann bewusst NICHT fort.
-    from services.sqlite_check_constraint_upgrade import ensure_sqlite_check_in_lists_current
+    from services.sqlite_check_constraint_upgrade import (
+        ensure_sqlite_check_in_lists_current,
+        ensure_sqlite_exact_check_rewrites_current,
+    )
 
+    # C-COMP-02 (6.1): Envelope-Bestand ``CHECK(schema_version = '.../1')``
+    # auf die IN-Liste V1+V2 lockern (gleiche Absicherung, fail-closed), VOR
+    # dem IN-Listen-Abgleich -- danach ist die Liste referenzgleich.
+    ensure_sqlite_exact_check_rewrites_current(eng)
     ensure_sqlite_check_in_lists_current(eng, resolve_schema_path())
     # PG-002: Tenant-Backfill + Link-/Tenant-Trigger fuer wealth_positions/
     # wealth_inflows; nach dem CHECK-Upgrade, das Tabellen neu aufbauen kann.

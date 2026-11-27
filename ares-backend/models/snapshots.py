@@ -231,6 +231,10 @@ for _trigger_ddl in DEPOT_CHECK_ANALYSIS_SQLITE_TRIGGERS:
 # abgeleitet.
 
 ADVISORY_ENVELOPE_SCHEMA_VERSION = "ares/advisory-envelope/1"
+# C-COMP-02 (6.1): versiegelt wird nur noch V2; V1 bleibt als historischer,
+# read-only pruefbarer Bestand zulaessig (CHECK laesst beide zu, der
+# Siegelpfad schreibt ausschliesslich core.evidence.ADVISORY_ENVELOPE_SEAL_SCHEMA).
+ADVISORY_ENVELOPE_SCHEMA_VERSIONS = ("ares/advisory-envelope/1", "ares/advisory-envelope/2")
 ADVISORY_ENVELOPE_STATUSES = ("DRAFT", "SEALED", "SUPERSEDED")
 
 
@@ -248,7 +252,7 @@ class AdvisoryDecisionEnvelope(Base):
     __tablename__ = "advisory_decision_envelopes"
     __table_args__ = (
         CheckConstraint(
-            "schema_version = 'ares/advisory-envelope/1'",
+            "schema_version IN ('ares/advisory-envelope/1','ares/advisory-envelope/2')",
             name="ck_advisory_decision_envelopes_schema_version",
         ),
         CheckConstraint(

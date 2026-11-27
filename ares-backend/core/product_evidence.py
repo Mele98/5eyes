@@ -30,8 +30,14 @@ PRODUCT_EVIDENCE_KINDS: tuple[str, ...] = (
     "sustainability",
     "price_source",
 )
-PRODUCT_EVIDENCE_SCHEMA = "ares-product-evidence/v1"
-PRODUCT_EVIDENCE_EVALUATOR = "ares-product-evidence/1"
+# C-COMP-02 (Vorab-Entscheid 6.3): Satzschema 2 bindet je Dimension
+# (Eignung, Kosten, Interessenkonflikt) einen typisierten, gehashten Snapshot;
+# ein Satz des Schemas 1 (ohne diese Bindung) ist LEGACY und damit STALE --
+# historisch lesbar, nie still hochgestuft. Die Hash-Domaene bleibt; das
+# Schema steht im gehashten Payload.
+PRODUCT_EVIDENCE_SCHEMA = "ares-product-evidence/v2"
+PRODUCT_EVIDENCE_SCHEMA_LEGACY = "ares-product-evidence/v1"
+PRODUCT_EVIDENCE_EVALUATOR = "ares-product-evidence/2"
 PRODUCT_EVIDENCE_DOMAIN = b"ares-product-evidence/v1\n"
 STATUS_VERIFIED = "verified"
 NOT_APPLICABLE = "not_applicable"
@@ -84,6 +90,91 @@ SQLITE_TENANT_TRIGGERS: tuple[str, ...] = (
     "BEFORE UPDATE OF tenant_id, product_id ON product_evidence_items FOR EACH ROW "
     f"WHEN {TENANT_MISMATCH_SQL} "
     f"BEGIN SELECT RAISE(ABORT, '{TENANT_MISMATCH_MESSAGE}'); END",
+)
+
+# C-COMP-02 (Vorab-Entscheid 6.4): Produkt-/Anteilsklassenidentitaet auch an
+# der DB-Grenze (Trigger SQLite + PostgreSQL) -- dieselbe Regel wie
+# ``product_identity``/``identity_matches``: Instrument = erstes nichtleeres von
+# isin, internal_product_id, figi, id; Anteilsklasse = share_class_figi; leer
+# (nur Leerraum) == NULL; beide ohne Anteilsklasse oder beide mit derselben.
+# Ein direkter INSERT/UPDATE einer fremden oder abweichenden Anteilsklassen-
+# zeile scheitert damit an der Datenbank, nicht erst in der Auswertung. Der
+# Trigger feuert nur auf INSERT und auf UPDATE der Identitaetsspalten; ein
+# Widerruf nach einer spaeteren Produktaenderung bleibt moeglich (die
+# Auswertung meldet die Abweichung dann fail-closed als Konflikt).
+IDENTITY_MISMATCH_MESSAGE = (
+    "PRODUCT_EVIDENCE_SHARE_CLASS_MISMATCH: product_evidence_items: Nachweis gehoert nicht "
+    "zur Produkt- oder Anteilsklassenidentitaet"
+)
+_SQLITE_BLANK = "' ' || char(9) || char(10) || char(11) || char(12) || char(13)"
+_PG_BLANK = "' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)"
+
+
+def identity_mismatch_sql(dialect: str) -> str:
+    """Bedingung ``Nachweisidentitaet != Produktidentitaet`` fuer einen Trigger."""
+    if dialect == "postgresql":
+        def norm(expr: str) -> str:
+            return f"NULLIF(btrim({expr}::text, {_PG_BLANK}), '')"
+        differs = "IS DISTINCT FROM"
+    else:
+        def norm(expr: str) -> str:
+            return f"NULLIF(trim({expr}, {_SQLITE_BLANK}), '')"
+        differs = "IS NOT"
+    stable = f"COALESCE({norm('p.isin')}, {norm('p.internal_product_id')}, {norm('p.figi')}, p.id)"
+    return (
+        "EXISTS (SELECT 1 FROM products p WHERE p.id = NEW.product_id AND ("
+        f"{norm('NEW.stable_instrument_id')} {differs} {stable} "
+        f"OR {norm('NEW.share_class_id')} {differs} {norm('p.share_class_figi')}))"
+    )
+
+
+# Ausgeschrieben (Stdlib-Blatt ohne Modul-Seiteneffekte); identisch mit
+# ``identity_mismatch_sql`` (Test sichert die Deckung).
+SQLITE_IDENTITY_MISMATCH_SQL = (
+    'EXISTS (SELECT 1 FROM products p WHERE p.id = NEW.product_id AND (NULLIF(trim(NEW.stable_instrum'
+    "ent_id, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)), '') IS NOT COALESCE(NUL"
+    "LIF(trim(p.isin, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)), ''), NULLIF(tr"
+    "im(p.internal_product_id, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)), ''), "
+    "NULLIF(trim(p.figi, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)), ''), p.id) "
+    "OR NULLIF(trim(NEW.share_class_id, ' ' || char(9) || char(10) || char(11) || char(12) || char(13"
+    ")), '') IS NOT NULLIF(trim(p.share_class_figi, ' ' || char(9) || char(10) || char(11) || char(12"
+    ") || char(13)), '')))"
+)
+PG_IDENTITY_MISMATCH_SQL = (
+    'EXISTS (SELECT 1 FROM products p WHERE p.id = NEW.product_id AND (NULLIF(btrim(NEW.stable_instru'
+    "ment_id::text, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)), '') IS DISTINCT FROM "
+    "COALESCE(NULLIF(btrim(p.isin::text, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13)), "
+    "''), NULLIF(btrim(p.internal_product_id::text, ' ' || chr(9) || chr(10) || chr(11) || chr(12) ||"
+    " chr(13)), ''), NULLIF(btrim(p.figi::text, ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr"
+    "(13)), ''), p.id) OR NULLIF(btrim(NEW.share_class_id::text, ' ' || chr(9) || chr(10) || chr(11) "
+    "|| chr(12) || chr(13)), '') IS DISTINCT FROM NULLIF(btrim(p.share_class_figi::text, ' ' || chr(9"
+    ") || chr(10) || chr(11) || chr(12) || chr(13)), '')))"
+)
+SQLITE_IDENTITY_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_product_evidence_identity_insert "
+    "BEFORE INSERT ON product_evidence_items FOR EACH ROW "
+    f"WHEN {SQLITE_IDENTITY_MISMATCH_SQL} "
+    f"BEGIN SELECT RAISE(ABORT, '{IDENTITY_MISMATCH_MESSAGE}'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_product_evidence_identity_update "
+    "BEFORE UPDATE OF product_id, stable_instrument_id, share_class_id ON product_evidence_items FOR EACH ROW "
+    f"WHEN {SQLITE_IDENTITY_MISMATCH_SQL} "
+    f"BEGIN SELECT RAISE(ABORT, '{IDENTITY_MISMATCH_MESSAGE}'); END",
+)
+PG_IDENTITY_FUNCTION = f"""
+CREATE OR REPLACE FUNCTION product_evidence_items_identity()
+RETURNS trigger AS $$
+BEGIN
+    IF {PG_IDENTITY_MISMATCH_SQL} THEN
+        RAISE EXCEPTION '{IDENTITY_MISMATCH_MESSAGE}';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql
+"""
+PG_IDENTITY_TRIGGER = (
+    "CREATE TRIGGER trg_product_evidence_identity BEFORE INSERT OR UPDATE OF "
+    "product_id, stable_instrument_id, share_class_id ON product_evidence_items FOR EACH ROW "
+    "EXECUTE FUNCTION product_evidence_items_identity()"
 )
 
 # Deutsche Meldungen; technische Details stehen nur im Audit.
@@ -267,10 +358,30 @@ def _evaluate_kind(
     return (code, None) if code is not None else (None, item)
 
 
+def negotiated_cost_defect(
+    item: Mapping[str, Any], negotiated_bps: int | None, *, tenant_id: str,
+) -> str | None:
+    """C-COMP-02 (Vorab-Entscheid 6.5): eine ausgehandelte Kondition
+    (``override_ter_bps`` des Tenants) wirkt nur ueber einen tenantgebundenen,
+    freigegebenen, gueltigen Kostennachweis mit genau diesem Satz. Fehlt er
+    (nur Plattform-Nachweis, anderer Satz, kein Wert), sperrt die Auswertung
+    mit ``PRODUCT_EVIDENCE_COST_MISSING``: der Override wird nie angewendet und
+    es gibt keinen stillen Rueckfall auf den Standardwert."""
+    if negotiated_bps is None:
+        return None
+    status, rate = rate_terms(json.loads(item["canonical_payload_json"]))
+    if item["tenant_id"] != tenant_id or status != "known" or rate != negotiated_bps:
+        return MISSING_BY_KIND["costs"]
+    return None
+
+
 def evaluate_items(
     product: Mapping[str, Any], rows: Iterable[Mapping[str, Any]], *, tenant_id: str, jurisdiction: str, today: str,
+    negotiated_ter_bps: int | None = None,
 ) -> tuple[list[ProductEvidenceDefect], list[Mapping[str, Any]]]:
-    """Alle Pflichtarten eines Produkts; ``(Befunde, wirksame Nachweise)``."""
+    """Alle Pflichtarten eines Produkts; ``(Befunde, wirksame Nachweise)``.
+
+    ``negotiated_ter_bps``: ausgehandelte Tenant-Kondition (6.5) oder None."""
     product_id = str(product["id"])
     own = [
         r for r in rows
@@ -284,6 +395,9 @@ def evaluate_items(
         code, item = _evaluate_kind(
             product, kind, [r for r in own if r["evidence_kind"] == kind], tenant_id=tenant_id, today=today,
         )
+        if code is None and item is not None and kind == "costs":
+            code = negotiated_cost_defect(item, negotiated_ter_bps, tenant_id=tenant_id)
+            item = None if code is not None else item
         if code is not None:
             defects.append(ProductEvidenceDefect(code, product_id, kind))
         elif item is not None:
@@ -335,6 +449,163 @@ def item_binding(item: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+# -- Dimensions-Snapshots (Vorab-Entscheid 6.3) ------------------------------
+
+# Je Dimension die Nachweisarten, aus denen ihr Snapshot besteht. Ein Snapshot
+# ist IMMER gebunden (nie NULL): ``bound`` mit den Quellen und Freigaben der
+# wirksamen Nachweise oder -- wenn jeder dieser Nachweise belegt nicht
+# anwendbar ist -- typisiert ``not_applicable`` mit denselben Quellen,
+# Freigaben und eigenem SHA-256-Hash. Die ID ist inhaltsadressiert
+# (``<dimension>:<sha256>``) und liegt im unveraenderlichen Satz-Snapshot.
+DIMENSION_KINDS: dict[str, tuple[str, ...]] = {
+    "eligibility": ("suitability",),
+    "cost": ("costs", "retrocession"),
+    "conflict": ("retrocession",),
+}
+DIMENSION_COLUMNS: dict[str, str] = {
+    "eligibility": "eligibility_snapshot_id",
+    "cost": "cost_snapshot_id",
+    "conflict": "conflict_snapshot_id",
+}
+DIMENSION_SCHEMA = "ares-product-evidence-dimension/1"
+DIMENSION_DOMAIN = b"ares-product-evidence-dimension/1\n"
+DIMENSION_BOUND = "bound"
+
+
+def _canonical_json(payload: Any) -> str:
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def dimension_snapshot_hash(record: Mapping[str, Any]) -> str:
+    """SHA-256 (Hex) ueber Domaene + kanonischen Inhalt (ohne Hash/ID)."""
+    body = {key: value for key, value in record.items() if key not in ("snapshot_hash", "snapshot_id")}
+    return hashlib.sha256(DIMENSION_DOMAIN + _canonical_json(body).encode("utf-8")).hexdigest()
+
+
+def dimension_snapshot_id(dimension: str, digest: str) -> str:
+    return f"{dimension}:{digest}"
+
+
+def dimension_id_check_sql(column: str, dimension: str) -> str:
+    """Dialektneutrale Formpruefung ``<dimension>:<64 hex>`` (Trigger)."""
+    prefix = f"{dimension}:"
+    return (
+        f"({column} IS NOT NULL AND substr({column}, 1, {len(prefix)}) = '{prefix}' "
+        f"AND length({column}) = {len(prefix) + 64} "
+        f"AND ltrim(substr({column}, {len(prefix) + 1}), '0123456789abcdef') = '')"
+    )
+
+
+SNAPSHOT_UNBOUND_MESSAGE = (
+    "product_evidence_snapshots: Eignungs-, Kosten- und Konfliktsnapshot muessen gebunden sein "
+    "(Schema ares-product-evidence/v2)"
+)
+# Ausgeschrieben; identisch mit ``dimension_id_check_sql`` je Dimension + Schema 2
+# (Test sichert die Deckung).
+SNAPSHOT_BINDING_SQL = (
+    "(NEW.eligibility_snapshot_id IS NOT NULL AND substr(NEW.eligibility_snapshot_id, 1, 12) = 'eligi"
+    "bility:' AND length(NEW.eligibility_snapshot_id) = 76 AND ltrim(substr(NEW.eligibility_snapshot_"
+    "id, 13), '0123456789abcdef') = '') AND (NEW.cost_snapshot_id IS NOT NULL AND substr(NEW.cost_sna"
+    "pshot_id, 1, 5) = 'cost:' AND length(NEW.cost_snapshot_id) = 69 AND ltrim(substr(NEW.cost_snapsh"
+    "ot_id, 6), '0123456789abcdef') = '') AND (NEW.conflict_snapshot_id IS NOT NULL AND substr(NEW.co"
+    "nflict_snapshot_id, 1, 9) = 'conflict:' AND length(NEW.conflict_snapshot_id) = 73 AND ltrim(subs"
+    "tr(NEW.conflict_snapshot_id, 10), '0123456789abcdef') = '') AND NEW.schema_version = 'ares-produ"
+    "ct-evidence/v2'"
+)
+# 6.3 an der DB-Grenze: kein neuer Satz ohne die drei Dimensionsbindungen
+# (Altbestand bleibt unberuehrt und wird in der Auswertung LEGACY/STALE).
+SQLITE_SNAPSHOT_BINDING_TRIGGER = (
+    "CREATE TRIGGER IF NOT EXISTS trg_product_evidence_snapshot_binding_insert "
+    "BEFORE INSERT ON product_evidence_snapshots FOR EACH ROW "
+    f"WHEN NOT ({SNAPSHOT_BINDING_SQL}) "
+    f"BEGIN SELECT RAISE(ABORT, '{SNAPSHOT_UNBOUND_MESSAGE}'); END"
+)
+PG_SNAPSHOT_BINDING_FUNCTION = f"""
+CREATE OR REPLACE FUNCTION product_evidence_snapshots_binding()
+RETURNS trigger AS $$
+BEGIN
+    IF NOT ({SNAPSHOT_BINDING_SQL}) THEN
+        RAISE EXCEPTION '{SNAPSHOT_UNBOUND_MESSAGE}';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql
+"""
+PG_SNAPSHOT_BINDING_TRIGGER = (
+    "CREATE TRIGGER trg_product_evidence_snapshot_binding BEFORE INSERT ON product_evidence_snapshots "
+    "FOR EACH ROW EXECUTE FUNCTION product_evidence_snapshots_binding()"
+)
+
+
+def _payload_status(item: Mapping[str, Any]) -> Any:
+    try:
+        payload = json.loads(item["canonical_payload_json"])
+    except (TypeError, ValueError):
+        return None
+    return payload.get("status") if isinstance(payload, dict) else None
+
+
+def dimension_snapshots(
+    items: Iterable[Mapping[str, Any]], negotiated: Mapping[str, int] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Typisierte, gehashte Snapshots je Dimension aus den wirksamen
+    Nachweisen eines Satzes (deterministisch, nur gebundene Werte)."""
+    rows = sorted(items, key=item_sort_key)
+    conditions = negotiated or {}
+    out: dict[str, dict[str, Any]] = {}
+    for dimension, kinds in DIMENSION_KINDS.items():
+        members = [item for item in rows if item["evidence_kind"] in kinds]
+        if not members:
+            raise ValueError(f"Dimension {dimension} ohne wirksamen Nachweis")
+        not_applicable = all(_payload_status(item) == NOT_APPLICABLE for item in members)
+        record: dict[str, Any] = {
+            "schema_version": DIMENSION_SCHEMA,
+            "dimension": dimension,
+            "status": NOT_APPLICABLE if not_applicable else DIMENSION_BOUND,
+            "evidence_kinds": list(kinds),
+            "sources": [{
+                "item_id": str(item["id"]), "product_id": str(item["product_id"]),
+                "evidence_kind": item["evidence_kind"], "source_type": item["source_type"],
+                "source_reference": item["source_reference"],
+                "source_document_sha256": item["source_document_sha256"],
+                "canonical_payload_hash": item["canonical_payload_hash"],
+                "valid_from": item["valid_from"], "valid_until": item["valid_until"],
+            } for item in members],
+            "approvals": [{
+                "item_id": str(item["id"]), "approved_by": item["approved_by"],
+                "approved_at": item["approved_at"], "approval_mode": item["approval_mode"],
+            } for item in members],
+        }
+        if dimension == "cost":
+            record["negotiated_conditions"] = [
+                {"product_id": str(item["product_id"]), "override_ter_bps": conditions[str(item["product_id"])],
+                 "item_id": str(item["id"])}
+                for item in members
+                if item["evidence_kind"] == "costs" and str(item["product_id"]) in conditions
+            ]
+        digest = dimension_snapshot_hash(record)
+        record["snapshot_hash"] = digest
+        record["snapshot_id"] = dimension_snapshot_id(dimension, digest)
+        out[dimension] = record
+    return out
+
+
+def _dimensions_consistent(row: Mapping[str, Any], payload: Mapping[str, Any]) -> bool:
+    bound = payload.get("dimension_snapshots")
+    if not isinstance(bound, dict) or set(bound) != set(DIMENSION_KINDS):
+        return False
+    for dimension, column in DIMENSION_COLUMNS.items():
+        record = bound[dimension]
+        if not isinstance(record, dict) or record.get("dimension") != dimension:
+            return False
+        digest = dimension_snapshot_hash(record)
+        if record.get("snapshot_hash") != digest or record.get("snapshot_id") != dimension_snapshot_id(dimension, digest):
+            return False
+        if row[column] != record["snapshot_id"]:
+            return False
+    return True
+
+
 # -- Gebundener Satz eines Laufs ---------------------------------------------
 
 # Lauf, Mandat, Snapshot und Positionsprodukte in EINER Abfrage (Query-Budgets).
@@ -344,11 +615,19 @@ RUN_STATE_SQL = (
     "m.jurisdiction AS mandate_jurisdiction, s.id AS snapshot_id, s.tenant_id, s.mandate_id, "
     "s.recommendation_run_id, s.product_ids_json, s.item_ids_json, s.item_hashes_json, s.status, "
     "s.canonical_payload_json, s.product_evidence_hash, "
-    "rp.product_id, p.id, p.isin, p.internal_product_id, p.figi, p.share_class_figi "
+    "s.eligibility_snapshot_id, s.cost_snapshot_id, s.conflict_snapshot_id, "
+    "rp.product_id, p.id, p.isin, p.internal_product_id, p.figi, p.share_class_figi, "
+    "ue.override_ter_bps AS negotiated_ter_bps "
     "FROM recommendation_runs r JOIN mandates m ON m.id = r.mandate_id "
     "LEFT JOIN product_evidence_snapshots s ON s.id = r.product_evidence_snapshot_id "
     "LEFT JOIN recommendation_positions rp ON rp.run_id = r.id "
-    "LEFT JOIN products p ON p.id = rp.product_id WHERE r.id = :run_id"
+    "LEFT JOIN products p ON p.id = rp.product_id "
+    # 6.5: hoechstens ein aktiver Universumseintrag je (Tenant, Jurisdiktion,
+    # Produkt) (ux_product_universe_active_entry) -- keine Zeilenvervielfachung.
+    "LEFT JOIN product_universe_entries ue ON ue.product_id = p.id AND ue.tenant_id = s.tenant_id "
+    "AND ue.jurisdiction = COALESCE(NULLIF(m.jurisdiction, ''), 'CH') AND ue.deleted_at IS NULL "
+    "AND ue.override_ter_bps IS NOT NULL "
+    "WHERE r.id = :run_id"
 )
 RUN_PRODUCT_IDS_SQL = "SELECT DISTINCT product_id FROM recommendation_positions WHERE run_id = :run_id"
 RUN_ITEMS_SQL = (
@@ -364,6 +643,8 @@ def _bound(row: Mapping[str, Any]) -> dict[str, Any] | None:
     if stored_json_hash(row["canonical_payload_json"], domain=PRODUCT_EVIDENCE_DOMAIN) != row["product_evidence_hash"]:
         return None
     payload = json.loads(row["canonical_payload_json"])
+    if payload.get("schema_version") != PRODUCT_EVIDENCE_SCHEMA:
+        return LEGACY_SET
     try:
         consistent = (
             payload["recommendation_run_id"] == str(row["run_id"]) == str(row["recommendation_run_id"])
@@ -374,10 +655,16 @@ def _bound(row: Mapping[str, Any]) -> dict[str, Any] | None:
             and json.loads(row["product_ids_json"]) == payload["product_ids"]
             and json.loads(row["item_ids_json"]) == [item["id"] for item in payload["items"]]
             and json.loads(row["item_hashes_json"]) == [item["canonical_payload_hash"] for item in payload["items"]]
+            and _dimensions_consistent(row, payload)
         )
     except (KeyError, TypeError, ValueError):
         return None
     return payload if consistent else None
+
+
+# Satz des Schemas 1 (vor den Dimensions-Snapshots): integer gespeichert, aber
+# ohne die verlangte Bindung -> STALE (neu pruefen und binden), nie beschaedigt.
+LEGACY_SET: dict[str, Any] = {"legacy": True}
 
 
 def run_evidence_state(
@@ -395,6 +682,8 @@ def run_evidence_state(
     payload = _bound(row)
     if payload is None:
         return ProductEvidenceDefect(HASH_MISMATCH, None, "snapshot"), None, []
+    if payload is LEGACY_SET:
+        return ProductEvidenceDefect(STALE, None, "snapshot"), None, []
     if row["mandate_jurisdiction"] != payload["mandate_jurisdiction"]:
         return ProductEvidenceDefect(STALE, None, "snapshot"), payload, []
     product_rows = [r for r in rows if r["product_id"] is not None]
@@ -404,18 +693,25 @@ def run_evidence_state(
     products = {str(p["id"]): p for p in product_rows}
     if sorted(products) != payload["product_ids"]:
         return ProductEvidenceDefect(STALE, None, "snapshot"), payload, []
+    negotiated = {
+        str(p["id"]): int(p["negotiated_ter_bps"]) for p in product_rows if p["negotiated_ter_bps"] is not None
+    }
     items = list(query(RUN_ITEMS_SQL, {"run_id": str(run_id)}))
     effective: list[Mapping[str, Any]] = []
     for product_id in payload["product_ids"]:
         defects, selected = evaluate_items(
             products[product_id], items, tenant_id=payload["tenant_id"],
-            jurisdiction=payload["jurisdiction"], today=today,
+            jurisdiction=payload["jurisdiction"], today=today, negotiated_ter_bps=negotiated.get(product_id),
         )
         if defects:
             return defects[0], payload, []
         effective.extend(selected)
     effective.sort(key=item_sort_key)
     if [item_binding(item) for item in effective] != payload["items"]:
+        return ProductEvidenceDefect(STALE, None, "snapshot"), payload, []
+    # 6.3/6.5: Dimensions-Snapshots (inkl. gebundener ausgehandelter Kondition)
+    # muessen dem heute wirksamen Stand entsprechen.
+    if dimension_snapshots(effective, negotiated) != payload["dimension_snapshots"]:
         return ProductEvidenceDefect(STALE, None, "snapshot"), payload, []
     return None, payload, effective
 
@@ -462,8 +758,15 @@ def unresolved_retrocession(query: Query, run_id: Any, *, today: str) -> bool:
 __all__ = [
     "CONFLICT", "HASH_MISMATCH", "KIND_LABELS", "MESSAGES", "MISSING", "MISSING_BY_KIND", "NOT_APPLICABLE",
     "PRODUCT_EVIDENCE_DOMAIN", "PRODUCT_EVIDENCE_EVALUATOR", "PRODUCT_EVIDENCE_KINDS", "PRODUCT_EVIDENCE_SCHEMA",
+    "DIMENSION_COLUMNS", "DIMENSION_DOMAIN", "DIMENSION_KINDS", "DIMENSION_SCHEMA", "LEGACY_SET",
+    "PRODUCT_EVIDENCE_SCHEMA_LEGACY", "dimension_id_check_sql", "dimension_snapshot_hash", "dimension_snapshot_id",
+    "dimension_snapshots", "negotiated_cost_defect",
+    "PG_SNAPSHOT_BINDING_FUNCTION", "PG_SNAPSHOT_BINDING_TRIGGER", "SNAPSHOT_BINDING_SQL", "SNAPSHOT_UNBOUND_MESSAGE",
+    "SQLITE_SNAPSHOT_BINDING_TRIGGER",
     "ProductEvidenceDefect", "RATE_KINDS", "REVOKED", "SHARE_CLASS_MISMATCH", "SQLITE_TENANT_TRIGGERS", "STALE", "STATUS_VERIFIED",
     "TENANT_MISMATCH_MESSAGE", "TENANT_MISMATCH_SQL",
+    "IDENTITY_MISMATCH_MESSAGE", "PG_IDENTITY_FUNCTION", "PG_IDENTITY_TRIGGER", "SQLITE_IDENTITY_TRIGGERS",
+    "identity_mismatch_sql", "PG_IDENTITY_MISMATCH_SQL", "SQLITE_IDENTITY_MISMATCH_SQL",
     "bound_rate_terms", "bound_term", "configure_synthetic_evidence", "evaluate_items", "evidence_identity", "identity_matches", "is_sha256", "is_synthetic",
     "item_binding", "item_sort_key", "item_terms", "lifecycle_fingerprint", "payload_defect_code",
     "product_identity", "rate_terms", "run_evidence_state", "stored_json_hash", "synthetic_evidence_allowed",

@@ -7156,7 +7156,8 @@ export interface components {
         /**
          * AdvisoryEnvelopeResponse
          * @description CCX-P1: aktueller, integritaetsgepruefter Beratungsentscheid
-         *     (``ares/advisory-envelope/1``). Rohwerte und Hashes, keine Darstellung.
+         *     (``ares/advisory-envelope/2``; V1 nur historisch). Rohwerte und Hashes,
+         *     keine Darstellung.
          */
         AdvisoryEnvelopeResponse: {
             /** Base Currency */
@@ -7181,6 +7182,8 @@ export interface components {
             predecessor_envelope_hash?: string | null;
             /** Predecessor Id */
             predecessor_id?: string | null;
+            /** Product Evidence Set Hash */
+            product_evidence_set_hash?: string | null;
             /** Rounding Policy Version */
             rounding_policy_version: string;
             /** Schema Version */

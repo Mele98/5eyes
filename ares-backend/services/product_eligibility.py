@@ -44,7 +44,7 @@ from models.product_eligibility import (
     ProductEvidenceSnapshot,
     ProductSustainabilityAttribute,
 )
-from models.review import Product, RecommendationPosition
+from models.review import Product, ProductUniverseEntry, RecommendationPosition
 from core.db_integrity import raise_if_check_violation
 from services.product_eligibility_governance import TENANT_PRODUCT_RULE_SOURCE as _TENANT_PRODUCT_RULE_SOURCE
 from services.product_eligibility_governance import parse_utc_timestamp
@@ -1079,17 +1079,49 @@ def effective_product_evidence_items(db: Session, mandate: Mandate, product_ids)
     ).order_by(ProductEvidenceItem.id).all()
 
 
+def negotiated_cost_conditions(db: Session, mandate: Mandate, product_ids) -> dict[str, int]:
+    """C-COMP-02 (Vorab-Entscheid 6.5): ausgehandelte Konditionen
+    (``ProductUniverseEntry.override_ter_bps``) des Mandats-Tenants
+    (``mandate_tenant_id``) in der Mandatsjurisdiktion, je Produkt.
+
+    Der Override ist KEIN Kostennachweis und veraendert den Kundenausweis nie
+    selbst. Er verlangt einen tenantgebundenen, versionierten, freigegebenen
+    Kostennachweis (``ProductEvidenceItem`` Art ``costs`` des Tenants, mit
+    Quelle und Gueltigkeit) mit genau diesem Satz, der im Satz-Snapshot
+    (``cost_snapshot_id``) gebunden wird. Fehlt er, sperrt die Auswertung mit
+    ``PRODUCT_EVIDENCE_COST_MISSING`` (``core.product_evidence.
+    negotiated_cost_defect``) -- weder Anwendung noch stiller Rueckfall."""
+    ids = sorted({str(product_id) for product_id in product_ids})
+    if not ids:
+        return {}
+    rows = db.query(ProductUniverseEntry.product_id, ProductUniverseEntry.override_ter_bps).filter(
+        ProductUniverseEntry.tenant_id == mandate_tenant_id(mandate),
+        ProductUniverseEntry.jurisdiction == _mandate_jurisdiction(mandate),
+        ProductUniverseEntry.product_id.in_(ids),
+        ProductUniverseEntry.deleted_at.is_(None),
+        ProductUniverseEntry.override_ter_bps.isnot(None),
+    ).all()
+    return {str(product_id): int(bps) for product_id, bps in rows}
+
+
 def evaluate_product_evidence(
     db: Session, mandate: Mandate, product: Product, *, as_of: str | None = None, rows=None,
+    negotiated: dict[str, int] | None = None,
 ) -> dict:
-    """Bewertet alle Pflichtarten für genau ein Produkt fail-closed."""
+    """Bewertet alle Pflichtarten für genau ein Produkt fail-closed.
+
+    ``negotiated``: vorab gelesene ``negotiated_cost_conditions`` (sonst je
+    Aufruf gelesen)."""
     today = as_of or evidence_today()
     if rows is None:
         rows = effective_product_evidence_items(db, mandate, [product.id])
+    if negotiated is None:
+        negotiated = negotiated_cost_conditions(db, mandate, [product.id])
     by_id = {row.id: row for row in rows}
     defects, selected = evidence_contract.evaluate_items(
         evidence_product_view(product), [_evidence_row_view(row) for row in rows],
         tenant_id=mandate_tenant_id(mandate), jurisdiction=_mandate_jurisdiction(mandate), today=today,
+        negotiated_ter_bps=negotiated.get(str(product.id)),
     )
     return {
         "status": evidence_contract.STATUS_VERIFIED if not defects else defects[0].status(),
@@ -1111,13 +1143,14 @@ class ProductEvidenceContext:
         self._rows: dict[str, list] = {}
         for row in effective_product_evidence_items(db, mandate, [p.id for p in products]):
             self._rows.setdefault(str(row.product_id), []).append(row)
+        self._negotiated = negotiated_cost_conditions(db, mandate, [p.id for p in products])
         self._cache: dict[str, dict] = {}
 
     def _evaluation(self, product) -> dict:
         key = str(product.id)
         if key not in self._cache:
             self._cache[key] = evaluate_product_evidence(
-                self._db, self._mandate, product, rows=self._rows.get(key, []),
+                self._db, self._mandate, product, rows=self._rows.get(key, []), negotiated=self._negotiated,
             )
         return self._cache[key]
 
@@ -1240,24 +1273,31 @@ def snapshot_run_product_evidence(
         _raise_product_evidence(
             _snapshot_issue(evidence_contract.MISSING, gone, "instrument_identity"), channel=channel,
         )
+    negotiated = negotiated_cost_conditions(db, mandate, product_ids)
     evaluations = {}
     for product in products:
-        result = evaluate_product_evidence(db, mandate, product)
+        result = evaluate_product_evidence(db, mandate, product, negotiated=negotiated)
         if result["issues"]:
             _raise_product_evidence(result["issues"][0], channel=channel)
         evaluations[product.id] = result["fingerprint"]
     items = _revalidated_items(db, mandate, products, evaluations, channel=channel)
-    return _persist_evidence_snapshot(db, mandate, run, product_ids, items)
+    # Die ausgehandelte Kondition wird nach der Sperre erneut gelesen; jede
+    # Abweichung zur ersten Lesung ist ein veralteter Stand (fail-closed).
+    if negotiated_cost_conditions(db, mandate, product_ids) != negotiated:
+        _raise_product_evidence(_snapshot_issue(evidence_contract.STALE), channel=channel)
+    return _persist_evidence_snapshot(db, mandate, run, product_ids, items, negotiated)
 
 
 def _revalidated_items(db: Session, mandate: Mandate, products, evaluations: dict, *, channel: str) -> list[dict]:
     """Zweite, atomare Pruefung unter Sperre; liefert die sortierten Zeilen."""
     locked = [_evidence_row_view(row) for row in lock_product_evidence(db, mandate, [p.id for p in products])]
+    negotiated = negotiated_cost_conditions(db, mandate, [p.id for p in products])
     selected: list[dict] = []
     for product in products:
         defects, current = evidence_contract.evaluate_items(
             evidence_product_view(product), locked, tenant_id=mandate_tenant_id(mandate),
             jurisdiction=_mandate_jurisdiction(mandate), today=evidence_today(),
+            negotiated_ter_bps=negotiated.get(str(product.id)),
         )
         if defects:
             _raise_product_evidence(defects[0].as_dict(), channel=channel)
@@ -1269,8 +1309,15 @@ def _revalidated_items(db: Session, mandate: Mandate, products, evaluations: dic
     return sorted(selected, key=evidence_contract.item_sort_key)
 
 
-def product_evidence_set(mandate: Mandate, run, product_ids: list[str], items: list[dict]) -> dict:
-    """Sortierter Evidenzsatz eines Laufs (Payload des Satz-Hashs)."""
+def product_evidence_set(
+    mandate: Mandate, run, product_ids: list[str], items: list[dict], negotiated: dict[str, int] | None = None,
+) -> dict:
+    """Sortierter Evidenzsatz eines Laufs (Payload des Satz-Hashs).
+
+    6.3: ``dimension_snapshots`` bindet Eignung, Kosten und Interessenkonflikt
+    je als typisierten, gehashten Snapshot (``bound`` oder ``not_applicable``,
+    nie NULL); deren IDs stehen zusaetzlich in den Spalten
+    ``eligibility_snapshot_id``/``cost_snapshot_id``/``conflict_snapshot_id``."""
     expires = sorted(item["valid_until"] for item in items if item["valid_until"])
     return {
         "schema_version": evidence_contract.PRODUCT_EVIDENCE_SCHEMA,
@@ -1282,6 +1329,7 @@ def product_evidence_set(mandate: Mandate, run, product_ids: list[str], items: l
         "recommendation_run_id": str(run.id),
         "product_ids": list(product_ids),
         "items": [evidence_contract.item_binding(item) for item in items],
+        "dimension_snapshots": evidence_contract.dimension_snapshots(items, negotiated),
         "as_of": evidence_today(),
         "expires_at": expires[0] if expires else None,
         "status": evidence_contract.STATUS_VERIFIED,
@@ -1290,8 +1338,10 @@ def product_evidence_set(mandate: Mandate, run, product_ids: list[str], items: l
 
 def _persist_evidence_snapshot(
     db: Session, mandate: Mandate, run, product_ids: list[str], items: list[dict],
+    negotiated: dict[str, int] | None = None,
 ) -> ProductEvidenceSnapshot:
-    payload = product_evidence_set(mandate, run, product_ids, items)
+    payload = product_evidence_set(mandate, run, product_ids, items, negotiated)
+    dimensions = payload["dimension_snapshots"]
     canonical, digest = product_evidence_hash(payload)
     # Identischer Satz am selben Tag (z. B. Position hinzu und wieder entfernt):
     # dieselbe unveraenderliche Zeile, kein zweiter Eintrag.
@@ -1304,6 +1354,8 @@ def _persist_evidence_snapshot(
             recommendation_run_id=payload["recommendation_run_id"], product_ids_json=json.dumps(product_ids),
             item_ids_json=json.dumps([item["id"] for item in payload["items"]]),
             item_hashes_json=json.dumps([item["canonical_payload_hash"] for item in payload["items"]]),
+            **{column: dimensions[dimension]["snapshot_id"]
+               for dimension, column in evidence_contract.DIMENSION_COLUMNS.items()},
             as_of=payload["as_of"], evaluated_at=_now_iso(), expires_at=payload["expires_at"],
             status=payload["status"], reason_codes_json="[]", canonical_payload_json=canonical,
             product_evidence_hash=digest, schema_version=payload["schema_version"],
