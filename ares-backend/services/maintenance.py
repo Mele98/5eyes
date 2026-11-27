@@ -212,41 +212,6 @@ def create_backup(snapshot_anchor=None) -> dict[str, Any]:
     }
 
 
-def _check_single_company_file(db_file: Path, *, db_key: str | None) -> None:
-    """assert_single_company_database gegen eine Datenbankdatei: mehr als eine
-    Firma -> TENANT_COUNT_INVALID. Eine Sicherung ohne Firma (oder von vor der
-    Mandantenfaehigkeit, ohne Tabelle ``tenants``) ist zulaessig: der Start legt
-    dann genau die eine Firma 'main' an und prueft streng (genau eine)."""
-    engine = create_app_engine(db_path=db_file, db_key=db_key)
-    try:
-        with Session(bind=engine) as db:
-            has_tenants = db.execute(text(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tenants'"
-            )).first() is not None
-            if has_tenants:
-                assert_single_company_database(db, allow_empty=True)
-    finally:
-        engine.dispose()
-
-
-def _assert_restorable_single_company(backup_path: Path, *, db_key: str | None) -> None:
-    """Prueft die Sicherung an einer temporaeren Kopie (die Sicherung selbst
-    bleibt byte-identisch, Hash/HMAC-Sidecars gelten weiter)."""
-    import shutil
-    import tempfile
-
-    if not backup_path.is_file():
-        return  # restore_database meldet die fehlende Datei typisiert
-    with tempfile.TemporaryDirectory(prefix="ares-restore-check-") as tmp:
-        probe = Path(tmp) / "probe.db"
-        shutil.copyfile(backup_path, probe)
-        try:
-            _check_single_company_file(probe, db_key=db_key)
-        except TenantDeploymentError:
-            logger.error("Restore abgelehnt (Tier-1-Einzelfirmen-Gate): %s", backup_path.name)
-            raise
-
-
 def restore_backup(
     backup_path: str | Path,
     *,
@@ -305,6 +270,41 @@ def restore_backup(
         'hmac_verified': result.hmac_verified,
         'erasure_reapply': erasure_reapply,
     }
+
+
+def _check_single_company_file(db_file: Path, *, db_key: str | None) -> None:
+    """assert_single_company_database gegen eine Datenbankdatei: mehr als eine
+    Firma -> TENANT_COUNT_INVALID. Eine Sicherung ohne Firma (oder von vor der
+    Mandantenfaehigkeit, ohne Tabelle ``tenants``) ist zulaessig: der Start legt
+    dann genau die eine Firma 'main' an und prueft streng (genau eine)."""
+    engine = create_app_engine(db_path=db_file, db_key=db_key)
+    try:
+        with Session(bind=engine) as db:
+            has_tenants = db.execute(text(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tenants'"
+            )).first() is not None
+            if has_tenants:
+                assert_single_company_database(db, allow_empty=True)
+    finally:
+        engine.dispose()
+
+
+def _assert_restorable_single_company(backup_path: Path, *, db_key: str | None) -> None:
+    """Prueft die Sicherung an einer temporaeren Kopie (die Sicherung selbst
+    bleibt byte-identisch, Hash/HMAC-Sidecars gelten weiter)."""
+    import shutil
+    import tempfile
+
+    if not backup_path.is_file():
+        return  # restore_database meldet die fehlende Datei typisiert
+    with tempfile.TemporaryDirectory(prefix="ares-restore-check-") as tmp:
+        probe = Path(tmp) / "probe.db"
+        shutil.copyfile(backup_path, probe)
+        try:
+            _check_single_company_file(probe, db_key=db_key)
+        except TenantDeploymentError:
+            logger.error("Restore abgelehnt (Tier-1-Einzelfirmen-Gate): %s", backup_path.name)
+            raise
 
 
 def list_backups() -> dict[str, Any]:
