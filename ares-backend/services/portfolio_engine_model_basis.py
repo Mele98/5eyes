@@ -33,6 +33,7 @@ API darf sie deshalb nie als eine unbenannte Methodik praesentieren.
 from __future__ import annotations
 
 from models.allocation import CapitalMarketAssumption, TargetAllocation
+from core.property_gate import model_basis_labels  # K1 Property-Gate
 from models.mandates import Mandate
 from services.cma_correlation_provenance import bucket_correlation_provenance
 from services.drawdown_refinement import drawdown_time_grid_basis
@@ -45,6 +46,15 @@ from services.portfolio_engine_mc_simulation import (
     _simulation_transaction_cost_bps,
     _simulation_use_tail_risk,
 )
+
+
+def _property_gate_labels(*, decision: bool) -> dict[str, str]:
+    """K1: Property-Semantik aus dem Gate (core.property_gate).
+    Der Entscheidungskanal fuehrte nie ``direct_real_estate_return_basis``."""
+    labels = dict(model_basis_labels())
+    if decision:
+        labels.pop("direct_real_estate_return_basis", None)
+    return labels
 
 
 def _build_allocation_model_basis(
@@ -276,9 +286,9 @@ def _build_allocation_model_basis(
             "external_property_goal_basis": (
                 "inflation_zero_real_plus_exact_liability_and_pledged_transfer_v2"
             ),
-            "indirect_amortization_treatment": "pledged_asset_transfer_v1",
             "direct_real_estate_scope": "external_total_wealth",
             "external_rent_treatment": "cashflow_only",
+            **_property_gate_labels(decision=True),  # K1 Property-Gate
         }
     # CERT-OPTIMIZER-OBJECTIVE-001 / OPTIMIZER-GOAL-WEIGHTING-EVIDENCE-001:
     # the goal-weighting mode changes the solver's objective mathematics by
@@ -398,12 +408,9 @@ def _build_allocation_model_basis(
             "max_drawdown_time_grid": drawdown_time_grid_basis(),
             "foundation_model_version": "external_foundation_v2",
             "total_scope_goal_basis": "exact_total_projection_path_v2",
-            "indirect_amortization_treatment": "pledged_asset_transfer_v1",
             "direct_real_estate_scope": "external_total_wealth",
             "external_rent_treatment": "cashflow_only",
-            "direct_real_estate_return_basis": (
-                "position_price_appreciation_plus_explicit_rent_v2"
-            ),
+            **_property_gate_labels(decision=False),  # K1 Property-Gate
             "tail_model": (
                 "bounded_cornish_fisher_moment_calibrated_v2"
                 if reporting_tail

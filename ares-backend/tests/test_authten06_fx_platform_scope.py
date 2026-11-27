@@ -73,7 +73,7 @@ def _login_as(role: str):
     app.dependency_overrides[get_current_user] = lambda: _user(role)
 
 
-_PUT_PAYLOAD = {"rates": [{"currency": "EUR", "rate": 0.95}]}
+_PUT_PAYLOAD = {"rates": [{"currency": "EUR", "rate": 0.95, "confirm_current": True}]}  # N-909-11: Wert = Ersatzkurs -> ausdruecklich geprueft
 
 
 # ---------------------------------------------------------------------------

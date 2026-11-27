@@ -18,6 +18,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
@@ -28,7 +29,7 @@ GOAL_MODULE_PATH = HTML_PATH.parent / "goal-analysis-integrity.js"
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8") + chr(10) + GOAL_MODULE_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle() + chr(10) + GOAL_MODULE_PATH.read_text(encoding="utf-8")
 
 
 def _function_source(html: str, name: str) -> str:
@@ -92,7 +93,9 @@ def test_success_probability_is_the_single_defined_primary_measure():
         "var GOAL_SUCCESS_PROBABILITY_TOOLTIP='Anteil der simulierten Verl\\u00e4ufe, "
         "in denen das Ziel vollst\\u00e4ndig erreicht wird';"
     ) in html
-    assert "\\u2265 70 % gut \\u00b7 45\\u201369 % knapp \\u00b7 < 45 % kritisch" in html
+    # P5c / N-930-01: keine Ampel 70/45 mehr; die Legende beschreibt den M-3-Status.
+    assert "45\\u201369 % knapp" not in html
+    assert "var GOAL_AMPEL_LEGEND_TEXT='Status: Einstufung der Zielkennzahl" in html
     soll_ist = _function_source(html, "renderGoalAchievementSollIst")
     assert "Erfolgs-Wkt. SOLL" in soll_ist
     assert "path_success_rate_pct" in soll_ist
@@ -102,9 +105,10 @@ def test_success_probability_is_the_single_defined_primary_measure():
     assert "(P25)" in soll_ist
     assert "Erreichungsgrad im ung" not in soll_ist
     assert "goalAmpelLegendHtml()" in soll_ist
+    assert "goalStatusView(g).tone" in soll_ist  # SOLL-Farbe nur aus M-3
     mc_goals = _function_source(html, "buildMonteCarloGoalsHtml")
-    assert "var tone=success>=70" in mc_goals
-    assert "goalAmpelLegendHtml()" in mc_goals
+    assert "success>=70" not in mc_goals  # Simulation ohne eigene Ampel
+    assert "goalAmpelLegendHtml()" not in mc_goals
 
 
 def test_technical_details_are_collapsed_and_hidden_in_consulting():
@@ -135,13 +139,17 @@ def test_projection_horizon_comes_from_payload_not_hardcoded():
     assert "Jahre" not in neutral and "Erwartung p.a." in neutral
 
 
-def test_review_cockpit_ampel_uses_70_45_and_keeps_strategy_level_separate():
+def test_review_cockpit_status_comes_only_from_m3():
+    """P5c / N-930-01 (CTO 2026-11-21): rvGoalProbBadge (Ampel 70/45) und
+    goalAchievabilityStatusLabel (eigene Woerter) entfallen; Wort und Farbe
+    kommen aus goalStatusView (Server-Tabelle GOAL_STATUS_DISPLAY)."""
     html = _html()
-    badge = _function_source(html, "rvGoalProbBadge")
-    assert "p>=0.70" in badge and "p>=0.45" in badge
+    assert "function rvGoalProbBadge(" not in html
+    assert "function goalAchievabilityStatusLabel(" not in html
+    assert "function goalSuccessAmpel(" not in html
     review = _function_source(html, "renderReviewGoalAchievability")
     assert "goalAmpelLegendHtml()" in review
     assert "GOAL_STRATEGY_LEVEL_TOOLTIP" in review
-    assert "goalAchievabilityStatusLabel(row.status)" in review
+    assert "goalStatusView(row)" in review
     assert "var GOAL_STRATEGY_LEVEL_TOOLTIP='Zielniveau der Strategie:" in html
     assert 'class="goal-ampel-legend"' in html

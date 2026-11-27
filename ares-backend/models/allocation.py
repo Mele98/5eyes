@@ -34,6 +34,12 @@ class OptimizerPolicy(Base):
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+    # P5b (N-925-08 / M-4): IC-Freigabe der Risikoparameter dieser Policy --
+    # leer, bis das Anlagekomitee freigibt (nie vorbelegt). Nicht Teil des
+    # Abhaengigkeits-Hashs (Siegel bleiben beim Nachtrag der Spalten aktuell);
+    # der Freigabestatus ist im Parametersatz jeder Allokation gebunden.
+    ic_release_ref = Column(String, info={"advisory_hash_exempt": True})
+    ic_released_at = Column(String, info={"advisory_hash_exempt": True})
 
     building_blocks = relationship("BuildingBlock", back_populates="policy")
     house_matrix_entries = relationship("HouseMatrix", back_populates="policy")
@@ -258,7 +264,7 @@ class CapitalMarketAssumption(Base):
          bleibt erhalten). valid_from = Datum, ab dem die neue Annahme in der
          Engine wirkt (scenario_inputs_from_cma liest nur is_current=1).
       3. Quelle/Datum dokumentieren (Roadmap #51 Kernforderung):
-         - source: Herkunft der Zahlen, z.B. "Pictet CMA 2026Q3" oder bei
+         - source: Herkunft der Zahlen, z.B. "Haus-CMA 2026Q3" oder bei
            manueller/konservativer Schaetzung "konservativ manuell".
          - source_date: ISO-Datum der zugrunde liegenden Publikation (kann
            von valid_from abweichen -- z.B. Research-Papier vom 2026-06-15,

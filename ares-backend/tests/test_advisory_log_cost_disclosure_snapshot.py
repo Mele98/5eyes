@@ -52,6 +52,17 @@ def session_factory(tmp_path):
     )
     sf = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
     Base.metadata.create_all(bind=engine)
+    # L2c (H-192): Protokoll-Freitexte werden mit dem Kundenschluessel
+    # versiegelt -- das Mandat "m1" braucht (wie produktiv) einen Kunden.
+    from models.clients import Client
+    from models.mandates import Mandate
+
+    with sf() as db:
+        db.add(Client(id="c1", client_number="K-1", first_name="Eva", last_name="Beispiel",
+                      advisor_id="adv-seed", created_at=_NOW, updated_at=_NOW))
+        db.add(Mandate(id="m1", client_id="c1", mandate_number="M-1", mandate_type="Anlageberatung",
+                       opened_at=_NOW, created_at=_NOW, updated_at=_NOW))
+        db.commit()
     try:
         yield sf
     finally:

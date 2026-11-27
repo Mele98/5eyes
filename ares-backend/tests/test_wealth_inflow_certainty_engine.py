@@ -77,7 +77,7 @@ def _seed(session_factory, suffix: str, *, certainty):
         ))
         if certainty != "none":
             kwargs = {} if certainty == "legacy-null" else {"certainty": certainty}
-            inflow = WealthInflow(
+            inflow = WealthInflow(currency="CHF",
                 id=f"inflow-{suffix}-{uuid.uuid4()}", client_id=client_id,
                 mandate_id=mandate_id, label="Erbschaft Tante",
                 source_type="Erbschaft", amount_rappen=INFLOW_AMOUNT,

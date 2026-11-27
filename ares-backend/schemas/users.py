@@ -1,4 +1,5 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, ValidationError, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 from typing import Optional, Literal
 from schemas.common import BaseResponse
 
@@ -8,7 +9,7 @@ class UserCreate(BaseModel):
     password: str
     full_name: str
     email: Optional[EmailStr] = None
-    role: Literal["admin", "advisor", "readonly", "portfolio_management"] = "advisor"
+    role: Literal["admin", "advisor", "readonly", "portfolio_management", "compliance_reviewer"] = "advisor"
     # 2026-08-09 (Live-Playwright-Fund, FINIG-Gate-Test): nur von super_admin
     # ausgewertet (routers/auth.py::create_user) -- erlaubt dem Operator, einen
     # Mitarbeiter DIREKT in der Ziel-Firma anzulegen (Quota wird dann korrekt
@@ -22,26 +23,26 @@ class UserCreate(BaseModel):
     def validate_required_text(cls, value: str) -> str:
         normalized = value.strip()
         if not normalized:
-            raise ValueError('value must not be empty')
+            raise PydanticCustomError("value_empty", "Bitte dieses Feld ausfüllen.")
         return normalized
 
     @field_validator('password')
     @classmethod
     def validate_password(cls, value: str) -> str:
         if len(value) < 10:
-            raise ValueError('password must be at least 10 characters long')
+            raise PydanticCustomError("password_too_short", "Das Passwort muss mindestens 10 Zeichen lang sein.")
         # SEC-006 (Codex-Audit 2026-08-25): bcrypt akzeptiert nur maximal 72
         # Bytes und wirft sonst ein ValueError beim Hashen (unbehandelter 500
         # statt einer klaren 422-Fehlermeldung an den Client).
         if len(value.encode('utf-8')) > 72:
-            raise ValueError('password must not exceed 72 bytes')
+            raise PydanticCustomError("password_too_long", "Das Passwort ist zu lang (höchstens 72 Byte).")
         return value
 
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
-    role: Optional[Literal["admin", "advisor", "readonly", "portfolio_management"]] = None
+    role: Optional[Literal["admin", "advisor", "readonly", "portfolio_management", "compliance_reviewer"]] = None
     is_active: Optional[bool] = None
 
 
@@ -59,6 +60,15 @@ class UserResponse(BaseResponse):
     totp_enabled: int = 0
     # E1 (2026-06-14): offene Einladung (Account noch nicht aktiviert) — Team-UI.
     invite_pending: bool = False
+    # C-890-01 Nachtrag 3 (N-897-02): Herkunft/Identitaet (Freigabenachweis).
+    invited_by: Optional[str] = None
+    invited_at: Optional[str] = None
+    activated_at: Optional[str] = None
+    credentials_set_by: Optional[str] = None
+    totp_set_by: Optional[str] = None
+    reviewer_organisation: Optional[str] = None
+    reviewer_reference: Optional[str] = None
+    compromised_since: Optional[str] = None
 
     @field_validator('must_change_password', 'totp_enabled', mode='before')
     @classmethod
@@ -113,6 +123,18 @@ class BootstrapAdminRequest(BaseModel):
     # defensiv (Verteidigung in der Tiefe), aber der korrekte Schema-Typ
     # gehoert hierher.
     email: Optional[EmailStr] = None
+
+    @field_validator("email", mode="wrap")
+    @classmethod
+    def _german_email_error(cls, value, handler):
+        """KN4-B / E2E4-13: verstaendliche deutsche Meldung statt der technischen
+        englischen ("value is not a valid email address: ...")."""
+        try:
+            return handler(value)
+        except ValidationError as exc:
+            raise PydanticCustomError(
+                "email_invalid", "Bitte eine gültige E-Mail-Adresse angeben (z. B. name@firma.ch).",
+            ) from exc
     # 2026-08-01 (Onboarding, Entscheid Auftraggeber): Firmenidentitaet/
     # -Standort werden bei der Ersteinrichtung erfasst, weil bis dahin die
     # Default-Tenant-Zeile ("Default Tenant", NULL-Jurisdiktion) sonst
@@ -133,7 +155,7 @@ class BootstrapAdminRequest(BaseModel):
             return None
         from models.tenant import ALLOWED_PRESENTATION_MODES
         if v not in ALLOWED_PRESENTATION_MODES:
-            raise ValueError(f"default_presentation_mode ungueltig: {v!r}")
+            raise PydanticCustomError("presentation_mode_invalid", "Unbekannte Darstellungsart.")
         return v
 
     @field_validator('username', 'full_name')
@@ -141,19 +163,19 @@ class BootstrapAdminRequest(BaseModel):
     def validate_required_text(cls, value: str) -> str:
         normalized = value.strip()
         if not normalized:
-            raise ValueError('value must not be empty')
+            raise PydanticCustomError("value_empty", "Bitte dieses Feld ausfüllen.")
         return normalized
 
     @field_validator('password')
     @classmethod
     def validate_password(cls, value: str) -> str:
         if len(value) < 10:
-            raise ValueError('password must be at least 10 characters long')
+            raise PydanticCustomError("password_too_short", "Das Passwort muss mindestens 10 Zeichen lang sein.")
         # SEC-006 (Codex-Audit 2026-08-25): bcrypt akzeptiert nur maximal 72
         # Bytes und wirft sonst ein ValueError beim Hashen (unbehandelter 500
         # statt einer klaren 422-Fehlermeldung an den Client).
         if len(value.encode('utf-8')) > 72:
-            raise ValueError('password must not exceed 72 bytes')
+            raise PydanticCustomError("password_too_long", "Das Passwort ist zu lang (höchstens 72 Byte).")
         return value
 
 
@@ -170,12 +192,12 @@ class UserPasswordReset(BaseModel):
     @classmethod
     def validate_password(cls, value: str) -> str:
         if len(value) < 10:
-            raise ValueError('password must be at least 10 characters long')
+            raise PydanticCustomError("password_too_short", "Das Passwort muss mindestens 10 Zeichen lang sein.")
         # SEC-006 (Codex-Audit 2026-08-25): bcrypt akzeptiert nur maximal 72
         # Bytes und wirft sonst ein ValueError beim Hashen (unbehandelter 500
         # statt einer klaren 422-Fehlermeldung an den Client).
         if len(value.encode('utf-8')) > 72:
-            raise ValueError('password must not exceed 72 bytes')
+            raise PydanticCustomError("password_too_long", "Das Passwort ist zu lang (höchstens 72 Byte).")
         return value
 
 
@@ -185,31 +207,67 @@ class InviteCreate(BaseModel):
     username: str
     full_name: str
     email: Optional[EmailStr] = None
-    role: Literal["admin", "advisor", "readonly", "portfolio_management"] = "advisor"
+    role: Literal["admin", "advisor", "readonly", "portfolio_management", "compliance_reviewer"] = "advisor"
     # 2026-08-09: siehe UserCreate.tenant_id -- identischer Grund (Quota-Check
     # muss gegen die Ziel-Firma laufen, nicht die Operator-Firma).
     tenant_id: Optional[str] = None
+    # C-890-01 Nachtrag 3 (N-897-02): Identitaet der externen Compliance-Person
+    # (Name = full_name). Owner-Angabe, Pflicht nur fuer diese Rolle.
+    reviewer_organisation: Optional[str] = None
+    reviewer_reference: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _reviewer_identity(self):
+        if self.role == "compliance_reviewer":
+            for name in ("reviewer_organisation", "reviewer_reference"):
+                value = str(getattr(self, name) or "").strip()
+                if len(value) < 2:
+                    raise PydanticCustomError("compliance_reviewer_field_missing", "Für die externe Compliance-Freigabe sind alle Angaben Pflicht.")
+                setattr(self, name, value)
+            if not self.email:
+                raise PydanticCustomError("compliance_reviewer_email_missing", "Für die externe Compliance-Freigabe ist eine E-Mail-Adresse Pflicht.")
+        else:
+            self.reviewer_organisation = None
+            self.reviewer_reference = None
+        return self
 
     @field_validator('username', 'full_name')
     @classmethod
     def validate_required_text(cls, value: str) -> str:
         normalized = value.strip()
         if not normalized:
-            raise ValueError('value must not be empty')
+            raise PydanticCustomError("value_empty", "Bitte dieses Feld ausfüllen.")
         return normalized
 
 
 class InviteResponse(BaseModel):
     user_id: str
     username: str
-    invite_token: str          # nur EINMALIG im Klartext (danach nur Hash gespeichert)
+    # nur EINMALIG im Klartext (danach nur Hash gespeichert). N-897-10: None,
+    # wenn der Link einer externen Compliance-Person nur per E-Mail geht.
+    invite_token: Optional[str] = None
     invite_expires_at: str
     email_sent: bool = False   # True, wenn die Einladung per E-Mail verschickt wurde
+    link_delivery: str = "anzeige"  # "anzeige" | "nur_email"
 
 
 class InvitePreview(BaseModel):
     username: str
     full_name: str
+
+
+class UserCompromise(BaseModel):
+    """N-897-13: ausdruecklicher Widerruf eines Kontos wegen (Verdacht auf)
+    Kompromittierung. Freigaben ab ``compromised_since`` gelten nicht mehr."""
+    reason: str
+    compromised_since: str
+
+    @field_validator('reason')
+    @classmethod
+    def _reason(cls, value: str) -> str:
+        if len(value.strip()) < 10:
+            raise PydanticCustomError("reason_too_short", "Bitte eine Begründung mit mindestens 10 Zeichen erfassen.")
+        return value.strip()[:500]
 
 
 class InviteAccept(BaseModel):
@@ -220,12 +278,12 @@ class InviteAccept(BaseModel):
     @classmethod
     def validate_password(cls, value: str) -> str:
         if len(value) < 10:
-            raise ValueError('password must be at least 10 characters long')
+            raise PydanticCustomError("password_too_short", "Das Passwort muss mindestens 10 Zeichen lang sein.")
         # SEC-006 (Codex-Audit 2026-08-25): bcrypt akzeptiert nur maximal 72
         # Bytes und wirft sonst ein ValueError beim Hashen (unbehandelter 500
         # statt einer klaren 422-Fehlermeldung an den Client).
         if len(value.encode('utf-8')) > 72:
-            raise ValueError('password must not exceed 72 bytes')
+            raise PydanticCustomError("password_too_long", "Das Passwort ist zu lang (höchstens 72 Byte).")
         return value
 
 

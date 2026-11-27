@@ -6,7 +6,7 @@ from pathlib import Path
 from config import settings
 
 
-LOG_FILE_NAME = '5eyes-app.log'
+LOG_FILE_NAME = 'ares-app.log'
 
 
 def resolve_log_dir() -> Path:

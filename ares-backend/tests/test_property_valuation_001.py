@@ -138,6 +138,7 @@ def test_future_valuation_date_no_longer_delays_derived_rental_income():
     assert rent.valid_from is None
 
 
+@pytest.mark.usefixtures("property_advanced_mechanics_enabled")  # K1: dormante Mechanik
 def test_mortgage_flows_also_no_longer_gated_by_valuation_date():
     """Dieselbe Korrektur gilt fuer Hypothekarzins/Tilgung -- valuation_date
     beschreibt einen Bewertungsstichtag, keine Zins-/Tilgungsstart-Semantik."""
@@ -155,3 +156,6 @@ def test_mortgage_flows_also_no_longer_gated_by_valuation_date():
     amortization = next(f for f in flows if f.id.startswith("derived:mortgage_amortization:"))
     assert interest.valid_from is None
     assert amortization.valid_from is None
+
+
+from tests.property_gate_support import property_advanced_mechanics_enabled  # noqa: E402,F401  (K1)

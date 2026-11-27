@@ -59,6 +59,11 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
+from sqlalchemy import text
+
+from core import sustainability_preference as _sustainability
+from core.evidence import evidence_hash
+
 # Suitability-Check-Freshness in Tagen (12 Monate per Industry-Praxis).
 SUITABILITY_FRESHNESS_MAX_DAYS = 365
 
@@ -166,7 +171,7 @@ def evaluate_suitability_freshness(
 
 
 def audit_mandate_suitability(
-    db: Session, mandate: Any,
+    db: Session, mandate: Any, *, include_sustainability_preference: bool = True,
 ) -> dict[str, Any]:
     """FIDLEG-Eignungspruefungs-Audit auf MANDATSEBENE
     (Art. 10 Pruefpflicht + Art. 12 Eignungspruefung).
@@ -233,6 +238,15 @@ def audit_mandate_suitability(
         "audit_degraded": False,
         "is_compliant": True,
         "fidleg_basis": "Art. 10 / Art. 12 FIDLEG",
+        # N-888-04 (Dok. 106): Status der Nachhaltigkeitspraeferenz als Hinweis
+        # (nicht erfasst / Ueberpruefung faellig = Eignungspruefung faellig).
+        # Aendert is_compliant NICHT (kein stilles Sperren, Entscheid E0).
+        # Der Advisory-Report (Query-Budget, N-888-12) laedt den Status nicht;
+        # er wird dort nicht angezeigt. Gates und Eignungs-Endpunkt laden ihn.
+        "sustainability_preference": (
+            sustainability_preference_status(db, mandate)
+            if include_sustainability_preference else None
+        ),
     }
 
     # Anzahl Beratungsprotokoll-Eintraege (nur informativ fuer die Anzeige).
@@ -409,3 +423,25 @@ def suitability_gate_blocks(audit: dict[str, Any], *, creates_target_allocation:
         for issue in allocation_issues
     )
     return bool(other_issues) or not only_stale_allocation
+
+
+def sustainability_preference_status(db: Session, mandate: Any) -> dict[str, Any]:
+    """N-888-04 / E2a: {status: Pflichtzustand, notice}. Nur Hinweis, aendert
+    is_compliant nicht (kein stilles Sperren; die Gates sperren veraltet)."""
+    mandate_id = getattr(mandate, "id", None)
+    if not mandate_id or not hasattr(db, "execute"):
+        return {"status": _sustainability.STATE_UNANSWERED, "notice": None}
+    try:
+        info = _sustainability.load_state(
+            lambda sql, params: db.execute(text(sql), params).mappings().first(),
+            lambda sql, params: db.execute(text(sql), params).scalar(),
+            evidence_hash,
+            mandate_id=mandate_id,
+            tenant_id=getattr(mandate, "tenant_id", None),
+            mandate_type=getattr(mandate, "mandate_type", None),
+            today_iso=datetime.now(timezone.utc).date().isoformat(),
+        )
+    except Exception:  # noqa: BLE001 -- Hinweis darf das Audit nicht kippen
+        return {"status": _sustainability.STATE_UNREADABLE,
+                "notice": "Nachhaltigkeitspräferenz nicht lesbar – bitte prüfen."}
+    return {"status": info["state"], "notice": info["notice"]}

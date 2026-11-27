@@ -21,7 +21,7 @@ from services.maintenance import build_compliance_status  # noqa: E402
 def test_colocated_backup_dir_triggers_warning(tmp_path, monkeypatch):
     same_dir = tmp_path / "data"
     same_dir.mkdir()
-    monkeypatch.setattr("services.maintenance.resolve_db_file", lambda *_a, **_kw: same_dir / "5eyes.db")
+    monkeypatch.setattr("services.maintenance.resolve_db_file", lambda *_a, **_kw: same_dir / "ares.db")
     monkeypatch.setattr(settings, "backup_dir", str(same_dir))
     monkeypatch.setattr(settings, "db_use_sqlcipher", True)
     monkeypatch.setattr(settings, "db_key", "x" * 32)
@@ -38,14 +38,15 @@ def test_separate_backup_dir_does_not_warn(tmp_path, monkeypatch):
     db_dir.mkdir()
     backup_dir = tmp_path / "backups"
     backup_dir.mkdir()
-    monkeypatch.setattr("services.maintenance.resolve_db_file", lambda *_a, **_kw: db_dir / "5eyes.db")
+    monkeypatch.setattr("services.maintenance.resolve_db_file", lambda *_a, **_kw: db_dir / "ares.db")
     monkeypatch.setattr(settings, "backup_dir", str(backup_dir))
     monkeypatch.setattr(settings, "db_use_sqlcipher", True)
     monkeypatch.setattr(settings, "db_key", "x" * 32)
     monkeypatch.setattr(settings, "login_rate_limit_enabled", True)
     monkeypatch.setattr(settings, "secret_key", "not-the-default")
 
-    payload = build_compliance_status()
+    # F6: 'ok' setzt zusaetzlich eine bestaetigte Audit-Kette voraus.
+    payload = build_compliance_status(audit_verification={"state": "ok", "integrity_confirmed": True})
 
     assert payload["controls"]["backups_colocated_with_db"] is False
     assert not any("selben Verzeichnis" in w for w in payload["warnings"])

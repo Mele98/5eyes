@@ -13,6 +13,7 @@ from models.users import User
 from models.wealth import Cashflow
 from routers.wealth import update_cashflow
 from schemas.wealth import CashflowUpdate
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 FRONTEND = (
@@ -101,7 +102,7 @@ def test_cashflow_update_persists_income_to_expense(tmp_path):
 
 
 def test_income_and_expense_create_actions_have_explicit_defaults():
-    html = FRONTEND.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     assert 'openNewCashflow(\'Income\')">Einnahme erfassen' in html
     assert 'openNewCashflow(\'Expense\')">Ausgabe erfassen' in html
@@ -110,7 +111,7 @@ def test_income_and_expense_create_actions_have_explicit_defaults():
 
 
 def test_new_cashflow_helper_sets_requested_type_before_opening():
-    html = FRONTEND.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     assert "function openNewCashflow(cashflowType)" in html
     assert "resetCashflowModal(cashflowType);" in html

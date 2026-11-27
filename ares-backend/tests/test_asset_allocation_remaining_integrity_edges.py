@@ -93,7 +93,7 @@ def _add_raw_inflow(
     is_active: int,
     suffix: str,
 ) -> WealthInflow:
-    inflow = WealthInflow(
+    inflow = WealthInflow(currency="CHF",
         id=f"raw-inflow-{suffix}-{uuid.uuid4()}",
         client_id=client_id,
         mandate_id=mandate_id,

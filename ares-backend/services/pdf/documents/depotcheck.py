@@ -11,6 +11,7 @@ from services.pdf.base import DepotCheckData, PDFContext
 from services.pdf.components.backtest_metrics import make_backtest_metrics_table
 from services.pdf.components.depotcheck_soll import (
     make_concentration_table,
+    make_external_holdings_table,
     make_cost_table,
     make_diversification_heatmap,
     make_exposure_bars,
@@ -26,6 +27,8 @@ from services.pdf.components.single_report_disclaimer import (
 from services.pdf.components.stress_table import make_stress_table
 from services.pdf.components.wealth_chart import make_wealth_chart
 from services.pdf.styles import FONT_BOLD, FONT_DEFAULT, make_paragraph_styles
+from core.presentation_rounding import format_amount_minor, format_bps_as_pct
+from core.external_holdings_rule import recommendation_zero_message
 
 
 def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
@@ -41,14 +44,14 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         ctx,
         title="Depot-Check",
         subtitle="Analyse des empfohlenen Zielportfolios"
-        + (f" - {WITHOUT_HOLDINGS_LABEL}" if data.without_holdings else ""),
+        + (f" - {_without_holdings_label(data)}" if data.without_holdings else ""),
         mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
         focus_points=[
             "Zielstruktur nach Haupt- und Subanlageklassen",
-            "Diversifikation nach Laendern, Sektoren und Waehrungen",
+            "Diversifikation nach Ländern, Sektoren und Währungen",
             "Risiko, Kosten, historische Einordnung und Klumpenrisiken",
-            "Beratungsgrundlage fuer den Abgleich mit externen Depotunterlagen",
+            "Beratungsgrundlage für den Abgleich mit externen Depotunterlagen",
         ],
     ))
     flowables.append(PageBreak())
@@ -79,7 +82,7 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         advisory_label,
         "Subanlageklassen",
         "Die Detailstruktur zeigt, wie die Hauptanlageklassen in konkrete "
-        "Anlagesegmente und Zielbetraege uebersetzt werden.",
+        "Anlagesegmente und Zielbeträge übersetzt werden.",
     )
     flowables.append(make_sub_allocation_table(
         data.sub_allocations,
@@ -92,9 +95,9 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         ctx,
         data,
         advisory_label,
-        "Laenderallokation",
+        "Länderallokation",
         "Die Darstellung basiert ausschliesslich auf dem empfohlenen "
-        "Zielportfolio. Kleinere Positionen koennen in Sammelkategorien liegen.",
+        "Zielportfolio. Kleinere Positionen können in Sammelkategorien liegen.",
     )
     flowables.append(make_exposure_bars(data.soll_country_exposure_bps))
     flowables.append(PageBreak())
@@ -116,9 +119,9 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         ctx,
         data,
         advisory_label,
-        "Waehrungsallokation",
-        "Die Waehrungsdarstellung zeigt die wirtschaftliche Exposition vor "
-        "allfaelligen Absicherungen und dient der Beratung ueber Fremdwaehrungsrisiken.",
+        "Währungsallokation",
+        "Die Währungsdarstellung zeigt die wirtschaftliche Exposition vor "
+        "allfälligen Absicherungen und dient der Beratung über Fremdwährungsrisiken.",
     )
     flowables.append(make_exposure_bars(data.soll_currency_exposure_bps))
     flowables.append(PageBreak())
@@ -130,7 +133,7 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         advisory_label,
         "Risikoanalyse",
         "Modellwerte beschreiben die erwartete Schwankungs- und Verlustdimension "
-        "der Zielstruktur; sie sind keine Garantie fuer kuenftige Ergebnisse.",
+        "der Zielstruktur; sie sind keine Garantie für künftige Ergebnisse.",
     )
     flowables.append(make_risk_kpis(data.risk_profile_label, data.risk_metrics))
     flowables.append(Spacer(1, 6 * mm))
@@ -143,7 +146,7 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         ))
         flowables.append(make_stress_table(data.stress_scenarios))
     else:
-        flowables.append(_fallback("Noch keine belastbaren Stress-Szenarien verfuegbar."))
+        flowables.append(_fallback("Noch keine belastbaren Stress-Szenarien verfügbar."))
     flowables.append(PageBreak())
 
     _start_page(
@@ -157,8 +160,22 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
     )
     flowables.append(make_diversification_heatmap(data.soll_concentration_hhi))
     flowables.append(Spacer(1, 6 * mm))
-    flowables.append(_section_title("Groesste Zielpositionen"))
+    flowables.append(_section_title("Grösste Zielpositionen"))
     flowables.append(make_concentration_table(data.top_positions, ctx.base_currency))
+    if data.external_holdings:
+        # K3 / N-915-06: nie still weggelassen; Wert aus demselben Bestand wie das IST.
+        flowables.append(Spacer(1, 6 * mm))
+        flowables.append(_section_title("Titel ausserhalb der Empfehlung"))
+        flowables.append(_fallback(
+            "Gehaltene Titel, die nicht in der Empfehlung stehen. Ihr Wert zählt zum "
+            "IST-Bestand, ihr Ziel ist 0. Verkaufen oder halten ist ein Vorschlag; "
+            "der Entscheid liegt beim Kunden."
+        ))
+        flowables.append(make_external_holdings_table(data.external_holdings, ctx.base_currency))
+        if data.recommendation_zero_titles:
+            # N-937-02: die Annahme "nicht erfasst = 0" bleibt sichtbar.
+            flowables.append(Spacer(1, 3 * mm))
+            flowables.append(_fallback(recommendation_zero_message(list(data.recommendation_zero_titles))))
     flowables.append(PageBreak())
 
     _start_page(
@@ -166,14 +183,14 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         ctx,
         data,
         advisory_label,
-        "Kosten und Gebuehren",
-        "Einmalige und laufende Kosten werden getrennt ausgewiesen. Schaetzwerte "
-        "und unvollstaendige Daten bleiben als solche erkennbar.",
+        "Kosten und Gebühren",
+        "Einmalige und laufende Kosten werden getrennt ausgewiesen. Schätzwerte "
+        "und unvollständige Daten bleiben als solche erkennbar.",
     )
     flowables.append(make_cost_table(data.cost_disclosure, ctx.base_currency))
     if data.warnings:
         flowables.append(Spacer(1, 5 * mm))
-        flowables.append(_section_title("Annahmen und Datenqualitaet"))
+        flowables.append(_section_title("Annahmen und Datenqualität"))
         for warning in data.warnings[:6]:
             flowables.append(Paragraph(
                 f'<font name="{FONT_DEFAULT}" size="8.5" color="#475569">'
@@ -198,16 +215,18 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
             performance.get("wealth_path_rappen") or [],
             performance.get("benchmark_wealth_path_rappen") or None,
             height_mm=30,
-            title="Historischer Vermoegensverlauf",
+            title="Historischer Vermögensverlauf",
+            currency=ctx.base_currency,
         ))
         flowables.append(Spacer(1, 4 * mm))
         flowables.append(make_backtest_metrics_table(
             performance.get("metrics") or {},
             performance.get("benchmark_metrics") or None,
+            currency=ctx.base_currency,
         ))
     else:
         flowables.append(_fallback(
-            str(performance.get("note") or "Performancevergleich noch nicht verfuegbar.")
+            str(performance.get("note") or "Performancevergleich noch nicht verfügbar.")
         ))
     # SUITABILITY-DETECTOR-AVAILABILITY-001: fehlende HouseMatrix-Referenz
     # wird auf der Vergleichsseite ausgewiesen, nicht still weggelassen.
@@ -224,9 +243,9 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         ctx,
         data,
         advisory_label,
-        "Qualitative Einschaetzung",
-        "Die Schlussbeurteilung fasst die Zielstruktur fuer das "
-        "Beratungsgespraech zusammen.",
+        "Qualitative Einschätzung",
+        "Die Schlussbeurteilung fasst die Zielstruktur für das "
+        "Beratungsgespräch zusammen.",
     )
     flowables.append(make_summary_text(data.qualitative_assessment or ""))
     flowables.append(Spacer(1, 8 * mm))
@@ -235,7 +254,7 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         '<font name="{}" size="8.5" color="#475569">'
         'Der Depot-Check analysiert ausschliesslich das empfohlene Zielportfolio. '
         'Der Abgleich mit Bank- oder Drittdepotunterlagen erfolgt ausserhalb '
-        'dieses Dokuments durch den Berater. Expositionswerte koennen auf '
+        'dieses Dokuments durch den Berater. Expositionswerte können auf '
         'Produkt- und Referenzdaten beruhen; fehlende Daten werden nicht als '
         'Nullwerte interpretiert.</font>'.format(FONT_DEFAULT),
         make_paragraph_styles()["small"],
@@ -243,7 +262,7 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
     flowables.append(Paragraph(
         '<font name="{}" size="8.5" color="#475569">'
         'Modellrechnungen, Stress-Szenarien und historische Vergleiche sind '
-        'keine Prognosen und keine Zusicherung kuenftiger Ergebnisse. '
+        'keine Prognosen und keine Zusicherung künftiger Ergebnisse. '
         'Massgeblich bleiben die dokumentierte Beratung, Produktunterlagen, '
         'Kosteninformationen und Vertragsunterlagen.</font>'.format(FONT_DEFAULT),
         make_paragraph_styles()["small"],
@@ -251,8 +270,8 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
     if data.without_holdings:
         flowables.append(Paragraph(
             f'<font name="{FONT_BOLD}" size="8.5" color="#475569">'
-            f'Datenstand: {WITHOUT_HOLDINGS_LABEL}. Reine SOLL-Zielportfolioanalyse '
-            'ohne Depot-Snapshot.</font>',
+            f'Datenstand: {_without_holdings_label(data)}. Reine SOLL-Zielportfolioanalyse '
+            'ohne erfassten Depotbestand.</font>',
             make_paragraph_styles()["small"],
         ))
     if data.inputs_note:
@@ -272,18 +291,29 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
 
 
 WITHOUT_HOLDINGS_LABEL = "ohne IST-Bestand (kein Depot erfasst)"
+# KN4-B / E2E4-04: Depot als Vermoegensposition erfasst, aber kein Bestand je Titel.
+HOLDINGS_NOT_PER_TITLE_LABEL = "ohne IST-Bestand (Bestände je Titel der Empfehlung nicht erfasst)"
+
+
+def _without_holdings_label(data) -> str:
+    """Nie "kein Depot erfasst", wenn ein Depot als Vermoegensposition existiert."""
+    return HOLDINGS_NOT_PER_TITLE_LABEL if getattr(data, "depot_position_recorded", False) else WITHOUT_HOLDINGS_LABEL
 
 
 def _snapshot_identity_line(data: DepotCheckData) -> str:
+    """DEPOT-E2E-SNAPSHOT-001: Identitätsnachweis des gespeicherten Bestands.
+
+    KN6 / N-917R5-02: im Kunden-PDF als Bestandsstichtag und Prüfsumme (die
+    ersten 8 Zeichen des Snapshot-Hashes), ohne interne Kennungen (UUIDs).
+    Die vollständigen Kennungen (Snapshot, Depot-Check, Hash) bleiben im
+    gespeicherten Depot-Check, im JSON und im Audit-Log; die Prüfsumme bindet
+    das PDF eindeutig an den gespeicherten Bestand."""
     try:
         stichtag = date.fromisoformat(str(data.as_of)).strftime("%d.%m.%Y")
     except ValueError:
         stichtag = str(data.as_of or "-")
-    return (
-        f"Datenstand: Depot-Snapshot {data.snapshot_id} "
-        f"(Hash {str(data.snapshot_hash or '')[:12]}), Stichtag {stichtag}; "
-        f"Depot-Check {data.analysis_snapshot_id or '-'}."
-    )
+    checksum = str(data.snapshot_hash or "")[:8] or "-"
+    return f"Datenstand: Bestandsstichtag {stichtag}, Prüfsumme {checksum}."
 
 
 def _start_page(
@@ -339,12 +369,12 @@ def _allocation_story(allocation_bps, profile: str | None) -> str:
 
     return (
         f"Die Zielstruktur ist auf das Risikoprofil {profile or 'nicht dokumentiert'} "
-        f"ausgerichtet. Den groessten Anteil bildet {asset_class_label(lead[0])} "
-        f"mit {lead[1] / 100:.1f}%. Insgesamt werden {len(active)} "
+        f"ausgerichtet. Den grössten Anteil bildet {asset_class_label(lead[0])} "
+        f"mit {format_bps_as_pct(lead[1], decimals=1)}. Insgesamt werden {len(active)} "
         "Hauptanlageklassen kombiniert. Die Bandbreiten definieren den "
         "strategischen Handlungsrahmen und sind keine kurzfristigen Handelssignale."
     )
 
 
 def _format_amount(rappen: int, currency: str) -> str:
-    return f"{currency} {int(rappen or 0) / 100:,.0f}".replace(",", "'")
+    return format_amount_minor(int(rappen or 0), currency or "CHF")
