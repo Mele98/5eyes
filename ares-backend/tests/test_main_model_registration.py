@@ -251,7 +251,7 @@ GOLDEN_SORTED_TABLES_SHA256 = "6258603045555fc851307dad851ea39cc76e582af29c4e191
 # 99 hinzugefuegte, 3 geaenderte description-Zeilen, export_openapi.py).
 # C-COMP-02: neue Pfade /products/evidence/overview, /products/{product_id}/evidence(+/approve),
 # /products/evidence/{evidence_id}/retire|revoke samt Schemas ProductEvidence*; nur additiv.
-GOLDEN_OPENAPI_SHA256 = ""
+GOLDEN_OPENAPI_SHA256 = "fa0c3161aef7b00b252cfb21bc7a3ff643f392a5d7fc93f398f4f062be28ac60"
 
 _PROBE = """
 import hashlib, json
