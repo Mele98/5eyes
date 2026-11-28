@@ -1,6 +1,6 @@
 # Codex-Sprint U-P26 — Advisory-Report Server-PDF (institutionelles Layout)
 
-> **Adressat:** Codex (5eyes-Session).
+> **Adressat:** Codex (LB-B-Session).
 > **Erstellt durch:** Claude (Opus 4.7), 2026-05-25.
 > **Voraussetzung:** Sprint U-P23 + U-P24 + U-P25 (Frontend Sektionen 1-15)
 > sind gemerged. PDF spiegelt das Frontend-Layout 1:1, damit Berater den
@@ -172,8 +172,8 @@ Dokumente sie nutzen können.
 ### Page-Header (auf jeder Seite ab Seite 2)
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ 5eyes                                                  Seite x  │
-│ Wealth Architects · Depotcheck · MX-FOUNDATION-01      von 15   │
+│ LB-B                                                  Seite x  │
+│ LB-C · Depotcheck · MX-FOUNDATION-01      von 15   │
 │ ──────────────────────────────────────────────────── (rule)     │
 │                                                                 │
 │   [Sektion-Inhalt]                                              │
@@ -184,7 +184,7 @@ Dokumente sie nutzen können.
 │   [Sektion-Inhalt]                                              │
 │                                                                 │
 │ ──────────────────────────────────────────────────── (rule)     │
-│ Vertraulich · Generiert 25.05.2026 14:32         5eyes v0.X     │
+│ Vertraulich · Generiert 25.05.2026 14:32         LB-B v0.X     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -198,7 +198,7 @@ Trenn-Linie, dann der Inhalt.
 ## Teil C — Pro Sektion (15 Pages, exakt nach neuer Reihenfolge)
 
 ### Seite 1 — Cover (Sektion 1)
-- Wordmark oben links, "Wealth Architects" oben rechts (micro-Caps)
+- Wordmark oben links, "LB-C" oben rechts (micro-Caps)
 - Mitte: Display-Titel "Depotcheck" + Subtitle "Strategische
   Portfolioanalyse" in serif italic
 - Unterer Drittel: 2×2 Grid: Kundin/Kunde, Mandat-Nr., Berater,
@@ -415,10 +415,10 @@ doc = SimpleDocTemplate(
     buffer,
     pagesize=A4,
     title=f"Advisory-Report {mandate.mandate_number}",
-    author="5eyes Wealth Architects",
+    author="LB-B LB-C",
     subject="Strategische Portfolioanalyse",
     keywords="Family Office, Wealth Management, Schweiz",
-    creator="5eyes v0.X",
+    creator="LB-B v0.X",
 )
 ```
 
@@ -484,7 +484,7 @@ Stacked OK, jede PR alleine grün durch CI.
 
 ## Wichtig / Verboten
 
-- **KEINE Dritt-Marken** (UBS, Pictet, Julius Bär, Swiss Life, 3eyes,
+- **KEINE Dritt-Marken** (UBS, Pictet, Julius Bär, Swiss Life, LB-A,
   PPC Metrics) im PDF-Text. Memory-Regel.
 - **KEINE Garantieversprechen**, kein "garantiert" in Customer-facing
   Texten. FINMA-Compliance.
@@ -512,9 +512,9 @@ Sobald alle PRs gemerged:
    - Seite 2: Disclaimer mit 7 Hinweisen
    - Seite 3: Inhaltsverzeichnis mit 12 Kapiteln + Seitenzahlen
    - Seite 4-N: Ausgangslage, Positionen, ... bis Vorgehen (Seite 15)
-5. Page-Header zeigt "5eyes | Wealth Architects | Depotcheck |
+5. Page-Header zeigt "LB-B | LB-C | Depotcheck |
    MX-FOUNDATION-01 — Seite X von 15"
-6. Page-Footer zeigt "Vertraulich · Generiert 25.05.2026 14:32 · 5eyes v0.X"
+6. Page-Footer zeigt "Vertraulich · Generiert 25.05.2026 14:32 · LB-B v0.X"
 7. PDF-Outline (Bookmarks) zeigt alle 15 Sektionen
 8. Bei den Charts (AA, Währungen, Branchen): IST/SOLL-Balken sichtbar,
    Drift-Werte rechts

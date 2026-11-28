@@ -8,15 +8,18 @@ Frontend-Vorlage:
 """
 from __future__ import annotations
 
+from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 
+from core.customer_terms import READONLY_VIEW_MODE, draft_headline, is_final_document, normalize_mode
 from services.pdf.components.header import _esc
 from services.pdf.styles import (
     COLOR_BORDER_STRONG,
     COLOR_TEXT,
     COLOR_TEXT_LIGHT,
     FONT_DEFAULT,
+    FONT_SERIF_BOLD,
     FONT_SIZE_BODY,
     FONT_SIZE_SMALL,
     PAGE_SIZE,
@@ -30,6 +33,63 @@ CLIENT_CONFIRM_TEXT = (
 ADVISOR_CONFIRM_TEXT = (
     "Der Anlageberater bestätigt, die Strategie besprochen und dokumentiert zu haben."
 )
+
+
+NOT_FOR_SIGNATURE_TEXT = "Nicht zur Unterzeichnung"
+# N-910-01: bisheriger Wortlaut fuer die nicht publizierte Soll-Allokation.
+_UNPUBLISHED_NOTICE = (
+    "Entwurf – die Soll-Allokation ist nicht publiziert. Dieses Dokument dient "
+    "der Besprechung; unterzeichnet wird erst die Fassung nach der Publikation."
+)
+_DRAFT_NOTICE = (
+    "Dieses Dokument dient der Besprechung; unterzeichnet wird erst die finale Fassung."
+)
+_VIEW_NOTICE = (
+    "Diese Fassung ist eine Ansicht und wurde nicht abgegeben; unterzeichnet wird "
+    "nur die finale Fassung, die eine berechtigte Person abgibt."
+)
+
+
+def make_signature_block(ctx, **kwargs) -> list:
+    """H-193 Fixrunde 1 (N-939-01): einziger Weg zum Unterschriftsblock in
+    einem Kunden-PDF. Nur die finale Fassung (``is_final_document``) traegt
+    Unterschriftsfelder; jede Nicht-Final-Fassung -- nicht publiziert, Ansicht
+    durch "Lesend", Entwurf ohne Gebuehrenvereinbarung, ohne freigegebene
+    Vertragsvorlage, vor Vertragsabschluss usw. -- bekommt stattdessen den
+    Hinweis "Nicht zur Unterzeichnung" mit dem Grund."""
+    mode = getattr(ctx, "watermark_mode", None)
+    if is_final_document(mode):
+        return make_unterschrift_section(**kwargs)
+    return [not_for_signature_box(mode, getattr(ctx, "view_reason", None))]
+
+
+def not_for_signature_notice(mode: str | None, view_reason: str | None = None) -> str:
+    """Begruendung unter "Nicht zur Unterzeichnung" (reiner Text)."""
+    normalized = normalize_mode(mode)
+    if normalized == "unpublished":
+        return _UNPUBLISHED_NOTICE
+    headline = draft_headline(normalized, view_reason)
+    if normalized == READONLY_VIEW_MODE:
+        return f"{headline}. {_VIEW_NOTICE}"
+    return f"{headline}. {_DRAFT_NOTICE}" if headline else f"Entwurf. {_DRAFT_NOTICE}"
+
+
+def not_for_signature_box(mode: str | None, view_reason: str | None = None) -> Table:
+    """Ersatz des Unterschriftsblocks fuer jede Nicht-Final-Fassung (N-910-01)."""
+    text = (
+        f'<font name="{FONT_SERIF_BOLD}" size="13" color="#B91C1C">{NOT_FOR_SIGNATURE_TEXT}</font><br/>'
+        f'<font name="{FONT_DEFAULT}" size="9" color="#334155">'
+        f"{not_for_signature_notice(mode, view_reason)}</font>"  # feste Texte, kein Markup
+    )
+    box = Table([[Paragraph(text, make_paragraph_styles()["body"])]], colWidths=[PAGE_SIZE[0] - 24 * mm])
+    box.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 1.0, colors.HexColor("#B91C1C")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    return box
 
 
 def make_unterschrift_section(

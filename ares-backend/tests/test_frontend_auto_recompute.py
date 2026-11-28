@@ -1,99 +1,60 @@
-"""Frontend-Contract-Tests fuer Auto-Recompute mit Debounce (Sprint 1 Item 2).
+"""P5c Fixrunde 1 (CTO-Entscheid 9, 2026-11-21): Strategietreue ohne Ausnahme.
 
-Referenzmethodik Slide 9 Differenzierungsfaktor 'Interaktivitaet':
-'Unmittelbare Berechnung und direktes Aufzeigen der Konsequenzen nach
-jeder Eingabe im Beratungsgespraech'.
+Der alte Entwickler-Schalter Auto-Recompute (``AUTO_RECOMPUTE_ENABLED`` bzw.
+localStorage ``'auto_recompute'='1'``, ``scheduleAutoRecompute`` aus
+``markStrategyDirty``) ist entfernt. Eine neue Strategie entsteht nur durch den
+ausdruecklichen Klick «Anlagestrategie berechnen» (bzw. bei 404 = noch nie
+berechnet). Vorher pinnte diese Datei das Gegenteil (Schalter vorhanden,
+markStrategyDirty ruft scheduleAutoRecompute).
 
-Statt manuellem 'Anlagestrategie berechnen'-Klick triggert jede
-markStrategyDirty()-Aenderung nach 800ms Debounce einen Solver-Lauf.
+Gegenprobe: alter Stand (Schalter vorhanden) -> ``test_auto_recompute_switch_is_gone``
+rot; mit ``localStorage auto_recompute=1`` auf Seite ``al`` loeste
+``markStrategyDirty`` nach 800 ms ``calculateInvestmentStrategy`` aus.
 """
 from __future__ import annotations
 
-from pathlib import Path
+import re
 
-FRONTEND_HTML = (
-    Path(__file__).resolve().parents[2]
-    / "ares-desktop" / "frontend" / "ares.html"
-)
+from tests.livetest_monolith_js import has_function, html, run_js
 
 
-def _html() -> str:
-    return FRONTEND_HTML.read_text(encoding="utf-8")
+def test_auto_recompute_switch_is_gone():
+    src = html()
+    assert not has_function("scheduleAutoRecompute", src)
+    for token in ("scheduleAutoRecompute", "AUTO_RECOMPUTE_ENABLED", "AUTO_RECOMPUTE_DEBOUNCE_MS",
+                  "_autoRecomputeTimer"):
+        assert token not in src, token
+    assert not re.search(r"Storage\s*\.\s*getItem\(\s*['\"]auto_recompute['\"]", src)
 
 
-def test_auto_recompute_config_constants_present():
-    html = _html()
-    assert "AUTO_RECOMPUTE_ENABLED = true" in html
-    assert "AUTO_RECOMPUTE_DEBOUNCE_MS = 800" in html
-    assert "_autoRecomputeTimer" in html
-
-
-def test_schedule_auto_recompute_function_exists():
-    html = _html()
-    assert "function scheduleAutoRecompute(" in html
-
-
-def test_mark_strategy_dirty_triggers_auto_recompute():
-    """markStrategyDirty muss am Ende scheduleAutoRecompute aufrufen."""
-    html = _html()
-    # Function-Body extrahieren
-    idx = html.find("function markStrategyDirty(message,invalidateOutputs){")
-    assert idx >= 0
-    end = html.find("\n}\n", idx)
-    body = html[idx : end + 3]
-    assert "scheduleAutoRecompute()" in body, "Auto-Recompute-Trigger fehlt in markStrategyDirty"
-
-
-def test_auto_recompute_respects_demo_mandate_guard():
-    """scheduleAutoRecompute skipt bei Demo-Mandate (kein API-Call ohne echte ID)."""
-    html = _html()
-    idx = html.find("function scheduleAutoRecompute(")
-    assert idx >= 0
-    end = html.find("\n}\n", idx)
-    body = html[idx : end + 3]
-    assert "isDemoMandateId" in body
-    assert "getActiveMandateId" in body
-
-
-def test_auto_recompute_respects_loading_guard():
-    """scheduleAutoRecompute skipt wenn strategyState.loading bereits aktiv."""
-    html = _html()
-    idx = html.find("function scheduleAutoRecompute(")
-    end = html.find("\n}\n", idx)
-    body = html[idx : end + 3]
-    assert "strategyState" in body and "loading" in body
-
-
-def test_auto_recompute_debounce_clears_pending_timer():
-    """Bei schnellen Aenderungen muss der Timer reset werden (Debounce)."""
-    html = _html()
-    idx = html.find("function scheduleAutoRecompute(")
-    end = html.find("\n}\n", idx)
-    body = html[idx : end + 3]
-    assert "clearTimeout(_autoRecomputeTimer)" in body
-    assert "setTimeout(" in body
-
-
-def test_auto_recompute_calls_calculate_investment_strategy():
-    """Im Timer-Callback wird calculateInvestmentStrategy gerufen."""
-    html = _html()
-    idx = html.find("function scheduleAutoRecompute(")
-    end = html.find("\n}\n", idx)
-    body = html[idx : end + 3]
-    assert "calculateInvestmentStrategy()" in body
-
-
-def test_auto_recompute_recheck_preconditions_at_fire_time():
-    """Pre-Conditions (mandate, loading, dirty) werden zur Timer-Fire-Zeit re-checked,
-    nicht nur beim Schedule (wichtig fuer Race-Conditions)."""
-    html = _html()
-    idx = html.find("function scheduleAutoRecompute(")
-    end = html.find("\n}\n", idx)
-    body = html[idx : end + 3]
-    # Im Timer-Callback (setTimeout-Body) muss erneut isDemoMandateId aufgerufen werden
-    timer_body_start = body.find("setTimeout(function(){")
-    assert timer_body_start >= 0
-    timer_body = body[timer_body_start:]
-    assert "strategyState.dirty" in timer_body, "dirty re-check fehlt"
-    assert "strategyState.loading" in timer_body, "loading re-check fehlt"
-    assert "isDemoMandateId" in timer_body, "demo re-check fehlt"
+def test_mark_strategy_dirty_never_starts_a_recompute():
+    """Echtes ``markStrategyDirty`` in Node: selbst mit dem alten Schalter
+    (localStorage ``auto_recompute=1``) auf der Seite Asset-Allokation startet
+    es weder einen Timer noch ``calculateInvestmentStrategy`` noch generate."""
+    prelude = r"""
+var calls=[];
+var localStorage={getItem:function(k){return k==='auto_recompute'?'1':null;},setItem:function(){},removeItem:function(){}};
+var AUTO_RECOMPUTE_ENABLED=true;
+var strategyState={loading:false,dirty:false,staleNotice:null};
+function setTimeout(fn){calls.push(['timer']);fn();return 1;}
+function clearTimeout(){}
+function getActiveMandateId(){return 'm1';}
+function isDemoMandateId(){return false;}
+function activePageKey(){return 'al';}
+function calculateInvestmentStrategy(){calls.push(['calculate']);}
+function refreshStrategyData(){calls.push(['refresh']);return Promise.resolve(true);}
+var API={post:function(u){calls.push(['post',String(u)]);return Promise.resolve({});}};
+function clearPendingStrategyOutputs(){}
+function hasVisibleStrategyOutputs(){return true;}
+function invalidateStrategyOutputs(){}
+function syncPortfolioUmsetzenButtonVisibility(){}
+function updateStrategyStatus(){}
+function syncStrategyStaleView(){}
+"""
+    out = run_js(["markStrategyDirty"], r"""
+markStrategyDirty('Bandbreiten geändert',true);
+markStrategyDirty('Präferenzen geändert',false);
+return {calls:calls, dirty:strategyState.dirty, notice:strategyState.staleNotice};
+""", prelude=prelude)
+    assert out["calls"] == [], out
+    assert out["dirty"] is True and out["notice"] == "Präferenzen geändert", out

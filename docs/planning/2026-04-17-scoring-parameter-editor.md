@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS system_params (
 );
 ```
 
-**Keys die 5eyes nutzt:**
+**Keys die LB-B nutzt:**
 
 | Key | Inhalt | Beispiel |
 |---|---|---|

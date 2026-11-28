@@ -1,4 +1,4 @@
-# 5eyes WealthArchitekten — Packaging-Anleitung
+# Ares — Packaging-Anleitung
 
 > Roadmap-Punkt 6 (2026-05-29): Build-Pipeline wurde seit Sprint 11 nicht
 > mehr aktuell gehalten. Drift in `hiddenImports` und fehlender Sub-App-
@@ -6,6 +6,29 @@
 > aktuelle Pipeline und die Live-Verifikations-Schritte.
 
 ---
+
+## Produktionsmodus der gepackten EXE (EXE-P, H-187)
+
+- **SQLCipher ist Pflicht.** `build:backend` baut standardmaessig mit SQLCipher
+  (`BUILD_WITH_SQLCIPHER` ist `1`, wenn nicht ausdruecklich `0`) und bricht ab,
+  wenn `sqlcipher3` fehlt. Vorher installieren:
+  `pip install --require-hashes --only-binary=:all: -r ares-backend/requirements-sqlcipher.txt`.
+- Der Datenbankschluessel liegt DPAPI-geschuetzt (Benutzer-Scope) als
+  `db-key.dpapi` im userData-Ordner (wie die Master-KEK). Die Shell setzt
+  `DB_KEY_FILE`; ohne Ablageort, ohne SQLCipher oder bei vorhandener Datenbank
+  ohne Ablage startet die EXE mit klarem Fehler und oeffnet nie eine Klartext-DB.
+- Keine Hausannahmen zur Laufzeit, kein Muster-Fondskatalog, kein
+  Gebuehren-Default. Rechnen erst mit freigegebenem Referenzpaket und IC-Freigabe.
+- Der Server nimmt nie ein Testpaket an (N-935-01). Den Optimizer im Artefakt
+  belegt `ares-api.exe --self-test-strategy <paket>` (eigener Prozess, temporaere
+  DB, kein Server, kein Kundendokument); das Paket
+  `scripts/fixtures/packaging_smoke_test_reference_package.json` laedt nur dieser
+  Selbsttest.
+- Die gepackte EXE und die installierte Shell lesen keine `.env`-Datei.
+  Konfiguration kommt nur aus der Umgebung, die die Shell setzt (Ports,
+  Ablageorte von KEK und Datenbankschluessel, Update-Kanal) und aus geerbten
+  Prozessvariablen (z. B. API-Schluessel von Marktdatenquellen). Die Shell
+  entfernt verbotene Variablen unabhaengig von der Schreibweise.
 
 ## Build-Pipeline (One-Liner)
 
@@ -89,7 +112,7 @@ Vor einem Release diese Schritte einmal lokal durchziehen:
    npm run preflight:release   # statische Checks
    npm run pack                # baut Installer-Layout ohne NSIS
    npm run dist:win            # voller NSIS-Installer
-   ls dist/                    # 5Eyes-Setup-<version>-x64.exe
+   ls dist/                    # *-Setup-<version>-x64.exe (Name gemaess artifactName)
    ```
 
 5. **Installer-Smoke:**
@@ -143,8 +166,28 @@ jobs:
       - actions/download-artifact backend-bundle
       - cd ares-desktop && npm ci
       - STRICT_RELEASE=1 npm run dist:win
-      - actions/upload-artifact 5Eyes-Setup
+      - actions/upload-artifact <Setup-Datei>
 ```
 
 Heute laeuft noch kein CI fuer Packaging (das gehoert zur Backend-Tests-
 Workflow als separater Job hinzu). Roadmap-Punkt 53 deckt CI-Cache ab.
+
+---
+
+## H-180 (2026-11-21): Release-Pruefungen und lokaler Build
+
+- `scripts/packaging_smoke.py` prueft zusaetzlich (Modul `scripts/packaging_release_checks.py`):
+  Import-Selbsttest im Artefakt (`ares-api.exe --self-test-imports`), Build-Kennung
+  (`/health`: Version aus `package.json`, `build_sha` = gebauter Git-SHA), Demo-Systemfall
+  gesperrt, Dateieigenschaften beider EXEs (ProductName `Ares`), keine Fremd-/Altmarken
+  (Digest-Pruefung, nie Klartext) in app.asar/Metadaten/Backend-EXE und den Start der
+  Electron-Shell im isolierten Profil bis zum sauberen Beenden.
+- Lokaler Build ohne Symlink-Recht (kein Entwicklermodus): electron-builder kann das
+  winCodeSign-Archiv nicht entpacken (`Cannot create symbolic link`, nur macOS-Dateien).
+  Abhilfe: das Archiv aus `%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\<nr>.7z` mit
+  `node_modules\7zip-bin\win\x64\7za.exe x -y <nr>.7z -owinCodeSign-2.6.0` entpacken und
+  `npx electron-builder --dir` erneut starten. In CI (windows-latest) nicht noetig.
+- Gepackte App NIE mit dem normalen Profil testen: Electron ignoriert die Umgebungsvariable
+  `APPDATA` (Known-Folder-API). Nur `--user-data-dir=<Testordner>` lenkt userData sicher um;
+  dazu `USERPROFILE`/`HOME`/`TEMP` und `DB_PATH` auf einen Testordner setzen (das Backend
+  leitet seinen Datenpfad aus `USERPROFILE` ab).

@@ -21,7 +21,7 @@ die ganze Optimization-Entscheidung dokumentiert.
 
 ```
 +-----------------------------------------------------------+
-| 5eyes Wealth Architects                  [Mandat-Nummer]  |
+| LB-B LB-C                  [Mandat-Nummer]  |
 | Strategie-Allocation Optimizer-Trace      [Datum/Version] |
 +-----------------------------------------------------------+
 | Mandant:   [Name]                                         |

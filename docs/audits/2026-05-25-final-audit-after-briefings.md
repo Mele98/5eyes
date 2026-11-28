@@ -200,7 +200,7 @@ vollständiges Produkt-Ende:**
 
 1. **Multi-Berater-Branding** — Wenn das Tool von mehreren Beratern
    genutzt wird, brauchen sie verschiedene Wordmarks. Heute hardcoded
-   „5eyes / Wealth Architects". → klein, eigene Spec-Datei wenn nötig.
+   „LB-B / LB-C". → klein, eigene Spec-Datei wenn nötig.
 
 2. **PDF-Versionen-Vergleich** — Bericht von Q1 vs. Q2 nebeneinander.
    Erfordert Bericht-Historie-Persistierung. → eigener Sprint U-P31.

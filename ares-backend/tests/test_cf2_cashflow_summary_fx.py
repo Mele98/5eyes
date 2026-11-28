@@ -104,9 +104,11 @@ def _add_cashflow(session_factory, client_id: str, **fields):
 
 
 def test_usd_income_is_converted_to_chf_in_summary(auth_client, session_factory, advisor_user):
-    """USD-Lohn 10'000/Jahr muss im Summary zum FX-Default-Kurs (0.88) als
-    8'800 CHF erscheinen -- vorher (Bug) wurde der USD-Rohbetrag 1:1 als CHF
-    ausgegeben (10'000 statt 8'800)."""
+    """USD-Lohn 10'000/Jahr erscheint mit belegtem Kurs (synthetisch 0.8800) und
+    expliziter Zielwaehrung als 8'800 CHF -- nie der USD-Rohbetrag 1:1 als CHF.
+    CCX-P3-FX: ohne belegten Kurs (nur Ersatzkurs DEFAULT_FX_RATES) wird gesperrt."""
+    from models.fx_rate import FXRate
+
     cid = _make_client(session_factory, advisor_user.id)
     this_year = datetime.date.today().year
     _add_cashflow(
@@ -115,12 +117,20 @@ def test_usd_income_is_converted_to_chf_in_summary(auth_client, session_factory,
         amount_rappen=1_000_000, currency="USD", frequency="jährlich",
         valid_from=f"{this_year}-01-01",
     )
-    resp = auth_client.get(f"/clients/{cid}/cashflow-summary")
+    blocked = auth_client.get(f"/clients/{cid}/cashflow-summary?target_currency=CHF")
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["detail"]["reason_code"] == "CCX_FX_BASIS_MISSING"
+    stamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    with session_factory() as s:
+        s.add(FXRate(id="fx-usd-cf2", currency="USD", rate_x10000=8_800, valid_from=stamp, is_current=1,
+                     source="Manual", created_at=stamp, updated_at=stamp))
+        s.commit()
+    resp = auth_client.get(f"/clients/{cid}/cashflow-summary?target_currency=CHF")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    # Default FX-Rate USD->CHF = 0.88 (DEFAULT_FX_RATES, kein DB-Override in diesem Test).
-    assert body["recurring_income_rappen"] == pytest.approx(880_000, abs=1)
-    assert body["total_income_rappen"] == pytest.approx(880_000, abs=1)
+    assert body["amount_currency"] == "CHF" and body["fx_basis_hash"]
+    assert body["recurring_income_rappen"] == 880_000
+    assert body["total_income_rappen"] == 880_000
 
 
 def test_chf_income_unaffected_by_fx_conversion(auth_client, session_factory, advisor_user):

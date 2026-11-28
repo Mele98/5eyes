@@ -1,6 +1,6 @@
-# 5eyes — Spec: „Bereit für den ersten echten Beratungskunden"
+# LB-B — Spec: „Bereit für den ersten echten Beratungskunden"
 
-**Datum:** 2026-07-09 · **Kontext:** Der Berater (Eigennutzer) will 5eyes seinen **eigenen realen
+**Datum:** 2026-07-09 · **Kontext:** Der Berater (Eigennutzer) will LB-B seinen **eigenen realen
 Beratungskunden** lokal präsentieren (nicht Software-Interessenten). Maßgeblich ist deshalb
 **korrekte Zahlen + professioneller FIDLEG-Report + Stabilität im Live-Termin** — NICHT Hosting,
 Multi-Tenancy, Skalierung.
@@ -113,7 +113,7 @@ Der eigentliche Freigabe-Schritt. Du bist der Fachexperte — wenn DU dem Report
 
 ## B1 — Steuer in Cashflow (#39)  ❌ VERWORFEN (Produkt-Entscheid 2026-07-09)
 
-> **Entscheid:** 5eyes ist ein **Asset-Allocation-Tool, kein Steuertool.** Ein internationaler
+> **Entscheid:** LB-B ist ein **Asset-Allocation-Tool, kein Steuertool.** Ein internationaler
 > Steuerrechner waere zu komplex und ausserhalb des Produkt-Scopes. **Steuern erfasst der Berater
 > einfach als normale Ausgabe** (manueller Expense-Cashflow, Label „Steuern") — das funktioniert
 > heute schon ohne jeden Zusatzcode. Der zwischenzeitliche Steuerrechner-Prototyp (#358/#359) wurde

@@ -951,7 +951,7 @@ Ausgeführt aus `ares-backend` mit externem Basetemp:
 
 ```powershell
 python -m pytest -q -p no:cacheprovider `
-  --basetemp C:\tmp\5eyes-handoff-gate-20260903 `
+  --basetemp C:\tmp\LB-B-handoff-gate-20260903 `
   tests/test_portfolio_handoff.py `
   tests/test_frontend_portfolio_handoff.py `
   tests/test_recommendation_run_cleanup.py `

@@ -3,7 +3,7 @@ handoff_schema: "ares.optimizer-handoff/v1"
 document_role: "core-coverage-002-depotcheck-end-to-end-integrity-audit"
 status_as_of: "2026-10-05"
 language: "de"
-repository: "5eyes"
+repository: "LB-B"
 backend_root: "ares-backend"
 frontend_root: "ares-desktop/frontend"
 branch: "codex/core-coverage-depotcheck-e2e-audit"
@@ -480,7 +480,7 @@ Tests instanziiert `_build_depotcheck_data` oder
 
 ```text
 python -m pytest -q -p no:cacheprovider \
-  --basetemp C:\tmp\5eyes-depotcheck-pdf-audit-20261005 \
+  --basetemp C:\tmp\LB-B-depotcheck-pdf-audit-20261005 \
   tests/pdf/test_depotcheck_soll_analysis.py \
   tests/test_depot_check.py \
   tests/test_depot_check_helpers.py

@@ -30,12 +30,13 @@ from test_cf2_cashflow_summary_fx import (  # noqa: F401
 )
 
 
-def test_summary_still_converts_when_from_db_raises(auth_client, session_factory, advisor_user, monkeypatch):
-    """Simuliert einen Fehler INNERHALB von FXRateSource.from_db() (z.B. ein
-    DB-Problem, das from_db()'s eigenes internes try/except nicht mehr
-    schuetzen kann, weil der Fehler beim Methodenaufruf selbst passiert) --
-    der aeussere except-Fallback muss WEITERHIN konvertieren, nicht auf
-    Rohbetrag zurueckfallen."""
+def test_summary_never_falls_back_to_default_rates(auth_client, session_factory, advisor_user, monkeypatch):
+    """CCX-P3-FX (ersetzt den frueheren Default-Kurs-Fallback): cashflow-summary
+    rechnet nur mit einer gebundenen, belegten FX-Basis. Ein Ladefehler von
+    ``FXRateSource.from_db`` spielt keine Rolle mehr; ohne Zielwaehrung bleibt
+    ein reiner USD-Bestand in USD (nie still CHF), mit Zielwaehrung CHF und ohne
+    belegten Kurs wird typisiert gesperrt -- nie Ersatzkurs 0.88, nie Rohbetrag
+    als CHF."""
     def _raise(*args, **kwargs):
         raise RuntimeError("simulierter FX-Ladefehler")
     monkeypatch.setattr(FXRateSource, "from_db", classmethod(_raise))
@@ -51,10 +52,11 @@ def test_summary_still_converts_when_from_db_raises(auth_client, session_factory
     resp = auth_client.get(f"/clients/{cid}/cashflow-summary")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    # Muss WEITERHIN konvertiert sein (Default-Kurs 0.88), NICHT der USD-
-    # Rohbetrag 1_000_000 -- das war der Bug (fx_source=None -> keine Konvertierung).
-    assert body["recurring_income_rappen"] == pytest.approx(880_000, abs=1)
-    assert body["recurring_income_rappen"] != 1_000_000
+    assert body["amount_currency"] == "USD"
+    assert body["recurring_income_rappen"] == 1_000_000
+    blocked = auth_client.get(f"/clients/{cid}/cashflow-summary?target_currency=CHF")
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["detail"]["reason_code"] == "CCX_FX_BASIS_MISSING"
 
 
 def test_no_five_bare_none_fallbacks_remain_in_codebase():

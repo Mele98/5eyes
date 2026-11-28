@@ -1,6 +1,6 @@
 # Codex-Sprint U-P28 — Berater-Overrides für Advisory-Report (MandateReportNotes)
 
-> **Adressat:** Codex (5eyes-Session).
+> **Adressat:** Codex (LB-B-Session).
 > **Erstellt durch:** Claude (Opus 4.7), 2026-05-25.
 > **Voraussetzung:** U-P21 (Backend-Aggregator) ✅. U-P23 (Frontend-Phase-1) und
 > U-P26 (PDF) parallel möglich — dieser Sprint blockiert sie nicht.

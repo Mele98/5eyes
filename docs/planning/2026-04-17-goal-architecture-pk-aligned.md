@@ -11,7 +11,7 @@
 
 ## Ziel
 
-5eyes soll die Zielarchitektur so darstellen und verarbeiten wie Referenzanbieter / Advisory-Methodik und institutionelle
+LB-B soll die Zielarchitektur so darstellen und verarbeiten wie Referenzanbieter / Advisory-Methodik und institutionelle
 Pensionskassen es tun: **Verpflichtungen und Kapitalerhalt kommen vor Rendite**.
 Das Renditeziel ist ein weiches, opportunistisches Ziel — kein Hauptanker der Strategie.
 Drei konkrete Bugs werden in dieser Spec behoben, plus eine klare Hierarchie im Scoring und in der

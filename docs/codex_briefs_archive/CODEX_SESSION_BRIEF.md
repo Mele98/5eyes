@@ -1,6 +1,6 @@
 # Codex Session Brief — mc-fan-chart Weiterführung
 **Stand:** 2026-04-09 | **Erstellt von:** Claude Analyse-Session
-**Workspace:** `C:\5eyes\5eyes_stage9_release_ready`
+**Workspace:** `C:\LB-B\LB-B_stage9_release_ready`
 **Branch:** `codex/mc-fan-chart`
 
 ---
@@ -140,7 +140,7 @@ def _build_sub_asset_class_assumption_reference(
 ## SCHRITT 5 — Tests laufen lassen
 
 ```bash
-cd C:\5eyes\5eyes_stage9_release_ready\ares-backend
+cd C:\LB-B\LB-B_stage9_release_ready\ares-backend
 python -m pytest tests/ -v
 ```
 

@@ -1,17 +1,37 @@
 import hashlib
+import logging
 import sqlite3
 import re
 import sys
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Generator
-from urllib.parse import quote_plus
 
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import QueuePool
 
-from config import settings
+from config import (
+    DB_KEY_FORMAT_MESSAGE,
+    db_key_format_ok,
+    guarded_sqlite_connect,
+    owner_db_refusal,
+    packaged_plaintext_connection_refused,
+    refuse_owner_db_file,
+    settings,
+)
+from core import property_gate  # K1 Property-Gate (Stdlib-Blatt)
+# L2c: reines Modul ohne Projekt-Importe (Hash-Vertrag + Altbestand-Versiegelung).
+from services import advisory_log_integrity as _advisory_log_integrity
+from core.product_evidence import (
+    SQLITE_IDENTITY_TRIGGERS,
+    SQLITE_PRODUCT_IDENTITY_TRIGGER,
+    SQLITE_SNAPSHOT_BINDING_TRIGGER,
+    SQLITE_TENANT_TRIGGERS,
+)
 from core.mandate_evidence_tenant_boundary import (
     MANDATE_BOUND_TENANT_TABLES,
     create_sqlite_guards_after_metadata_create,
@@ -29,8 +49,12 @@ SQLCIPHER_AVAILABLE = sqlcipher3 is not None
 
 
 def resolve_db_file(db_path: str | Path | None = None) -> Path:
-    db_file = Path(db_path or settings.db_path).expanduser().resolve()
-    db_file.parent.mkdir(parents=True, exist_ok=True)
+    raw = db_path or settings.db_path
+    db_file = Path(raw).expanduser().resolve()
+    # H11 N1/N-907-16: kein Ordner im Owner-Profil bzw. fuer einen nicht pruefbaren
+    # Geraete-Pfad (Rohwert vor resolve() pruefen); der Connect verweigert ohnehin.
+    if not owner_db_refusal(raw) and not owner_db_refusal(db_file):
+        db_file.parent.mkdir(parents=True, exist_ok=True)
     return db_file
 
 
@@ -51,6 +75,40 @@ def resolve_schema_path() -> Path | None:
 def _sqlcipher_enabled(db_key: str | None = None) -> bool:
     key = db_key or getattr(settings, 'db_key', None)
     return bool(getattr(settings, 'db_use_sqlcipher', False) and key)
+
+
+# SQLCIPHER-KEY-PRAGMA-001 (Pruefrunde #861): SQLite bindet in PRAGMA-Anweisungen
+# keine Parameter -- ``PRAGMA key = ?`` ist mit dem echten sqlcipher3 ein
+# Syntaxfehler (``near "?"``). Der Schluessel wird deshalb als SQL-Literal mit
+# verdoppelten Hochkommas gesetzt (gleiche Form wie der Migrator-Codec); danach
+# die Cipher-Parameter in fester Reihenfolge, vor dem ersten Lesezugriff.
+# SQLCIPHER-SINGLE-KEY-PATH-001 (Pruefrunde #864, S-1): das ist der EINZIGE Weg,
+# auf dem der Schluessel gesetzt wird -- Engine (connect-Event), Rohschema-
+# Bootstrap und Backup. Er steht nicht mehr in der URL (quote_plus/unquote machte
+# aus einem Leerzeichen still ein "+", das Dialekt-PRAGMA key="..." brach an ").
+SQLCIPHER_CIPHER_PRAGMAS = (
+    'PRAGMA cipher_page_size = 4096',
+    'PRAGMA kdf_iter = 256000',
+    'PRAGMA cipher_hmac_algorithm = HMAC_SHA512',
+    'PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512',
+)
+
+
+def sqlcipher_key_pragma(key: str) -> str:
+    return "PRAGMA key = '" + str(key).replace("'", "''") + "'"
+
+
+def apply_sqlcipher_key(conn: Any, key: str) -> None:
+    """Schluessel + Cipher-Parameter auf eine rohe sqlcipher3-Verbindung setzen.
+
+    Fail-closed: ein Schluessel ausserhalb des erlaubten Formats (config.py,
+    SQLCIPHER-DB-KEY-FORMAT-001) wird nie gesetzt; die Meldung nennt ihn nicht.
+    """
+    if not db_key_format_ok(key):
+        raise ValueError(DB_KEY_FORMAT_MESSAGE)
+    conn.execute(sqlcipher_key_pragma(key))
+    for pragma in SQLCIPHER_CIPHER_PRAGMAS:
+        conn.execute(pragma)
 
 
 def _configured_database_url(database_url: str | None = None) -> str | None:
@@ -83,8 +141,9 @@ def build_database_url(
                 'DB_USE_SQLCIPHER=true ist gesetzt, aber sqlcipher3 ist nicht installiert. '
                 'Installiere sqlcipher3-binary oder sqlcipher3.'
             )
-        key = quote_plus((db_key or settings.db_key or ''))
-        return f'sqlite+pysqlcipher://:{key}@/{db_file}'
+        # SQLCIPHER-SINGLE-KEY-PATH-001: kein Schluessel in der URL; die Engine
+        # nutzt den pysqlite-Dialekt mit module=sqlcipher3 und setzt den
+        # Schluessel per connect-Event (create_app_engine).
     return f'sqlite:///{db_file}'
 
 
@@ -100,14 +159,25 @@ def build_connect_args(
 
 
 def attach_sqlite_pragmas(target_engine: Engine, db_key: str | None = None) -> None:
+    if _sqlcipher_enabled(db_key=db_key):
+        key = db_key or settings.db_key or ''
+
+        # insert=True: vor jedem anderen connect-Handler, auch vor der
+        # Dialekt-Initialisierung beim ersten Connect -- der Schluessel muss
+        # vor dem ersten Lesezugriff stehen.
+        @event.listens_for(target_engine, 'connect', insert=True)
+        def _set_sqlcipher_key(dbapi_connection, connection_record):
+            apply_sqlcipher_key(dbapi_connection, key)
+
     @event.listens_for(target_engine, 'connect')
     def _set_sqlite_pragma(dbapi_connection, connection_record):
+        # EXE-P (H-187): die gepackte EXE arbeitet nie auf einer Klartext-DB.
+        if packaged_plaintext_connection_refused():
+            raise RuntimeError(
+                'Unverschluesselte Datenbankverbindung in der installierten Version verweigert '
+                '(SQLCipher und Datenbankschluessel fehlen).'
+            )
         cursor = dbapi_connection.cursor()
-        if _sqlcipher_enabled(db_key=db_key):
-            cursor.execute('PRAGMA cipher_page_size = 4096')
-            cursor.execute('PRAGMA kdf_iter = 256000')
-            cursor.execute('PRAGMA cipher_hmac_algorithm = HMAC_SHA512')
-            cursor.execute('PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512')
         cursor.execute('PRAGMA foreign_keys = ON')
         cursor.execute('PRAGMA journal_mode = WAL')
         cursor.execute('PRAGMA busy_timeout = 5000')
@@ -115,12 +185,25 @@ def attach_sqlite_pragmas(target_engine: Engine, db_key: str | None = None) -> N
         cursor.close()
 
 
+def sqlite_file_database_url(db_file: str | Path) -> str:
+    """C-T1-01: explizite SQLite-/SQLCipher-URL fuer genau diese Datei.
+
+    Fuer Pruef- und Restore-Pfade, die eine bestimmte Datei oeffnen muessen:
+    die globale ``settings.database_url`` darf sie nie umlenken. SQLCipher
+    braucht keinen Schluessel in der URL (connect-Event in create_app_engine).
+    """
+    return f'sqlite:///{resolve_db_file(db_file)}'
+
+
 def create_app_engine(
     db_path: str | Path | None = None,
     db_key: str | None = None,
     echo: bool | None = None,
+    database_url: str | None = None,
 ) -> Engine:
-    database_url = build_database_url(db_path=db_path, db_key=db_key)
+    # database_url hat nur bei ausdruecklicher Uebergabe Vorrang; ohne sie gilt
+    # unveraendert settings.database_url vor db_path (Startup-Prioritaet).
+    database_url = build_database_url(db_path=db_path, db_key=db_key, database_url=database_url)
     connect_args = build_connect_args(db_key=db_key, database_url=database_url)
     kwargs: dict[str, Any] = {
         'echo': settings.db_echo if echo is None else echo,
@@ -130,6 +213,14 @@ def create_app_engine(
         kwargs['connect_args'] = connect_args
     if is_sqlite_database_url(database_url) and _sqlcipher_enabled(db_key=db_key):
         kwargs['module'] = sqlcipher3
+        # SQLCIPHER-ENGINE-POOL-001 (N-861-6): Der pysqlcipher-Dialekt von
+        # SQLAlchemy 2.0 waehlte immer SingletonThreadPool (auch fuer eine
+        # Datei-DB). Der kennt kein ``pool_timeout`` -> create_engine brach mit
+        # TypeError ab und der SQLCipher-Pfad startete nie. Seit S-1 laeuft die
+        # verschluesselte DB ueber den pysqlite-Dialekt mit module=sqlcipher3;
+        # der Pool ist explizit derselbe wie bei der Klartext-Datei-DB
+        # (QueuePool, pool_timeout=30).
+        kwargs['poolclass'] = QueuePool
     app_engine = create_engine(database_url, **kwargs)
     if app_engine.dialect.name == "sqlite":
         attach_sqlite_pragmas(app_engine, db_key=db_key)
@@ -156,6 +247,17 @@ def _resolve_engine(target_engine: Engine | None = None) -> Engine:
     return target_engine if target_engine is not None else engine
 
 
+def session_for_engine(target_engine: Engine | None = None) -> Session:
+    """Session fuer das Tier-1-Gate (routers.tenants) auf derselben Engine wie
+    ``init_db``: ohne Argument die Modul-Engine zur AUFRUFZEIT
+    (``_resolve_engine``), nicht das beim Import gebundene ``SessionLocal``.
+    Sonst koennten Startpruefung und Schema/Seed verschiedene DBs sehen."""
+    return sessionmaker(
+        autocommit=False, autoflush=False, expire_on_commit=False,
+        bind=_resolve_engine(target_engine),
+    )()
+
+
 def _session_for(target_engine: Engine | None = None) -> Session:
     """Session auf ``target_engine``; ohne Argument unveraendert ``SessionLocal()``."""
     if target_engine is None:
@@ -163,6 +265,54 @@ def _session_for(target_engine: Engine | None = None) -> Session:
     return sessionmaker(
         autocommit=False, autoflush=False, expire_on_commit=False, bind=target_engine,
     )()
+
+
+logger = logging.getLogger(__name__)
+
+# SEED-FK-HYGIENE (2026-11-05): Seeds/Backfills beim Start verschluckten jede
+# Ausnahme (``except Exception: pass``). So fiel der DE-Seed unter
+# PRAGMA foreign_keys=ON still aus. Jetzt gezielt: nur "Schema noch nicht da"
+# (Tabelle/Spalte fehlt in einer alten/partiellen DB) wird mit WARNING
+# uebersprungen; jeder andere Fehler (Integritaet, FK, Unique, Programmfehler)
+# wird mit ERROR geloggt und bricht den Start ab (fail-closed).
+_SCHEMA_NOT_READY_MARKERS = (
+    "no such table",
+    "no such column",
+    "has no column named",
+    "undefinedtable",
+    "undefinedcolumn",
+)
+
+
+def _db_error_summary(exc: BaseException) -> str:
+    """Kurzform fuer Logs: Fehlerklasse + erste Zeile der Treibermeldung.
+    Ohne SQL-Parameter (str(exc) von SQLAlchemy haengt sie an)."""
+    orig = getattr(exc, "orig", None)
+    detail = str(orig if orig is not None else "").strip().splitlines()
+    first = detail[0][:200] if detail else ""
+    return f"{type(exc).__name__}: {first}" if first else type(exc).__name__
+
+
+def _is_schema_not_ready(exc: BaseException) -> bool:
+    if not isinstance(exc, (OperationalError, ProgrammingError)):
+        return False
+    orig = getattr(exc, "orig", None)
+    text_ = f"{type(orig).__name__} {orig}".lower()
+    return any(marker in text_ for marker in _SCHEMA_NOT_READY_MARKERS) or (
+        "does not exist" in text_ and ("relation" in text_ or "column" in text_)
+    )
+
+
+def _handle_startup_step_error(step: str, exc: BaseException) -> None:
+    """Fehler eines Start-Seeds/-Backfills behandeln: Schema-nicht-bereit ->
+    WARNING und weiter; alles andere -> ERROR und erneut ausloesen."""
+    if _is_schema_not_ready(exc):
+        logger.warning("Startschritt %s uebersprungen (Schema unvollstaendig): %s",
+                       step, _db_error_summary(exc))
+        return
+    logger.error("Startschritt %s fehlgeschlagen, Start abgebrochen: %s",
+                 step, _db_error_summary(exc))
+    raise exc
 
 
 class Base(DeclarativeBase):
@@ -192,6 +342,39 @@ def new_uuid() -> str:
     return str(uuid.uuid4())
 
 
+# L2d / N-938-06: eine Zeitbasis fuer Gueltigkeitsfelder (valid_from/valid_to).
+# Die CHECK-Regel ``valid_to IS NULL OR valid_to >= valid_from`` vergleicht Text.
+# Beide Felder einer Tabelle muessen deshalb von derselben Uhr in derselben
+# Form kommen. Vorher legte der Seed die Policy mit dem lokalen Datum an
+# (``2026-11-22``) und die Abloesung schrieb einen UTC-Zeitpunkt
+# (``2026-11-21T23:30...Z``): in der Schweiz zwischen 00:00 und 01:00 war
+# valid_to < valid_from -> 422.
+# * Zeitpunkt-Tabellen (optimizer_policies): ``validity_instant()`` (UTC).
+# * Datums-Tabellen (client_knowledge, risk_assessments, planning_assumptions):
+#   ``validity_day()`` = Kalendertag der Prozess-Zeitzone (Stichtag-Regel KN7).
+def validity_instant() -> str:
+    """UTC-Zeitpunkt fuer valid_from UND valid_to von Zeitpunkt-Tabellen."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def validity_day() -> str:
+    """Kalendertag der Prozess-Zeitzone fuer valid_from UND valid_to von
+    Datums-Tabellen (gleiche Regel wie der Stichtag, KN7)."""
+    return datetime.now().date().isoformat()
+
+
+def validity_end(valid_from: str | None, end: str) -> str:
+    """valid_to beim Abloesen einer Version: ``end``, aber nie vor valid_from.
+
+    Nur fuer Altzeilen noetig, deren valid_from noch mit der anderen Uhr
+    geschrieben wurde (lokales Datum vor L2d). Dann endet die Version an ihrem
+    Beginn (leeres Intervall) statt die CHECK-Regel zu verletzen. Neue Zeilen
+    kommen von derselben Uhr und erreichen den Fall nie."""
+    if valid_from and end < str(valid_from):
+        return str(valid_from)
+    return end
+
+
 def bootstrap_sqlite_schema(
     db_path: str | Path | None = None,
     schema_path: str | Path | None = None,
@@ -201,7 +384,9 @@ def bootstrap_sqlite_schema(
     if not schema_file or not schema_file.exists():
         return
 
+    refuse_owner_db_file(str(db_path or settings.db_path), context='Schema-Bootstrap')  # N-907-16: Rohwert
     db_file = resolve_db_file(db_path)
+    refuse_owner_db_file(db_file, context='Schema-Bootstrap')  # H11 N1: raw sqlite3 legt sonst die Datei an
     sql = schema_file.read_text(encoding='utf-8')
 
     if _sqlcipher_enabled(db_key=db_key):
@@ -210,23 +395,60 @@ def bootstrap_sqlite_schema(
                 'DB_USE_SQLCIPHER=true ist gesetzt, aber sqlcipher3 ist nicht installiert. '
                 'Installiere sqlcipher3-binary oder sqlcipher3.'
             )
-        with sqlcipher3.connect(str(db_file)) as conn:
-            conn.execute("PRAGMA key = ?", [db_key or settings.db_key or ''])
-            conn.execute('PRAGMA cipher_page_size = 4096')
-            conn.execute('PRAGMA kdf_iter = 256000')
-            conn.execute('PRAGMA cipher_hmac_algorithm = HMAC_SHA512')
-            conn.execute('PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512')
+        key = db_key or settings.db_key or ''
+        if not db_key_format_ok(key):
+            raise ValueError(DB_KEY_FORMAT_MESSAGE)
+        with guarded_sqlite_connect(str(db_file), context='Schema-Bootstrap', connector=sqlcipher3.connect) as conn:
+            apply_sqlcipher_key(conn, key)
             conn.execute('PRAGMA foreign_keys = OFF')
-            conn.executescript(sql)
+            try:
+                conn.executescript(sql)
+            except sqlcipher3.IntegrityError as exc:
+                _raise_explained_bootstrap_integrity_error(conn, exc)
+                raise
             conn.execute('PRAGMA foreign_keys = ON')
             conn.commit()
         return
 
-    with sqlite3.connect(str(db_file)) as conn:
+    with guarded_sqlite_connect(str(db_file), context='Schema-Bootstrap') as conn:
         conn.execute('PRAGMA foreign_keys = OFF')
-        conn.executescript(sql)
+        try:
+            conn.executescript(sql)
+        except sqlite3.IntegrityError as exc:
+            _raise_explained_bootstrap_integrity_error(conn, exc)
+            raise
         conn.execute('PRAGMA foreign_keys = ON')
         conn.commit()
+
+
+def _raise_explained_bootstrap_integrity_error(conn, exc: Exception) -> None:
+    """N-873-06: Scheitert der Schema-Bootstrap am Unique-Index
+    ``ux_goals_rank_active`` (Bestand mit doppelten aktiven Zielraengen, nur
+    moeglich, wenn der Index einer Installation je fehlte), bricht der Start
+    weiterhin ab (fail-closed) -- aber mit klarer Betreibermeldung statt
+    eines rohen IntegrityError. Andere Integritaetsfehler bleiben unveraendert."""
+    text_ = str(exc)
+    if "goals.mandate_id, goals.rank" not in text_ and "ux_goals_rank_active" not in text_:
+        return
+    try:
+        rows = conn.execute(
+            "SELECT mandate_id, rank, count(*) FROM goals "
+            "WHERE is_active = 1 AND deleted_at IS NULL "
+            "GROUP BY mandate_id, rank HAVING count(*) > 1 ORDER BY mandate_id, rank LIMIT 50"
+        ).fetchall()
+    except Exception:  # noqa: BLE001 - Diagnose darf die Meldung nicht verhindern
+        rows = []
+    listed = ", ".join(f"{mid}/{rank}/{n}" for mid, rank, n in rows) or "nicht ermittelbar"
+    message = (
+        "Datenbankstart abgebrochen: doppelte aktive Zielraenge verhindern den "
+        "Unique-Index ux_goals_rank_active (Mandat/Rang/Anzahl: "
+        f"{listed}). Bitte vor dem naechsten Start je betroffenem Mandat die "
+        "Rangfolge bereinigen (Backup zuerst; Raenge eindeutig machen), dann "
+        "neu starten. Ohne Index waeren Hauptziel und Gewichte nicht "
+        "deterministisch."
+    )
+    logger.critical(message)
+    raise RuntimeError(message) from exc
 
 
 class SchemaNotReadyError(RuntimeError):
@@ -293,6 +515,13 @@ def ensure_column(conn, table_name: str, column_name: str, sql_type: str) -> Non
 # (database.py importiert keine services/), synchron mit
 # services/portfolio_engine_payload.py::THEME_SUB_ASSET_CLASSES -- per Test
 # gepinnt (tests/test_esg_premium_criteria.py).
+PRODUCT_INTERNAL_ID_INDEX = "ux_products_tenant_internal_id"
+PRODUCT_INTERNAL_ID_INDEX_DDL = (
+    f"CREATE UNIQUE INDEX IF NOT EXISTS {PRODUCT_INTERNAL_ID_INDEX} "
+    "ON products(tenant_id, internal_product_id) "
+    "WHERE internal_product_id IS NOT NULL AND deleted_at IS NULL"
+)
+
 THEME_TAG_BACKFILL: tuple[tuple[str, str], ...] = (
     ("Thema Fossile Energie", '["fossil"]'),
     ("Thema Verteidigung", '["defense"]'),
@@ -580,6 +809,92 @@ CLIENT_PII_KEYS_SQLITE_TABLE_DDL: tuple[str, ...] = (
 )""",
 )
 
+# H8 C-2/C-5 (Compliance-Audit 2026-11-07): append-only Nachweise der
+# Kundeninformation (Art. 8/9 FIDLEG) und der GwG-Bestaetigung samt Vier-Augen-
+# Freigabe. Die Tabellen legt create_all an (Modelle in models/review.py bzw.
+# models/clients.py, after_create); Alembic d8e4b2a6c1f9 fuer PostgreSQL.
+def _append_only_sqlite_triggers(table: str) -> tuple[str, ...]:
+    return (
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_update "
+        f"BEFORE UPDATE ON {table} FOR EACH ROW "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_delete "
+        f"BEFORE DELETE ON {table} FOR EACH ROW "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+    )
+
+
+CLIENT_INFORMATION_DELIVERY_SQLITE_TRIGGERS = _append_only_sqlite_triggers("client_information_deliveries")
+# N-890-09 (DSG Art. 6 Abs. 4): die KYC-Nachweise bleiben append-only, ihre
+# Freitexte duerfen aber im Loeschvorgang (services/client_erasure.py) auf den
+# Redaktionsmarker gesetzt werden -- sonst nichts. Gleicher Wert wie
+# services/client_erasure.py::REDACTION_MARKER (Test prueft die Gleichheit).
+ERASURE_REDACTION_MARKER = "[ERASED-DSG-ART-32]"
+# C-890-01: Bindung der KYC-Bestaetigung an die freigegebene Wiedervorlage-
+# Policy (Teil des Siegels). Bestandszeilen haben hier NULL und gelten als
+# "policy_binding_missing". Gleiche Liste wie Alembic f4c2e8a6d1b3.
+KYC_CONFIRMATION_REVIEW_BINDING_COLUMNS: tuple[str, ...] = (
+    "review_policy_row_id", "review_policy_activation_id", "review_policy_id",
+    "review_policy_version", "review_policy_hash", "review_risk_class",
+    "review_interval_months", "review_max_due",
+)
+KYC_CONFIRMATION_FIXED_COLUMNS: tuple[str, ...] = (
+    "id", "tenant_id", "client_id", "mandate_id", "process_scope", "form_type",
+    "form_completed_on", "risk_category", "is_pep", "identification_confirmed",
+    "identification_date", "next_review_due", "requires_second_approval",
+    "recorded_by", "recorded_at", "confirmation_hash",
+) + KYC_CONFIRMATION_REVIEW_BINDING_COLUMNS
+KYC_CONFIRMATION_REDACTABLE_COLUMNS: tuple[str, ...] = ("external_reference", "note")
+KYC_CONFIRMATION_APPROVAL_FIXED_COLUMNS: tuple[str, ...] = (
+    "id", "tenant_id", "confirmation_id", "client_id", "approved_by", "approved_at",
+    "approval_hash",
+)
+KYC_CONFIRMATION_APPROVAL_REDACTABLE_COLUMNS: tuple[str, ...] = ("note",)
+# C-890-01 Nachtrag 2: Ablehnung einer Zweitfreigabe (append-only; die
+# Begruendung ist Freitext mit Kundenbezug und darf nur redigiert werden).
+KYC_CONFIRMATION_REJECTION_FIXED_COLUMNS: tuple[str, ...] = (
+    "id", "tenant_id", "confirmation_id", "client_id", "rejected_by", "rejected_at",
+    "confirmation_hash", "rejection_hash",
+)
+KYC_CONFIRMATION_REJECTION_REDACTABLE_COLUMNS: tuple[str, ...] = ("reason",)
+
+
+def _redaction_only_sqlite_triggers(
+    table: str, fixed: tuple[str, ...], redactable: tuple[str, ...],
+) -> tuple[str, ...]:
+    changed = " OR ".join(f"NEW.{c} IS NOT OLD.{c}" for c in fixed)
+    bad_text = " OR ".join(
+        f"(NEW.{c} IS NOT OLD.{c} AND NEW.{c} IS NOT NULL AND NEW.{c} != '{ERASURE_REDACTION_MARKER}')"
+        for c in redactable
+    )
+    return (
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_update "
+        f"BEFORE UPDATE ON {table} FOR EACH ROW WHEN {changed} OR {bad_text} "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_delete "
+        f"BEFORE DELETE ON {table} FOR EACH ROW "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+    )
+
+
+KYC_CONFIRMATION_SQLITE_TRIGGERS = _redaction_only_sqlite_triggers(
+    "kyc_confirmations", KYC_CONFIRMATION_FIXED_COLUMNS, KYC_CONFIRMATION_REDACTABLE_COLUMNS,
+)
+KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS = _redaction_only_sqlite_triggers(
+    "kyc_confirmation_approvals", KYC_CONFIRMATION_APPROVAL_FIXED_COLUMNS,
+    KYC_CONFIRMATION_APPROVAL_REDACTABLE_COLUMNS,
+)
+# C-890-01: versionierte Wiedervorlage-Policy und ihre Vier-Augen-Aktivierung
+# sind vollstaendig append-only (Korrektur = neue Version; Alembic f4c2e8a6d1b3).
+KYC_CONFIRMATION_REJECTION_SQLITE_TRIGGERS = _redaction_only_sqlite_triggers(
+    "kyc_confirmation_rejections", KYC_CONFIRMATION_REJECTION_FIXED_COLUMNS,
+    KYC_CONFIRMATION_REJECTION_REDACTABLE_COLUMNS,
+)
+KYC_CONFIRMATION_DECISION_SQLITE_TRIGGERS = _append_only_sqlite_triggers("kyc_confirmation_decisions")
+KYC_REVIEW_POLICY_SQLITE_TRIGGERS = _append_only_sqlite_triggers("kyc_review_policies")
+KYC_REVIEW_POLICY_ACTIVATION_SQLITE_TRIGGERS = _append_only_sqlite_triggers("kyc_review_policy_activations")
+
+
 CLIENT_PII_KEYS_SQLITE_TRIGGERS: tuple[str, ...] = (
     "CREATE TRIGGER IF NOT EXISTS trg_client_pii_keys_shred_only "
     "BEFORE UPDATE ON client_pii_keys FOR EACH ROW "
@@ -693,6 +1008,780 @@ RISK_CAPACITY_EVALUATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
 )
 
 
+# E1 Nachhaltigkeitspraeferenzen (Dok. 106, 2026-11-07): append-only
+# InvestmentPreferenceDecisionV1 (models/profiling.py::
+# InvestmentPreferenceDecision). Jede Erfassung ist eine neue Version je
+# Mandat (sequence_no, supersedes_id); die aktuelle ist die hoechste
+# sequence_no. Gleiches Muster wie risk_capacity_plausibility_evaluations:
+# Trigger verbieten UPDATE/DELETE, KEIN harter FK auf mandates/clients
+# (Purge-fest), nur captured_by -> users; tenant_id direkt (RLS) mit
+# INSERT-Guard (core/mandate_evidence_tenant_boundary.py). Dieselbe DDL
+# textgleich in ares_schema.sql, Alembic f3a8c1e5b7d2 fuer PostgreSQL.
+INVESTMENT_PREFERENCE_DECISION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_investment_preference_decisions_no_update "
+    "BEFORE UPDATE ON investment_preference_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'investment_preference_decisions is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_investment_preference_decisions_no_delete "
+    "BEFORE DELETE ON investment_preference_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'investment_preference_decisions is immutable'); END",
+)
+
+INVESTMENT_PREFERENCE_DECISION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS investment_preference_decisions (
+    id                        TEXT PRIMARY KEY,
+    schema_version            TEXT NOT NULL DEFAULT 'InvestmentPreferenceDecisionV1',
+    tenant_id                 TEXT,
+    mandate_id                TEXT NOT NULL,
+    client_id                 TEXT,
+    sequence_no               INTEGER NOT NULL CHECK(sequence_no >= 1),
+    supersedes_id             TEXT,
+    questionnaire_version     TEXT NOT NULL,
+    definition_hash           TEXT NOT NULL,
+    derivation_version        TEXT NOT NULL,
+    response_status           TEXT NOT NULL CHECK(response_status IN ('answered','declined')),
+    esg_relevance             TEXT CHECK(esg_relevance IS NULL OR esg_relevance IN ('yes','not_relevant')),
+    esg_characteristic        TEXT CHECK(esg_characteristic IS NULL OR esg_characteristic IN ('sdg_alignment','esg_factors','no_specific')),
+    exclusions_json           TEXT NOT NULL,
+    preference_waived         INTEGER NOT NULL CHECK(preference_waived IN (0,1)),
+    waiver_reason_sealed      TEXT,
+    profile_code              TEXT NOT NULL CHECK(profile_code IN ('no_preference','sdg_goals','esg_factors','unspecified','declined')),
+    information_acknowledged  INTEGER NOT NULL CHECK(information_acknowledged IN (0,1)),
+    client_confirmed          INTEGER NOT NULL CHECK(client_confirmed IN (0,1)),
+    capture_channel           TEXT NOT NULL CHECK(capture_channel IN ('in_person','phone','video','written')),
+    mandate_type_at_capture   TEXT,
+    review_policy_version     TEXT NOT NULL,
+    review_policy_months      INTEGER NOT NULL,
+    review_due_on             TEXT NOT NULL,
+    captured_by               TEXT NOT NULL REFERENCES users(id),
+    captured_at               TEXT NOT NULL,
+    decision_hash             TEXT NOT NULL,
+    created_at                TEXT NOT NULL
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_investment_preference_decisions_sequence "
+    "ON investment_preference_decisions(mandate_id, sequence_no)",
+    "CREATE INDEX IF NOT EXISTS ix_investment_preference_decisions_tenant_id "
+    "ON investment_preference_decisions(tenant_id)",
+)
+
+
+# CCX-P1 Snapshot und Hash (Vertrag 2026-11-13 §4): Beratungsentscheid als
+# unveraenderlicher Envelope (models/snapshots.py, services/
+# advisory_decision_envelope.py). Drei Tabellen, alle direkt mandanten-
+# gebunden (tenant_id NOT NULL -> tenants), Mandant per INSERT-Guard aus dem
+# Mandat abgeleitet; Bindings ueber den zusammengesetzten Fremdschluessel
+# (tenant_id, envelope_id) -> (tenant_id, id) an denselben Mandanten.
+#
+# Lebenszyklus: Einfuegen NUR als DRAFT; Bindings nur, solange DRAFT; DRAFT ->
+# SEALED (verlangt die Manifest-Bindung, Hash, Payload, Zeit, Actor); danach
+# ist die Zeile append-only -- einzige erlaubte Aenderung ist SEALED ->
+# SUPERSEDED bei unveraendertem Inhalt. optimistic_version steigt bei jeder
+# Aenderung um genau 1. Hoechstens ein SEALED je (tenant, mandate) und
+# hoechstens ein Nachfolger je Vorgaenger (Parallelversiegelung -> ein
+# Sieger). Kein FK auf mandates (Purge-fest, Muster der Mandats-Evidenz).
+# Textgleich in ares_schema.sql; PostgreSQL: Alembic (CCX-P1-Revision).
+ADVISORY_ENVELOPE_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS advisory_decision_envelopes (
+    id                      TEXT PRIMARY KEY,
+    tenant_id               TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id              TEXT NOT NULL,
+    schema_version          TEXT NOT NULL DEFAULT 'ares/advisory-envelope/1'
+                            CHECK(schema_version IN ('ares/advisory-envelope/1','ares/advisory-envelope/2')),
+    status                  TEXT NOT NULL DEFAULT 'DRAFT'
+                            CHECK(status IN ('DRAFT','SEALED','SUPERSEDED')),
+    locale                  TEXT NOT NULL,
+    base_currency           TEXT NOT NULL,
+    canonical_payload_json  TEXT,
+    envelope_hash           TEXT CHECK(envelope_hash IS NULL OR length(envelope_hash) = 64),
+    predecessor_id          TEXT,
+    created_at              TEXT NOT NULL,
+    created_by              TEXT NOT NULL REFERENCES users(id),
+    sealed_at               TEXT,
+    sealed_by               TEXT REFERENCES users(id),
+    optimistic_version      INTEGER NOT NULL DEFAULT 1 CHECK(optimistic_version >= 1),
+    freshness_status        TEXT NOT NULL DEFAULT 'UNKNOWN' CHECK(freshness_status IN ('FRESH','STALE','UNKNOWN')),
+    stale_at                TEXT,
+    stale_reason_code       TEXT,
+    CONSTRAINT ck_advisory_decision_envelopes_sealed_complete CHECK(status = 'DRAFT' OR (
+        canonical_payload_json IS NOT NULL AND envelope_hash IS NOT NULL
+        AND sealed_at IS NOT NULL AND sealed_by IS NOT NULL)),
+    CONSTRAINT uq_advisory_decision_envelopes_tenant_hash UNIQUE (tenant_id, envelope_hash),
+    CONSTRAINT uq_advisory_decision_envelopes_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT fk_advisory_decision_envelopes_predecessor FOREIGN KEY (tenant_id, predecessor_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_decision_envelopes_tenant_id "
+    "ON advisory_decision_envelopes(tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_decision_envelopes_mandate "
+    "ON advisory_decision_envelopes(tenant_id, mandate_id, status)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_advisory_decision_envelopes_one_sealed "
+    "ON advisory_decision_envelopes(tenant_id, mandate_id) WHERE status = 'SEALED'",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_advisory_decision_envelopes_one_successor "
+    "ON advisory_decision_envelopes(predecessor_id) WHERE predecessor_id IS NOT NULL",
+    """CREATE TABLE IF NOT EXISTS advisory_envelope_bindings (
+    id              TEXT PRIMARY KEY,
+    tenant_id       TEXT NOT NULL,
+    envelope_id     TEXT NOT NULL,
+    binding_kind    TEXT NOT NULL,
+    object_type     TEXT NOT NULL,
+    object_id       TEXT NOT NULL,
+    object_version  INTEGER,
+    child_hash      TEXT NOT NULL CHECK(length(child_hash) = 64),
+    ordinal         INTEGER NOT NULL CHECK(ordinal >= 0),
+    created_at      TEXT NOT NULL,
+    created_by      TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_advisory_envelope_bindings_kind_ordinal UNIQUE (envelope_id, binding_kind, ordinal),
+    CONSTRAINT fk_advisory_envelope_bindings_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_envelope_bindings_tenant_id "
+    "ON advisory_envelope_bindings(tenant_id)",
+    """CREATE TABLE IF NOT EXISTS advisory_effective_input_manifests (
+    id                      TEXT PRIMARY KEY,
+    tenant_id               TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id              TEXT NOT NULL,
+    client_hash             TEXT NOT NULL,
+    mandate_hash            TEXT NOT NULL,
+    goals_hash              TEXT NOT NULL,
+    cashflows_hash          TEXT NOT NULL,
+    risk_hash               TEXT NOT NULL,
+    preference_hash         TEXT NOT NULL,
+    cma_hash                TEXT NOT NULL,
+    policy_hash             TEXT NOT NULL,
+    constraints_hash        TEXT NOT NULL,
+    holdings_hash           TEXT NOT NULL,
+    engine_version          TEXT NOT NULL,
+    random_stream_id        TEXT NOT NULL,
+    rounding_policy_version TEXT NOT NULL,
+    manifest_hash           TEXT NOT NULL CHECK(length(manifest_hash) = 64),
+    created_at              TEXT NOT NULL,
+    created_by              TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_advisory_effective_input_manifests_tenant_id UNIQUE (tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_effective_input_manifests_tenant_id "
+    "ON advisory_effective_input_manifests(tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_effective_input_manifests_mandate "
+    "ON advisory_effective_input_manifests(tenant_id, mandate_id)",
+)
+
+# Trigger erst nach allen drei Tabellen (sie verweisen gegenseitig und auf
+# mandates): ORM ueber den Metadata-Hook in models/snapshots.py, Laufzeitpatch
+# und Bootstrap-Schema in derselben Reihenfolge.
+ADVISORY_ENVELOPE_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_insert_guard "
+    "BEFORE INSERT ON advisory_decision_envelopes FOR EACH ROW "
+    "WHEN NEW.status IS NOT 'DRAFT' OR NEW.optimistic_version IS NOT 1 "
+    "OR NEW.canonical_payload_json IS NOT NULL OR NEW.envelope_hash IS NOT NULL "
+    "OR NEW.sealed_at IS NOT NULL OR NEW.sealed_by IS NOT NULL "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes: insert only as DRAFT'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_no_replace "
+    "BEFORE INSERT ON advisory_decision_envelopes FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM advisory_decision_envelopes e WHERE e.id = NEW.id) "
+    "OR (NEW.predecessor_id IS NOT NULL AND EXISTS (SELECT 1 FROM advisory_decision_envelopes e "
+    "WHERE e.predecessor_id = NEW.predecessor_id)) "
+    "OR (NEW.envelope_hash IS NOT NULL AND EXISTS (SELECT 1 FROM advisory_decision_envelopes e "
+    "WHERE e.tenant_id = NEW.tenant_id AND e.envelope_hash = NEW.envelope_hash)) "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes row already exists (no replace)'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_update_guard "
+    "BEFORE UPDATE ON advisory_decision_envelopes FOR EACH ROW "
+    "WHEN NEW.id IS NOT OLD.id OR NEW.tenant_id IS NOT OLD.tenant_id "
+    "OR NEW.mandate_id IS NOT OLD.mandate_id OR NEW.schema_version IS NOT OLD.schema_version "
+    "OR NEW.locale IS NOT OLD.locale OR NEW.base_currency IS NOT OLD.base_currency "
+    "OR NEW.predecessor_id IS NOT OLD.predecessor_id OR NEW.created_at IS NOT OLD.created_at "
+    "OR NEW.created_by IS NOT OLD.created_by "
+    "OR NEW.optimistic_version IS NOT OLD.optimistic_version + 1 "
+    "OR NOT ((OLD.status = 'DRAFT' AND NEW.status = 'DRAFT' "
+    "AND OLD.freshness_status IN ('UNKNOWN', 'STALE') "
+    "AND NEW.freshness_status IN (OLD.freshness_status, 'STALE')) "
+    "OR (OLD.status = 'DRAFT' AND NEW.status = 'SEALED' AND OLD.freshness_status = 'UNKNOWN' "
+    "AND NEW.freshness_status IN ('UNKNOWN', 'FRESH')) "
+    "OR (OLD.status = 'SEALED' AND NEW.status IN ('SEALED', 'SUPERSEDED') "
+    "AND NEW.canonical_payload_json IS OLD.canonical_payload_json "
+    "AND NEW.envelope_hash IS OLD.envelope_hash AND NEW.sealed_at IS OLD.sealed_at "
+    "AND NEW.sealed_by IS OLD.sealed_by "
+    "AND ((NEW.status = 'SUPERSEDED' AND NEW.freshness_status IS OLD.freshness_status "
+    "AND NEW.stale_at IS OLD.stale_at AND NEW.stale_reason_code IS OLD.stale_reason_code) "
+    "OR (NEW.status = 'SEALED' AND NEW.freshness_status = 'STALE' "
+    "AND (OLD.freshness_status IS NOT 'STALE' OR (NEW.stale_at IS OLD.stale_at "
+    "AND NEW.stale_reason_code IS OLD.stale_reason_code)))))) "
+    "OR (NEW.freshness_status = 'STALE' AND (NEW.stale_at IS NULL OR NEW.stale_reason_code IS NULL)) "
+    "OR (NEW.freshness_status IS NOT 'STALE' AND (NEW.stale_at IS NOT NULL OR NEW.stale_reason_code IS NOT NULL)) "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes is append-only once sealed'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_seal_binding "
+    "BEFORE UPDATE ON advisory_decision_envelopes FOR EACH ROW "
+    "WHEN OLD.status = 'DRAFT' AND NEW.status = 'SEALED' AND NOT EXISTS ("
+    "SELECT 1 FROM advisory_envelope_bindings b WHERE b.envelope_id = NEW.id "
+    "AND b.binding_kind = 'effective_input_manifest') "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_BINDING_MISSING'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_no_delete "
+    "BEFORE DELETE ON advisory_decision_envelopes FOR EACH ROW "
+    "WHEN OLD.status IS NOT 'DRAFT' "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes is append-only once sealed'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_insert_guard "
+    "BEFORE INSERT ON advisory_envelope_bindings FOR EACH ROW "
+    "WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT 'DRAFT' "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings: envelope is not DRAFT'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_no_replace "
+    "BEFORE INSERT ON advisory_envelope_bindings FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM advisory_envelope_bindings b WHERE b.id = NEW.id) "
+    "OR EXISTS (SELECT 1 FROM advisory_envelope_bindings b WHERE b.envelope_id = NEW.envelope_id "
+    "AND b.binding_kind = NEW.binding_kind AND b.ordinal = NEW.ordinal) "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings row already exists (no replace)'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_no_update "
+    "BEFORE UPDATE ON advisory_envelope_bindings FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_no_delete "
+    "BEFORE DELETE ON advisory_envelope_bindings FOR EACH ROW "
+    "WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = OLD.envelope_id) IS NOT 'DRAFT' "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_no_replace "
+    "BEFORE INSERT ON advisory_effective_input_manifests FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM advisory_effective_input_manifests m WHERE m.id = NEW.id) "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_effective_input_manifests row already exists (no replace)'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_no_update "
+    "BEFORE UPDATE ON advisory_effective_input_manifests FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_effective_input_manifests is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_no_delete "
+    "BEFORE DELETE ON advisory_effective_input_manifests FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_effective_input_manifests is immutable'); END",
+)
+
+# Mandanten-Guards (verweisen auf mandates.tenant_id): NICHT im Bootstrap-
+# Schema -- dort fehlt mandates.tenant_id noch, ein Trigger mit fehlender
+# Spalte braeche spaetere ALTER TABLE (Muster core/mandate_evidence_
+# tenant_boundary.py). Angelegt vom Metadata-Hook (ORM) bzw. vom
+# Laufzeitpatch, sobald mandates.tenant_id existiert.
+ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_tenant_guard "
+    "BEFORE INSERT ON advisory_decision_envelopes FOR EACH ROW "
+    "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_tenant_guard "
+    "BEFORE INSERT ON advisory_effective_input_manifests FOR EACH ROW "
+    "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+)
+
+
+# CCX-P2 Invalidation und Staleness (Vertrag 2026-11-13 §5): Frische des
+# versiegelten Beratungsentscheids. Der Envelope traegt freshness_status
+# (FRESH|STALE|UNKNOWN), stale_at und stale_reason_code; Bestand ohne
+# Abhaengigkeitskanten bleibt UNKNOWN (kein Backfill, unknown != fresh).
+# Uebergaenge (Update-Guard oben, PostgreSQL identisch im Alembic-Guard):
+# Einfuegen nur als UNKNOWN; DRAFT -> SEALED als UNKNOWN oder FRESH (FRESH
+# nur mit Kanten); danach nur noch -> STALE (nie zurueck auf FRESH, eine
+# Rueckkehr zu A braucht eine neue Versiegelung); SEALED -> SUPERSEDED mit
+# unveraenderter Frische. Jede Invalidation ist ein append-only Ereignis mit
+# lueckenloser invalidation_sequence je Envelope (1, 2, 3 ...), geschrieben
+# im selben Commit wie die Mutation (zentraler Hook models/snapshots.py).
+# Textgleich in ares_schema.sql; PostgreSQL: Alembic (CCX-P2-Revision).
+ADVISORY_FRESHNESS_SQLITE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("freshness_status",
+     "TEXT NOT NULL DEFAULT 'UNKNOWN' CHECK(freshness_status IN ('FRESH','STALE','UNKNOWN'))"),
+    ("stale_at", "TEXT"),
+    ("stale_reason_code", "TEXT"),
+)
+
+ADVISORY_FRESHNESS_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS advisory_dependency_edges (
+    id                    TEXT PRIMARY KEY,
+    tenant_id             TEXT NOT NULL,
+    envelope_id           TEXT NOT NULL,
+    dependency_kind       TEXT NOT NULL,
+    dependency_object_id  TEXT NOT NULL,
+    dependency_version    INTEGER,
+    dependency_hash       TEXT NOT NULL CHECK(length(dependency_hash) = 64),
+    observed_at           TEXT NOT NULL,
+    created_by            TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_advisory_dependency_edges_kind_object UNIQUE (envelope_id, dependency_kind, dependency_object_id),
+    CONSTRAINT fk_advisory_dependency_edges_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_dependency_edges_tenant_id "
+    "ON advisory_dependency_edges(tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_dependency_edges_object "
+    "ON advisory_dependency_edges(dependency_kind, dependency_object_id)",
+    """CREATE TABLE IF NOT EXISTS advisory_invalidation_events (
+    id                     TEXT PRIMARY KEY,
+    tenant_id              TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id             TEXT NOT NULL,
+    envelope_id            TEXT NOT NULL,
+    source_kind            TEXT NOT NULL,
+    source_object_id       TEXT NOT NULL,
+    old_hash               TEXT CHECK(old_hash IS NULL OR length(old_hash) = 64),
+    new_hash               TEXT CHECK(new_hash IS NULL OR length(new_hash) = 64),
+    reason_code            TEXT NOT NULL CHECK(reason_code = 'CCX_INPUT_STALE'),
+    invalidation_sequence  INTEGER NOT NULL CHECK(invalidation_sequence >= 1),
+    created_at             TEXT NOT NULL,
+    created_by             TEXT NOT NULL CHECK(length(created_by) > 0),
+    CONSTRAINT uq_advisory_invalidation_events_sequence UNIQUE (envelope_id, invalidation_sequence),
+    CONSTRAINT fk_advisory_invalidation_events_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_invalidation_events_tenant_id "
+    "ON advisory_invalidation_events(tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_invalidation_events_mandate "
+    "ON advisory_invalidation_events(tenant_id, mandate_id)",
+)
+
+ADVISORY_FRESHNESS_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_freshness_insert "
+    "BEFORE INSERT ON advisory_decision_envelopes FOR EACH ROW "
+    "WHEN NEW.freshness_status IS NOT 'UNKNOWN' OR NEW.stale_at IS NOT NULL OR NEW.stale_reason_code IS NOT NULL "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes: insert only as UNKNOWN'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_fresh_edges "
+    "BEFORE UPDATE ON advisory_decision_envelopes FOR EACH ROW "
+    "WHEN NEW.freshness_status = 'FRESH' AND OLD.freshness_status IS NOT 'FRESH' AND NOT EXISTS ("
+    "SELECT 1 FROM advisory_dependency_edges d WHERE d.envelope_id = NEW.id) "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_FRESHNESS_UNKNOWN'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_dependency_edges_insert_guard "
+    "BEFORE INSERT ON advisory_dependency_edges FOR EACH ROW "
+    "WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT 'DRAFT' "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_dependency_edges: envelope is not DRAFT'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_dependency_edges_no_update "
+    "BEFORE UPDATE ON advisory_dependency_edges FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_dependency_edges is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_dependency_edges_no_delete "
+    "BEFORE DELETE ON advisory_dependency_edges FOR EACH ROW "
+    "WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = OLD.envelope_id) IS NOT 'DRAFT' "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_dependency_edges is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_insert_mandate "
+    "BEFORE INSERT ON advisory_invalidation_events FOR EACH ROW "
+    "WHEN NEW.mandate_id IS NOT (SELECT e.mandate_id FROM advisory_decision_envelopes e "
+    "WHERE e.id = NEW.envelope_id AND e.tenant_id = NEW.tenant_id) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_insert_stale "
+    "BEFORE INSERT ON advisory_invalidation_events FOR EACH ROW "
+    "WHEN (SELECT e.freshness_status FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT 'STALE' "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_INPUT_STALE: envelope must be stale'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_insert_sequence "
+    "BEFORE INSERT ON advisory_invalidation_events FOR EACH ROW "
+    "WHEN NEW.invalidation_sequence IS NOT (SELECT COALESCE(MAX(i.invalidation_sequence), 0) + 1 "
+    "FROM advisory_invalidation_events i WHERE i.envelope_id = NEW.envelope_id) "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_INVALIDATION_RACE'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_dependency_edges_no_replace "
+    "BEFORE INSERT ON advisory_dependency_edges FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM advisory_dependency_edges d WHERE d.id = NEW.id "
+    "OR (d.envelope_id = NEW.envelope_id AND d.dependency_kind = NEW.dependency_kind "
+    "AND d.dependency_object_id = NEW.dependency_object_id)) "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_dependency_edges row already exists (no replace)'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_no_replace "
+    "BEFORE INSERT ON advisory_invalidation_events FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM advisory_invalidation_events i WHERE i.id = NEW.id "
+    "OR (i.envelope_id = NEW.envelope_id AND i.invalidation_sequence = NEW.invalidation_sequence)) "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_invalidation_events row already exists (no replace)'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_no_update "
+    "BEFORE UPDATE ON advisory_invalidation_events FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_invalidation_events is append-only'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_no_delete "
+    "BEFORE DELETE ON advisory_invalidation_events FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_invalidation_events is append-only'); END",
+)
+
+
+# CCX-P3 Markt- und Depot-Wahrheit (Vertrag 2026-11-13 §6 + Nachtrag P3-FX):
+# Bewertungs-Snapshot (Stichtag, Quelle, gebundene FX-Basis, Abdeckung),
+# verlustfreie Positionszeilen und Entscheid je Position. Alle drei Tabellen
+# tragen tenant_id NOT NULL; Snapshot und Ledger leiten den Mandanten per
+# INSERT-Guard aus dem Mandat ab, Zeilen und Ledger haengen per
+# zusammengesetztem Fremdschluessel am Snapshot bzw. Envelope desselben
+# Mandanten. Snapshot und Zeilen sind ab dem Einfuegen unveraenderlich
+# (no-replace/no-update/no-delete); Zeilen sind nur bis position_count
+# einfuegbar (der Snapshot ist danach geschlossen). Der Ledger ist nur
+# einfuegbar, solange der Envelope DRAFT ist, danach unveraenderlich.
+# COMPLETE verlangt einen Gesamtwert; UNKNOWN/PARTIAL tragen nie eine
+# erfundene Summe. Kein FK auf mandates (Purge-fest, Muster P1).
+# Textgleich in ares_schema.sql; PostgreSQL: Alembic (CCX-P3-Revision).
+HOLDINGS_VALUATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS holdings_valuation_snapshots (
+    id                  TEXT PRIMARY KEY,
+    tenant_id           TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id          TEXT NOT NULL,
+    schema_version      TEXT NOT NULL DEFAULT 'ares/holdings-valuation/1'
+                        CHECK(schema_version = 'ares/holdings-valuation/1'),
+    as_of               TEXT NOT NULL,
+    source_observed_at  TEXT,
+    source_system       TEXT NOT NULL,
+    base_currency       TEXT NOT NULL,
+    fx_basis_hash       TEXT NOT NULL CHECK(length(fx_basis_hash) = 64),
+    fx_basis_json       TEXT NOT NULL,
+    coverage_status     TEXT NOT NULL CHECK(coverage_status IN ('COMPLETE','PARTIAL','UNKNOWN')),
+    holdings_basis      TEXT NOT NULL CHECK(holdings_basis IN ('recorded','confirmed_no_holdings')),
+    position_count      INTEGER NOT NULL CHECK(position_count >= 0),
+    total_base_minor    INTEGER,
+    advisory_base_minor INTEGER,
+    blocker_codes_json  TEXT NOT NULL,
+    manual_valuation_attested INTEGER NOT NULL DEFAULT 0 CHECK(manual_valuation_attested IN (0, 1)),
+    manual_valuation_max_age_days INTEGER,
+    snapshot_hash       TEXT NOT NULL CHECK(length(snapshot_hash) = 64),
+    created_at          TEXT NOT NULL,
+    created_by          TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT ck_holdings_valuation_snapshots_complete_total CHECK(coverage_status <> 'COMPLETE' OR (
+        total_base_minor IS NOT NULL AND advisory_base_minor IS NOT NULL AND blocker_codes_json = '[]')),
+    CONSTRAINT ck_holdings_valuation_snapshots_unknown_total CHECK(coverage_status = 'COMPLETE' OR (
+        total_base_minor IS NULL AND advisory_base_minor IS NULL AND blocker_codes_json <> '[]')),
+    CONSTRAINT ck_holdings_valuation_snapshots_no_holdings CHECK(holdings_basis = 'recorded' OR position_count = 0),
+    CONSTRAINT uq_holdings_valuation_snapshots_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT uq_holdings_valuation_snapshots_hash UNIQUE (tenant_id, mandate_id, snapshot_hash)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_holdings_valuation_snapshots_tenant_id "
+    "ON holdings_valuation_snapshots(tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_holdings_valuation_snapshots_mandate "
+    "ON holdings_valuation_snapshots(tenant_id, mandate_id, as_of)",
+    """CREATE TABLE IF NOT EXISTS holdings_valuation_rows (
+    id                      TEXT PRIMARY KEY,
+    tenant_id               TEXT NOT NULL,
+    snapshot_id             TEXT NOT NULL,
+    position_id             TEXT NOT NULL,
+    source_kind             TEXT NOT NULL CHECK(source_kind IN ('wealth_position','depot_holding')),
+    instrument_id           TEXT,
+    assignment              TEXT,
+    quantity_decimal_string TEXT,
+    price_minor             INTEGER,
+    price_currency          TEXT,
+    source_amount_minor     INTEGER,
+    fx_rate_ppm             INTEGER,
+    fx_rate_ratio           TEXT,
+    fx_source               TEXT,
+    fx_observed_at          TEXT,
+    base_value_minor        INTEGER,
+    price_observed_at       TEXT,
+    data_quality            TEXT NOT NULL,
+    included_in_total       INTEGER NOT NULL CHECK(included_in_total IN (0, 1)),
+    row_hash                TEXT NOT NULL CHECK(length(row_hash) = 64),
+    CONSTRAINT ck_holdings_valuation_rows_ok_value CHECK(data_quality <> 'OK' OR base_value_minor IS NOT NULL),
+    CONSTRAINT uq_holdings_valuation_rows_position UNIQUE (snapshot_id, position_id),
+    CONSTRAINT fk_holdings_valuation_rows_snapshot FOREIGN KEY (tenant_id, snapshot_id)
+        REFERENCES holdings_valuation_snapshots(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_holdings_valuation_rows_tenant_id "
+    "ON holdings_valuation_rows(tenant_id)",
+    """CREATE TABLE IF NOT EXISTS position_decision_ledger (
+    id                    TEXT PRIMARY KEY,
+    tenant_id             TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id            TEXT NOT NULL,
+    envelope_id           TEXT NOT NULL,
+    position_id           TEXT NOT NULL,
+    decision              TEXT NOT NULL CHECK(decision IN ('KEEP','SELL','REVIEW')),
+    reason_code           TEXT NOT NULL,
+    source_snapshot_hash  TEXT NOT NULL CHECK(length(source_snapshot_hash) = 64),
+    created_at            TEXT NOT NULL,
+    created_by            TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_position_decision_ledger_position UNIQUE (envelope_id, position_id),
+    CONSTRAINT fk_position_decision_ledger_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_position_decision_ledger_tenant_id "
+    "ON position_decision_ledger(tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_position_decision_ledger_mandate "
+    "ON position_decision_ledger(tenant_id, mandate_id)",
+)
+
+HOLDINGS_VALUATION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_snapshots_no_replace "
+    "BEFORE INSERT ON holdings_valuation_snapshots FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM holdings_valuation_snapshots s WHERE s.id = NEW.id) "
+    "OR EXISTS (SELECT 1 FROM holdings_valuation_snapshots s WHERE s.tenant_id = NEW.tenant_id "
+    "AND s.mandate_id = NEW.mandate_id AND s.snapshot_hash = NEW.snapshot_hash) "
+    "BEGIN SELECT RAISE(ABORT, 'holdings_valuation_snapshots row already exists (no replace)'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_snapshots_no_update "
+    "BEFORE UPDATE ON holdings_valuation_snapshots FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'holdings_valuation_snapshots is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_snapshots_no_delete "
+    "BEFORE DELETE ON holdings_valuation_snapshots FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'holdings_valuation_snapshots is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_insert_guard "
+    "BEFORE INSERT ON holdings_valuation_rows FOR EACH ROW "
+    "WHEN (SELECT s.position_count FROM holdings_valuation_snapshots s "
+    "WHERE s.id = NEW.snapshot_id AND s.tenant_id = NEW.tenant_id) IS NULL "
+    "OR (SELECT count(*) FROM holdings_valuation_rows r WHERE r.snapshot_id = NEW.snapshot_id) "
+    ">= (SELECT s.position_count FROM holdings_valuation_snapshots s WHERE s.id = NEW.snapshot_id) "
+    "BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows: snapshot is closed'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_no_replace "
+    "BEFORE INSERT ON holdings_valuation_rows FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM holdings_valuation_rows r WHERE r.id = NEW.id) "
+    "OR EXISTS (SELECT 1 FROM holdings_valuation_rows r WHERE r.snapshot_id = NEW.snapshot_id "
+    "AND r.position_id = NEW.position_id) "
+    "BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows row already exists (no replace)'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_no_update "
+    "BEFORE UPDATE ON holdings_valuation_rows FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_no_delete "
+    "BEFORE DELETE ON holdings_valuation_rows FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_insert_guard "
+    "BEFORE INSERT ON position_decision_ledger FOR EACH ROW "
+    "WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT 'DRAFT' "
+    "OR (SELECT e.mandate_id FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) "
+    "IS NOT NEW.mandate_id "
+    "BEGIN SELECT RAISE(ABORT, 'position_decision_ledger: envelope is not DRAFT'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_no_replace "
+    "BEFORE INSERT ON position_decision_ledger FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM position_decision_ledger d WHERE d.id = NEW.id) "
+    "OR EXISTS (SELECT 1 FROM position_decision_ledger d WHERE d.envelope_id = NEW.envelope_id "
+    "AND d.position_id = NEW.position_id) "
+    "BEGIN SELECT RAISE(ABORT, 'position_decision_ledger row already exists (no replace)'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_no_update "
+    "BEFORE UPDATE ON position_decision_ledger FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'position_decision_ledger is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_no_delete "
+    "BEFORE DELETE ON position_decision_ledger FOR EACH ROW "
+    "WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = OLD.envelope_id) IS NOT 'DRAFT' "
+    "BEGIN SELECT RAISE(ABORT, 'position_decision_ledger is immutable'); END",
+)
+
+# Mandanten-Guards (mandates.tenant_id): wie P1 nicht im Bootstrap-Schema.
+HOLDINGS_VALUATION_SQLITE_TENANT_GUARDS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_snapshots_tenant_guard "
+    "BEFORE INSERT ON holdings_valuation_snapshots FOR EACH ROW "
+    "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_tenant_guard "
+    "BEFORE INSERT ON position_decision_ledger FOR EACH ROW "
+    "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+)
+
+
+# CCX-P4 Allocation-Publish (Vertrag 2026-11-13 §7): Publikationsentscheide
+# (append-only, auch abgelehnte Versuche mit Blocker-Codes) und der Active-
+# Pointer (hoechstens eine aktive Publikation je Mandat). Eine Allocation wird
+# nur ueber services/allocation_publication_gate.py::publish_allocation
+# kundenwirksam: Entscheid und Pointer entstehen in derselben Transaktion.
+# Kein Backfill: Bestand ist nicht publiziert, bis ausdruecklich publiziert
+# wird. DDL textgleich ares_schema.sql; PostgreSQL: Alembic CCX-P4-Revision.
+ALLOCATION_PUBLICATION_SCHEMA = "ares/allocation-publication/1"
+ALLOCATION_PUBLICATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS allocation_publication_decisions (
+    id                       TEXT PRIMARY KEY,
+    tenant_id                TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id               TEXT NOT NULL,
+    schema_version           TEXT NOT NULL CHECK(schema_version = 'ares/allocation-publication/1'),
+    envelope_id              TEXT,
+    target_allocation_id     TEXT REFERENCES target_allocations(id),
+    publication_sequence     INTEGER NOT NULL CHECK(publication_sequence >= 1),
+    validation_hash          TEXT NOT NULL CHECK(length(validation_hash) = 64),
+    approval_hash            TEXT CHECK(approval_hash IS NULL OR length(approval_hash) = 64),
+    approval_mode            TEXT CHECK(approval_mode IS NULL OR approval_mode IN ('four_eyes','single_approver_attested')),
+    approved_at              TEXT,
+    approved_by              TEXT REFERENCES users(id),
+    publishable              INTEGER NOT NULL CHECK(publishable IN (0, 1)),
+    blocker_codes_json       TEXT NOT NULL,
+    published_envelope_hash  TEXT CHECK(published_envelope_hash IS NULL OR length(published_envelope_hash) = 64),
+    created_at               TEXT NOT NULL,
+    created_by               TEXT NOT NULL REFERENCES users(id),
+    eligible_approver_count  INTEGER CHECK(eligible_approver_count IS NULL OR eligible_approver_count >= 0),
+    single_person_firm       INTEGER CHECK(single_person_firm IS NULL OR single_person_firm IN (0, 1)),
+    approval_key_version     INTEGER,
+    CONSTRAINT ck_allocation_publication_decisions_published CHECK(publishable = 0 OR (
+        envelope_id IS NOT NULL AND target_allocation_id IS NOT NULL AND approval_hash IS NOT NULL
+        AND approval_mode IS NOT NULL AND approved_at IS NOT NULL AND approved_by IS NOT NULL
+        AND published_envelope_hash IS NOT NULL AND blocker_codes_json = '[]'
+        AND eligible_approver_count IS NOT NULL AND single_person_firm IS NOT NULL)),
+    CONSTRAINT ck_allocation_publication_decisions_single CHECK(approval_mode IS NULL
+        OR approval_mode <> 'single_approver_attested'
+        OR (single_person_firm = 1 AND eligible_approver_count = 1)),
+    CONSTRAINT ck_allocation_publication_decisions_blocked CHECK(publishable = 1 OR (
+        published_envelope_hash IS NULL AND approval_hash IS NULL AND blocker_codes_json <> '[]')),
+    CONSTRAINT uq_allocation_publication_decisions_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT uq_allocation_publication_decisions_sequence UNIQUE (mandate_id, publication_sequence),
+    CONSTRAINT fk_allocation_publication_decisions_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_allocation_publication_decisions_tenant_id "
+    "ON allocation_publication_decisions(tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_allocation_publication_decisions_mandate "
+    "ON allocation_publication_decisions(tenant_id, mandate_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_allocation_publication_decisions_one_per_envelope "
+    "ON allocation_publication_decisions(envelope_id) WHERE publishable = 1",
+    """CREATE TABLE IF NOT EXISTS allocation_active_publications (
+    id                       TEXT PRIMARY KEY,
+    tenant_id                TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id               TEXT NOT NULL,
+    publication_id           TEXT NOT NULL,
+    optimistic_version       INTEGER NOT NULL CHECK(optimistic_version >= 1),
+    updated_at               TEXT NOT NULL,
+    updated_by               TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_allocation_active_publications_mandate UNIQUE (mandate_id),
+    CONSTRAINT fk_allocation_active_publications_publication FOREIGN KEY (tenant_id, publication_id)
+        REFERENCES allocation_publication_decisions(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_allocation_active_publications_tenant_id "
+    "ON allocation_active_publications(tenant_id)",
+)
+
+ALLOCATION_PUBLICATION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_no_replace "
+    "BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM allocation_publication_decisions d WHERE d.id = NEW.id "
+    "OR (d.mandate_id = NEW.mandate_id AND d.publication_sequence = NEW.publication_sequence)) "
+    "BEGIN SELECT RAISE(ABORT, 'allocation_publication_decisions row already exists (no replace)'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_sequence "
+    "BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW "
+    "WHEN NEW.publication_sequence IS NOT (SELECT COALESCE(MAX(d.publication_sequence), 0) + 1 "
+    "FROM allocation_publication_decisions d WHERE d.mandate_id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_PUBLICATION_RACE'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_envelope "
+    "BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW "
+    "WHEN NEW.publishable = 1 AND NOT EXISTS (SELECT 1 FROM advisory_decision_envelopes e "
+    "WHERE e.id = NEW.envelope_id AND e.tenant_id = NEW.tenant_id AND e.mandate_id = NEW.mandate_id "
+    "AND e.status = 'SEALED' AND e.freshness_status = 'FRESH' AND e.envelope_hash = NEW.published_envelope_hash) "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_ALLOCATION_NOT_PUBLISHABLE'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_no_update "
+    "BEFORE UPDATE ON allocation_publication_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'allocation_publication_decisions is append-only'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_no_delete "
+    "BEFORE DELETE ON allocation_publication_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'allocation_publication_decisions is append-only'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_insert "
+    "BEFORE INSERT ON allocation_active_publications FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM allocation_active_publications p WHERE p.id = NEW.id "
+    "OR p.mandate_id = NEW.mandate_id) OR NEW.optimistic_version IS NOT 1 "
+    "OR NOT EXISTS (SELECT 1 FROM allocation_publication_decisions d WHERE d.id = NEW.publication_id "
+    "AND d.tenant_id = NEW.tenant_id AND d.mandate_id = NEW.mandate_id AND d.publishable = 1) "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_PUBLICATION_RACE'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_update "
+    "BEFORE UPDATE ON allocation_active_publications FOR EACH ROW "
+    "WHEN NEW.id IS NOT OLD.id OR NEW.tenant_id IS NOT OLD.tenant_id OR NEW.mandate_id IS NOT OLD.mandate_id "
+    "OR NEW.optimistic_version IS NOT OLD.optimistic_version + 1 "
+    "OR NOT EXISTS (SELECT 1 FROM allocation_publication_decisions d WHERE d.id = NEW.publication_id "
+    "AND d.tenant_id = NEW.tenant_id AND d.mandate_id = NEW.mandate_id AND d.publishable = 1 "
+    "AND d.publication_sequence > (SELECT o.publication_sequence FROM allocation_publication_decisions o "
+    "WHERE o.id = OLD.publication_id)) "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_PUBLICATION_RACE'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_no_delete "
+    "BEFORE DELETE ON allocation_active_publications FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'allocation_active_publications: pointer is never deleted'); END",
+)
+
+# Mandanten-Guards (mandates.tenant_id): wie P1/P3 nicht im Bootstrap-Schema.
+ALLOCATION_PUBLICATION_SQLITE_TENANT_GUARDS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_tenant_guard "
+    "BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW "
+    "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_tenant_guard "
+    "BEFORE INSERT ON allocation_active_publications FOR EACH ROW "
+    "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+    # N-910-06: Soll-Allokation desselben Mandats; Freigeber und Ersteller aus
+    # demselben Mandanten (users ohne tenant_id gehoeren zu 'main', wie
+    # services.auth). N-910-02 (Einzelfreigabe nur fuer eine konfigurierte
+    # Ein-Personen-Firma) prueft auf SQLite die CHECK-Regel + das Gate; der
+    # PG-Guard prueft zusaetzlich tenants.single_person_firm (ein SQLite-Trigger
+    # darf keine Tabelle referenzieren, die in Altschemata fehlen kann).
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_binding_guard "
+    "BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW "
+    "WHEN (NEW.target_allocation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM target_allocations t "
+    "WHERE t.id = NEW.target_allocation_id AND t.mandate_id = NEW.mandate_id)) "
+    "OR NEW.tenant_id IS NOT (SELECT COALESCE(NULLIF(u.tenant_id, ''), 'main') FROM users u WHERE u.id = NEW.created_by) "
+    "OR (NEW.approved_by IS NOT NULL AND NEW.tenant_id IS NOT (SELECT COALESCE(NULLIF(u.tenant_id, ''), 'main') "
+    "FROM users u WHERE u.id = NEW.approved_by)) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+)
+
+
+# CCX-P5 Kanal-Envelope (Vertrag 2026-11-13 §8): append-only Kanalzeile je
+# ausgeliefertem Artefakt (PDF/Archiv, Signatur, Vor-Ort-Signatur, Handoff ...),
+# gebunden an Envelope-, Payload-, Render-, Parametersatz- und Zielkennzahl-Hash.
+# Kein Backfill (Bestand hat keine Kanalzeile). DDL textgleich ares_schema.sql;
+# PostgreSQL: Alembic CCX-P5-Revision.
+CHANNEL_PUBLICATION_SCHEMA = "ares/channel-publication/1"
+CHANNEL_PUBLICATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS advisory_channel_publications (
+    id                            TEXT PRIMARY KEY,
+    tenant_id                     TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id                    TEXT NOT NULL REFERENCES mandates(id),
+    envelope_id                   TEXT NOT NULL,
+    channel                       TEXT NOT NULL CHECK(channel IN ('API','CLASSIC','REACT','PDF','ADVISOR_SIGNATURE','ONSITE_SIGNATURE','HANDOFF','ARCHIVE')),
+    artifact_id                   TEXT NOT NULL,
+    schema_version                TEXT NOT NULL CHECK(schema_version = 'ares/channel-publication/1'),
+    channel_payload_hash          TEXT NOT NULL CHECK(length(channel_payload_hash) = 64),
+    render_hash                   TEXT CHECK(render_hash IS NULL OR length(render_hash) = 64),
+    rounding_policy_version       TEXT NOT NULL,
+    bound_envelope_hash           TEXT NOT NULL CHECK(length(bound_envelope_hash) = 64),
+    parameter_contract_version    TEXT NOT NULL,
+    parameter_set_hash            TEXT NOT NULL CHECK(length(parameter_set_hash) = 64),
+    goal_metric_contract_version  TEXT NOT NULL,
+    goal_metric_payload_hash      TEXT NOT NULL CHECK(length(goal_metric_payload_hash) = 64),
+    status                        TEXT NOT NULL CHECK(status = 'PUBLISHED'),
+    created_at                    TEXT NOT NULL,
+    created_by                    TEXT NOT NULL REFERENCES users(id),
+    channel_sequence              INTEGER NOT NULL CHECK(channel_sequence >= 1),
+    CONSTRAINT ck_advisory_channel_publications_render CHECK(
+        channel NOT IN ('PDF','ARCHIVE','ADVISOR_SIGNATURE','ONSITE_SIGNATURE') OR render_hash IS NOT NULL),
+    CONSTRAINT uq_advisory_channel_publications_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT uq_advisory_channel_publications_artifact UNIQUE (envelope_id, channel, artifact_id),
+    CONSTRAINT fk_advisory_channel_publications_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_channel_publications_tenant_id "
+    "ON advisory_channel_publications(tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_channel_publications_mandate "
+    "ON advisory_channel_publications(tenant_id, mandate_id)",
+    # P5b (N-925-08, Vertrag §1 "monotone Version"): laufende Nummer je Mandat.
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_advisory_channel_publications_sequence "
+    "ON advisory_channel_publications(mandate_id, channel_sequence)",
+)
+
+CHANNEL_PUBLICATION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_envelope "
+    "BEFORE INSERT ON advisory_channel_publications FOR EACH ROW "
+    "WHEN NOT EXISTS (SELECT 1 FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id "
+    "AND e.tenant_id = NEW.tenant_id AND e.mandate_id = NEW.mandate_id AND e.status = 'SEALED' "
+    "AND e.envelope_hash = NEW.bound_envelope_hash) "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_CHANNEL_BINDING_MISSING'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_no_update "
+    "BEFORE UPDATE ON advisory_channel_publications FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_channel_publications is append-only'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_no_delete "
+    "BEFORE DELETE ON advisory_channel_publications FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_channel_publications is append-only'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_sequence BEFORE INSERT ON advisory_channel_publications FOR EACH ROW "
+    "WHEN NEW.channel_sequence IS NOT (SELECT COALESCE(MAX(p.channel_sequence), 0) + 1 "
+    "FROM advisory_channel_publications p WHERE p.mandate_id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_CHANNEL_SEQUENCE_RACE'); END",
+)
+
+# P5b: Nachtrag der laufenden Nummer fuer Bestandszeilen in Einfuegereihenfolge
+# (der append-only-UPDATE-Trigger wird dafuer kurz entfernt und neu angelegt).
+CHANNEL_SEQUENCE_BACKFILL_SQL = (
+    "UPDATE advisory_channel_publications SET channel_sequence = ("
+    "SELECT COUNT(*) FROM advisory_channel_publications q "
+    "WHERE q.mandate_id = advisory_channel_publications.mandate_id "
+    "AND (q.created_at < advisory_channel_publications.created_at "
+    "OR (q.created_at = advisory_channel_publications.created_at AND q.id <= advisory_channel_publications.id)))"
+)
+
+# Mandanten-Guard (mandates.tenant_id): wie P1/P3/P4 nicht im Bootstrap-Schema.
+CHANNEL_PUBLICATION_SQLITE_TENANT_GUARDS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_tenant_guard "
+    "BEFORE INSERT ON advisory_channel_publications FOR EACH ROW "
+    "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
+    "OR NEW.tenant_id IS NOT (SELECT COALESCE(NULLIF(u.tenant_id, ''), 'main') FROM users u WHERE u.id = NEW.created_by) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+)
+
+# N-869-4: einmaliger Nachtrag von audit_log_sequence_counter.last_hash aus der
+# Zeile mit sequence = value (nur solange last_hash noch NULL ist). Gleiche
+# Anweisung in Alembic c8a2f4e6b0d9 (dort unter Operator-Bypass, RLS).
+_COUNTER_LAST_HASH_BACKFILL_SQL = (
+    "UPDATE audit_log_sequence_counter SET last_hash = ("
+    "SELECT a.integrity_hash FROM audit_log a "
+    "WHERE a.sequence = audit_log_sequence_counter.value ORDER BY a.id LIMIT 1) "
+    "WHERE id = 'singleton' AND last_hash IS NULL AND value > 0"
+)
+
+
+_AUDIT_CHAIN_VERIFICATION_STATUS_SQL = (
+    "CREATE TABLE IF NOT EXISTS audit_chain_verification_status ("
+    "id TEXT PRIMARY KEY, state TEXT NOT NULL, mode TEXT NOT NULL, "
+    "total_rows INTEGER, threshold INTEGER, target_sequence INTEGER, "
+    "verified_through_sequence INTEGER, checked INTEGER, finding_count INTEGER, "
+    "last_ok_sequence INTEGER, last_ok_hash VARCHAR(64), last_ok_at TEXT, "
+    "started_at TEXT, updated_at TEXT, finished_at TEXT, detail_json TEXT)"
+)
+
+
 def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
     target_engine = _resolve_engine(target_engine)
     additive_columns: dict[str, list[tuple]] = {  # (name, TYPE) oder (name, TYPE, int_default)
@@ -730,6 +1819,20 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # REVIEW-CALENDAR-001 (2026-09-24): siehe models/users.py.
             ('calendar_feed_token_hash', 'TEXT'),
             ('calendar_feed_token_created_at', 'TEXT'),
+            # C-890-01 Nachtrag 3 (N-897-02): siehe models/users.py.
+            ('credentials_set_by', 'TEXT'),
+            ('credentials_set_at', 'TEXT'),
+            ('totp_set_by', 'TEXT'),
+            ('totp_set_at', 'TEXT'),
+            ('invited_by', 'TEXT'),
+            ('invited_at', 'TEXT'),
+            ('activated_at', 'TEXT'),
+            ('reviewer_organisation', 'TEXT'),
+            ('reviewer_reference', 'TEXT'),
+            ('compromised_since', 'TEXT'),
+            ('compromised_at', 'TEXT'),
+            ('compromised_by', 'TEXT'),
+            ('compromise_reason', 'TEXT'),
         ],
         'tenants': [
             ('encrypted_dek', 'TEXT'),
@@ -752,6 +1855,24 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # bleiben funktionsfaehig; neue Tenants starten via
             # schemas/tenants.py::TenantCreate explizit mit False.
             ('discretionary_management_licensed', 'INTEGER', 1),
+            # E1 Nachhaltigkeitspraeferenzen (2026-11-07): Review-Frist als
+            # Hauspolitik je Tenant. NULL = Default 36 Monate
+            # (core/sustainability_preference.py), keine gesetzliche Frist.
+            ('sustainability_review_months', 'INTEGER'),
+            # CCX-P3-FX (N-909-07): Kursfrische (NULL = Default 5) und
+            # maximales Alter manueller Bewertungen (NULL = Bestaetigungspflicht).
+            ('fx_max_age_days', 'INTEGER'),
+            ('manual_valuation_max_age_days', 'INTEGER'),
+            # CCX-P4 N-910-02: ausdruecklich als Ein-Personen-Firma konfiguriert
+            # (Admin-Einstellung mit Audit); nur dann ist eine Einzelfreigabe
+            # der Allokations-Publikation zulaessig. Default 0.
+            ('single_person_firm', 'INTEGER', 0),
+        ],
+        # H12 N-910-14: Schluesselversion des Approval-Bindings (Alembic
+        # b3f1c9d2e4a7). Nullable, kein Backfill: Altpublikationen gelten als
+        # ungueltig (CCX_APPROVAL_KEY_VERSION_MISSING).
+        'allocation_publication_decisions': [
+            ('approval_key_version', 'INTEGER'),
         ],
         # CERT-HANDOFF-EXECUTION-001 (2026-10-25): siehe models/portfolio_handoff.py
         # und Alembic c7e4a19b3d52. Nullable, kein Backfill.
@@ -772,6 +1893,10 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         'conflict_of_interest_disclosures': [
             ('reimbursed_to_client', 'INTEGER', 0),
             ('waiver_document_id', 'TEXT'),
+            # N-861-1: optionale Produktbindung, siehe models/review.py.
+            ('product_id', 'TEXT'),
+            # L2c (H-192): Siegel ueber die versiegelten Freitexte.
+            ('text_seal', 'TEXT'),
         ],
         # 2026-06-18 (#84): Miete-Teuerungsindexierung pro Immobilien-Position.
         # NOT NULL DEFAULT 0 -> Bestandszeilen werden auf 0 gesetzt (Response-Schema
@@ -789,6 +1914,10 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ('pension_maturity_date', 'TEXT'),
             ('pension_lumpsum_tax_rappen', 'INTEGER'),
             ('pension_lumpsum_tax_bps', 'INTEGER'),
+            # K1 Property-Gate (2026-11-19): siehe models/wealth.py.
+            ('property_gate_review_json', 'TEXT'),
+            # K3 / N-915-06 (2026-11-21): Fremdbestand am Depot, siehe models/wealth.py.
+            ('external_holdings_json', 'TEXT'),
         ],
         # A2-Smoke-Test-Fund (2026-07-22): 'target_allocations' hatte einen
         # DOPPELTEN Dict-Key in diesem Literal (hier + weiter unten). In Python
@@ -899,6 +2028,49 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ('to_professional_opt_out', 'INTEGER'),
             ('from_qualified_investor', 'INTEGER'),
             ('to_qualified_investor', 'INTEGER'),
+            # H8 Luecke 7 (Art. 5 FIDLEG): Kriterien-Checkliste des Opting-out.
+            ('opt_out_criteria_json', 'TEXT'),
+        ],
+        # H8 C-5: "auf eigene Rechnung" nicht mehr vorbelegt. Bestandszeilen
+        # erhalten 0 = unbeantwortet ("Bestaetigung fehlt"), bis neu erfasst.
+        'client_due_diligence': [
+            ('acting_for_own_account_answered', 'INTEGER', 0),
+        ],
+        # C-890-01: Bindung der KYC-Bestaetigung an die Wiedervorlage-Policy.
+        # Nullable, KEIN Backfill: Bestandsbestaetigungen bleiben ohne Bindung
+        # ("policy_binding_missing") gesperrt, bis eine neue Bestaetigung unter
+        # einer freigegebenen Policy erfasst ist.
+        # Nachtrag 4 (N-897-13): Bereitschaft des Freigebers eingefroren.
+        'kyc_review_policy_activations': [
+            ('approver_ready', 'INTEGER'),
+        ],
+        # H-179 N-927R-01 / N-927S-01 (Alembic c7e1a9d3f5b2): eingefrorener
+        # Stand des Freigebers und Postfach-Identitaeten (nur fuer SQLite-Dateien,
+        # die die Tabelle vor dieser Fixrunde angelegt haben; nullable, kein
+        # Backfill; ADD COLUMN feuert den Append-only-Trigger nicht).
+        # KN9 / N-927T-01: Eine solche Altzeile ist NICHT bloss ein unwirksames
+        # Glied. row_seal() rechnet das Siegel ueber ALLE Spalten, also auch
+        # ueber die neuen Spalten mit NULL; das passt nicht zum Siegel von
+        # damals. Ergebnis: resolve_owner_content meldet kette_ungueltig, der
+        # Schluessel bleibt gesperrt. Betroffen sind nur nie ausgelieferte
+        # Entwicklungs-/Demo-Dateien mit H-179-Freigaben (ebenso eine Alembic-DB,
+        # die schon auf dem alten c7e1a9d3f5b2 stand: gleiche Revisions-ID, sie
+        # bekommt die Spalten nie). Solche Dateien neu aufsetzen.
+        'owner_content_approvals': [
+            ('approver_role', 'TEXT'),
+            ('approver_ready', 'INTEGER'),
+            ('approver_mailbox_digest', 'TEXT'),
+            ('creator_mailbox_digest', 'TEXT'),
+        ],
+        'kyc_confirmations': [
+            ('review_policy_row_id', 'TEXT'),
+            ('review_policy_activation_id', 'TEXT'),
+            ('review_policy_id', 'TEXT'),
+            ('review_policy_version', 'INTEGER'),
+            ('review_policy_hash', 'TEXT'),
+            ('review_risk_class', 'TEXT'),
+            ('review_interval_months', 'INTEGER'),
+            ('review_max_due', 'TEXT'),
         ],
         # Sprint U-37 (2026-06-03): Notes-Versionierungs-Log.
         # Append-only JSON-Array von Edit-Snapshots fuer FINMA-Audit
@@ -990,6 +2162,9 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ('tenant_id', 'TEXT'),
             # INFLOW-CERTAINTY-001: NULL = 'sicher' (services/wealth_inflow_certainty.py).
             ('certainty', 'TEXT'),
+            # CCX-P3-FX: Waehrung des Zuflusses. NULL = nicht erfasst ->
+            # unbekannt, wird nie geraten (blockiert kundenwirksame Aussagen).
+            ('currency', 'TEXT'),
         ],
         'capital_market_assumptions': [
             ('correlation_matrix_json', 'TEXT'),
@@ -1077,6 +2252,14 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # CMA-001: CMA_POLICY, an die eine Finalisierung gebunden wurde
             # (models/cma_policy.py; NULL solange das Modell nicht aktiv ist).
             ('cma_policy_row_id', 'TEXT'),
+            # E2b Nachtrag 1: Belege der Produktauswahl (Alembic e7b3d9f1a2c4).
+            ('sustainability_evidence_json', 'TEXT'),
+            # C-COMP-02: Snapshot-Bindung der vollstaendigen, freigegebenen
+            # Produktevidenz. Additiv fuer bestehende SQLite-Installationen;
+            # PostgreSQL-FK liegt in Alembic 9f4c2a7e1b63.
+            ('product_evidence_snapshot_id', 'TEXT'),
+            ('product_evidence_hash', 'TEXT'),
+            ('product_evidence_status', 'TEXT'),
         ],
         'optimizer_runs': [
             # U-9 Stage-9 Telemetry: pro Solver-Start n_paths/n_starts/Seed/
@@ -1122,6 +2305,30 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # theme_tags fuer "Thema X"-Produkte weiter unten.
             ('climate_benchmark', 'TEXT'),
             ('theme_tags', 'TEXT'),
+            # AUDIT-2026-11 P1 (PO-6, L1): Produkt-Stammdaten, siehe
+            # models/review.py::Product und Alembic a8d3c5e7f9b1. Ohne
+            # Default/Backfill: NULL = nicht erfasst (nichts erfinden).
+            ('domicile', 'TEXT'),
+            ('is_hedged', 'INTEGER'),
+            ('hedge_currency', 'TEXT'),
+            ('ter_source', 'TEXT'),
+            ('ter_as_of', 'TEXT'),
+            ('retrocession_bps', 'INTEGER'),
+            ('retrocession_source', 'TEXT'),
+            ('is_house_product', 'INTEGER'),
+            ('distribution_policy', 'TEXT'),
+            ('valor', 'TEXT'),
+            ('minimum_investment_minor_units', 'INTEGER'),
+            # Owner-Anforderung P1 (eigene Fonds), Alembic c2e6f8a1b3d5.
+            ('listing_status', 'TEXT'),
+            ('internal_product_id', 'TEXT'),
+            ('price_source', 'TEXT'),
+            ('nav_frequency', 'TEXT'),
+            ('nav_as_of', 'TEXT'),
+            ('redemption_period_days', 'INTEGER'),
+            ('notice_period_days', 'INTEGER'),
+            ('has_gating', 'INTEGER'),
+            ('gating_terms', 'TEXT'),
             # 2026-08-01 (Laender-Skalierung, Cross-Jurisdiktions-Leck-Fix):
             # siehe models/review.py::Product.jurisdiction. NULL = "CH".
             ('jurisdiction', 'TEXT'),
@@ -1229,6 +2436,21 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
                 )
             )
 
+        # Owner-Anforderung P1 (eigene Fonds): interne Produkt-ID eindeutig je
+        # Tenant (aktive Zeilen). Identisch zu Alembic c2e6f8a1b3d5.
+        # products.tenant_id kommt sonst erst spaeter (ensure_column im
+        # Fondsuniversum-Patch) -- hier idempotent vorziehen, damit der Index
+        # auf jeder Bootstrap-Reihenfolge angelegt werden kann.
+        if inspector.has_table('products'):
+            product_columns = {
+                row[1] for row in conn.execute(text("PRAGMA table_info(products)"))
+            } if target_engine.dialect.name == 'sqlite' else {
+                column['name'] for column in inspect(conn).get_columns('products')
+            }
+            if 'tenant_id' not in product_columns:
+                conn.execute(text('ALTER TABLE products ADD COLUMN tenant_id TEXT'))
+            conn.execute(text(PRODUCT_INTERNAL_ID_INDEX_DDL))
+
         # ESG-PREMIUM-CRITERIA-001 (2026-10-14): idempotenter Backfill --
         # Produkte mit Sub-Anlageklasse "Thema X" erhalten den Tag X, sofern
         # noch KEINE Tags gepflegt sind (gepflegte Tags nie ueberschreiben).
@@ -1264,6 +2486,23 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
                 "VALUES ('singleton', 0)"
             )
         )
+        # N-869-4 (Pruefrunde #869): Hash des letzten Eintrags auf der
+        # Zaehlerzeile, damit log() den Vorgaenger nie aus audit_log lesen
+        # muss (unter PostgreSQL-RLS ist der Vorgaenger eines anderen Tenants
+        # unsichtbar). Einmaliger Nachtrag aus der Zeile mit sequence = value
+        # (identisch zur Alembic-Revision c8a2f4e6b0d9).
+        ensure_column(conn, "audit_log_sequence_counter", "last_hash", "TEXT")
+        # F6 (Codex-Entscheid Runde 3): persistierter Status der Audit-
+        # Kettenpruefung (models.review.AuditChainVerificationStatus). Wie der
+        # Zaehler zusaetzlich per Raw-SQL, damit Fixtures ohne create_all()
+        # die Tabelle ebenfalls haben. Gleiche Spalten in Alembic a9d4e2c6f1b3.
+        conn.execute(text(_AUDIT_CHAIN_VERIFICATION_STATUS_SQL))
+        if inspector.has_table('audit_log'):
+            audit_columns = {
+                row[1] for row in conn.execute(text("PRAGMA table_info(audit_log)")).fetchall()
+            }
+            if {"sequence", "integrity_hash"} <= audit_columns:
+                conn.execute(text(_COUNTER_LAST_HASH_BACKFILL_SQL))
 
         # RiskAssessment - Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung, 2026-04-16)
         ensure_column(conn, "risk_assessments", "knowledge_services_json", "TEXT")
@@ -1322,6 +2561,29 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         if inspect(conn).has_table("cma_policy_approvals"):
             for ddl in CMA_POLICY_APPROVAL_SQLITE_TRIGGERS:
                 conn.execute(text(ddl))
+        # C-890-01: der Redaktions-Trigger der KYC-Bestaetigung muss die neuen
+        # Bindungsspalten mitschuetzen. Ein Bestands-Trigger (H8) ohne diese
+        # Spalten wird ersetzt (idempotent); die Policy-Tabellen selbst legt
+        # create_all samt Append-only-Triggern an.
+        if inspect(conn).has_table("kyc_confirmations"):
+            current = conn.execute(text(
+                "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
+                "AND name = 'trg_kyc_confirmations_no_update'"
+            )).scalar()
+            if current is None or KYC_CONFIRMATION_REVIEW_BINDING_COLUMNS[0] not in str(current):
+                conn.execute(text("DROP TRIGGER IF EXISTS trg_kyc_confirmations_no_update"))
+                conn.execute(text("DROP TRIGGER IF EXISTS trg_kyc_confirmations_no_delete"))
+                for ddl in KYC_CONFIRMATION_SQLITE_TRIGGERS:
+                    conn.execute(text(ddl))
+        for table, ddls in (
+            ("kyc_review_policies", KYC_REVIEW_POLICY_SQLITE_TRIGGERS),
+            ("kyc_review_policy_activations", KYC_REVIEW_POLICY_ACTIVATION_SQLITE_TRIGGERS),
+            ("kyc_confirmation_rejections", KYC_CONFIRMATION_REJECTION_SQLITE_TRIGGERS),
+            ("kyc_confirmation_decisions", KYC_CONFIRMATION_DECISION_SQLITE_TRIGGERS),
+        ):
+            if inspect(conn).has_table(table):
+                for ddl in ddls:
+                    conn.execute(text(ddl))
         # DEPOT-E2E-SNAPSHOT-001: append-only DepotSnapshotV1 (idempotent).
         for ddl in DEPOT_SNAPSHOT_SQLITE_TABLE_DDL + DEPOT_SNAPSHOT_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
@@ -1353,6 +2615,74 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # Plausibilitaetsbewertungen (idempotent; siehe Konstanten oben).
         for ddl in RISK_CAPACITY_EVALUATION_SQLITE_TABLE_DDL + RISK_CAPACITY_EVALUATION_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
+        # E1 Nachhaltigkeitspraeferenzen (2026-11-07): append-only Versionen je
+        # Mandat (idempotent; siehe Konstanten oben). Tenant-Guard folgt unten
+        # ueber MANDATE_BOUND_TENANT_TABLES.
+        for ddl in INVESTMENT_PREFERENCE_DECISION_SQLITE_TABLE_DDL + INVESTMENT_PREFERENCE_DECISION_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
+        # CCX-P1 (2026-11-14): Beratungsentscheid-Envelope, Bindings und
+        # Effective-Input-Manifest (idempotent; neue Tabellen, kein Backfill --
+        # Bestand wird nie als versiegelt/geprueft markiert).
+        for ddl in ADVISORY_ENVELOPE_SQLITE_TABLE_DDL:
+            conn.execute(text(ddl))
+        # CCX-P2 (2026-11-14): Frische-Spalten am Envelope (Bestand bleibt
+        # UNKNOWN, kein Backfill), Kanten- und Ereignistabellen. Der P1-
+        # Update-Guard kannte keinen SEALED -> SEALED(STALE)-Uebergang und wird
+        # ersetzt (idempotent), BEVOR die Trigger unten angelegt werden.
+        envelope_columns = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(advisory_decision_envelopes)"))
+        }
+        for column_name, column_ddl in ADVISORY_FRESHNESS_SQLITE_COLUMNS:
+            if column_name not in envelope_columns:
+                conn.execute(text(
+                    f"ALTER TABLE advisory_decision_envelopes ADD COLUMN {column_name} {column_ddl}"
+                ))
+        current_guard = conn.execute(text(
+            "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
+            "AND name = 'trg_advisory_decision_envelopes_update_guard'"
+        )).scalar()
+        if current_guard is not None and "freshness_status" not in str(current_guard):
+            conn.execute(text("DROP TRIGGER IF EXISTS trg_advisory_decision_envelopes_update_guard"))
+        for ddl in (ADVISORY_ENVELOPE_SQLITE_TRIGGERS + ADVISORY_FRESHNESS_SQLITE_TABLE_DDL
+                    + ADVISORY_FRESHNESS_SQLITE_TRIGGERS):
+            conn.execute(text(ddl))
+        if 'tenant_id' in {row[1] for row in conn.execute(text("PRAGMA table_info(mandates)"))}:
+            for ddl in ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS:
+                conn.execute(text(ddl))
+        # CCX-P3 (2026-11-14): Bewertungs-Snapshot, Positionszeilen und
+        # Entscheid je Position (idempotent; neue Tabellen, kein Backfill --
+        # Bestand wird nie als bewertet/entschieden markiert).
+        for ddl in HOLDINGS_VALUATION_SQLITE_TABLE_DDL + HOLDINGS_VALUATION_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
+        if 'tenant_id' in {row[1] for row in conn.execute(text("PRAGMA table_info(mandates)"))}:
+            for ddl in HOLDINGS_VALUATION_SQLITE_TENANT_GUARDS:
+                conn.execute(text(ddl))
+        # CCX-P4 (2026-11-14): Publikationsentscheide + Active-Pointer
+        # (idempotent; neue Tabellen, kein Backfill -- Bestand ist nicht publiziert).
+        for ddl in ALLOCATION_PUBLICATION_SQLITE_TABLE_DDL + ALLOCATION_PUBLICATION_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
+        if 'tenant_id' in {row[1] for row in conn.execute(text("PRAGMA table_info(mandates)"))}:
+            for ddl in ALLOCATION_PUBLICATION_SQLITE_TENANT_GUARDS:
+                conn.execute(text(ddl))
+        # CCX-P5 (2026-11-21): Kanalzeilen (idempotent; neue Tabelle, kein Backfill).
+        # P5b: Bestandstabellen ohne channel_sequence -> Spalte + Nachtrag in
+        # Einfuegereihenfolge (vor Index/Trigger); der mandate_id-FK steht im
+        # DDL neuer Installationen, im Bestand bindet der Tenant-Guard das Mandat.
+        conn.execute(text(CHANNEL_PUBLICATION_SQLITE_TABLE_DDL[0]))
+        channel_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(advisory_channel_publications)"))}
+        if "channel_sequence" not in channel_cols:
+            conn.execute(text("ALTER TABLE advisory_channel_publications ADD COLUMN channel_sequence INTEGER"))
+            # append-only-Trigger kurz entfernen (die Schleife unten legt ihn neu an)
+            conn.execute(text("DROP TRIGGER IF EXISTS trg_advisory_channel_publications_no_update"))
+            conn.execute(text(CHANNEL_SEQUENCE_BACKFILL_SQL))
+        for ddl in CHANNEL_PUBLICATION_SQLITE_TABLE_DDL[1:] + CHANNEL_PUBLICATION_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
+        # P5b: IC-Freigabe der Risikoparameter je Policy (leer bis zur Freigabe).
+        for column in ("ic_release_ref", "ic_released_at"):
+            ensure_column(conn, "optimizer_policies", column, "TEXT")
+        if 'tenant_id' in {row[1] for row in conn.execute(text("PRAGMA table_info(mandates)"))}:
+            for ddl in CHANNEL_PUBLICATION_SQLITE_TENANT_GUARDS:
+                conn.execute(text(ddl))
         # SIGN-001 (2026-10-27): append-only Vor-Ort-Signatur; DDL einzig aus
         # dem ORM (Indizes + after_create-Trigger), idempotent per checkfirst.
         from models.onsite_signature import APPEND_ONLY_TABLES
@@ -1363,6 +2693,10 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # append-only Mandats-Evidenz (ADD COLUMN feuert den UPDATE-Trigger
         # nicht); Backfill + Guard: core/mandate_evidence_tenant_boundary.py.
         for table_name in MANDATE_BOUND_TENANT_TABLES:
+            # H-179: neuere Tabellen (mit tenant_id ab Anlage) legt create_all an;
+            # in einer Alt-DB ohne sie gibt es nichts nachzuruesten.
+            if not inspect(conn).has_table(table_name):
+                continue
             ensure_column(conn, table_name, "tenant_id", "TEXT")
             conn.execute(text(
                 f"CREATE INDEX IF NOT EXISTS {tenant_index_name(table_name)} ON {table_name}(tenant_id)"
@@ -1390,6 +2724,13 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # Start, ohne vorhandene Vertragsdokumente zu beruehren.
         ensure_column(conn, "contract_documents", "pdf_base64", "TEXT")
         ensure_column(conn, "contract_documents", "content_hash", "TEXT")
+        # E2a (2026-11-11): Bindung Dokument -> Nachhaltigkeitspraeferenz
+        # (Alembic f3a8c1e5b7d2); nullable, kein Backfill (Altbestand).
+        ensure_column(conn, "contract_documents", "bound_preference_decision_hash", "TEXT")
+        # E2b / N-888-09: Bindung Dokument -> Soll-Allokation (Alembic
+        # c4e8a2f6b9d1); nullable, kein Backfill (Altbestand = ungebunden).
+        ensure_column(conn, "contract_documents", "bound_target_allocation_id", "TEXT")
+        ensure_column(conn, "contract_documents", "bound_preferences_sha256", "TEXT")
 
 
 _ADVISORY_LOG_HASH_FIELDS_PRE_REC007: tuple[str, ...] = (
@@ -1440,7 +2781,7 @@ def migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(target_engine: Eng
     naechsten Lauf uebersprungen.
     """
     target_engine = _resolve_engine(target_engine)
-    from services.advisory_log_integrity import compute_integrity_hash
+    compute_integrity_hash = _advisory_log_integrity.compute_integrity_hash
 
     # Nur der SQLite-Legacy-Pfad ruft diese Funktion auf (siehe
     # _run_sqlite_legacy_schema_maintenance) -- Postgres erhaelt das
@@ -1483,6 +2824,53 @@ def migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(target_engine: Eng
                 text("UPDATE advisory_log SET integrity_hash = :hash WHERE id = :id"),
                 {"hash": new_hash, "id": row["id"]},
             )
+
+
+# H7 C-6: retain_until der Beratungsprotokolle ab Mandatsende statt ab Eintrag.
+# Offenes Mandat -> NULL, aber nur fuer die Altberechnung "Eintrag + 10 J."
+# (Python-Regel inkl. 29.02. -> 28.02.); jede andere Frist (z.B. nach
+# Wiedereroeffnung, N-884-06) bleibt als Mindestfrist stehen. Beendetes Mandat
+# -> Maximum aus bisheriger Frist, Eintrag + 10 J. und Mandatsende + 10 J. (nie
+# verkuerzend). Gleiche Regel wie services/advisory_log_integrity.py::
+# extended_retain_until und Alembic e1c6a7d4b2f9 (PG). Idempotent.
+_ADVISORY_LEGACY_RETAIN_SQL = (
+    "CASE WHEN strftime('%m-%d', substr(advisory_log.entry_datetime, 1, 10)) = '02-29' "
+    "THEN date(substr(advisory_log.entry_datetime, 1, 10), '+10 years', '-1 day') "
+    "ELSE date(substr(advisory_log.entry_datetime, 1, 10), '+10 years') END"
+)
+_ADVISORY_RETAIN_FROM_MANDATE_END_SQL = (
+    "(SELECT CASE WHEN date(substr(m.closed_at, 1, 10)) IS NULL THEN "
+    "(CASE WHEN substr(advisory_log.retain_until, 1, 10) = "
+    f"{_ADVISORY_LEGACY_RETAIN_SQL} THEN NULL ELSE advisory_log.retain_until END) "
+    "ELSE MAX(COALESCE(substr(advisory_log.retain_until, 1, 10), ''), "
+    "date(substr(m.closed_at, 1, 10), '+10 years'), "
+    "COALESCE(date(substr(advisory_log.entry_datetime, 1, 10), '+10 years'), '')) END "
+    "FROM mandates m WHERE m.id = advisory_log.mandate_id)"
+)
+
+
+def migrate_advisory_log_retention_from_mandate_end(target_engine: Engine | None = None) -> int:
+    """Bestandsmigration fuer retain_until (H7 C-6); Rueckgabe: geaenderte Zeilen."""
+    target_engine = _resolve_engine(target_engine)
+    inspector = inspect(target_engine)
+    if not (inspector.has_table('advisory_log') and inspector.has_table('mandates')):
+        return 0
+    scope = (
+        "EXISTS (SELECT 1 FROM mandates m WHERE m.id = advisory_log.mandate_id) "
+        f"AND advisory_log.retain_until IS NOT {_ADVISORY_RETAIN_FROM_MANDATE_END_SQL}"
+    )
+    with target_engine.begin() as conn:
+        pending = conn.execute(text(f"SELECT COUNT(*) FROM advisory_log WHERE {scope}")).scalar() or 0
+        if pending:
+            conn.execute(text(
+                f"UPDATE advisory_log SET retain_until = {_ADVISORY_RETAIN_FROM_MANDATE_END_SQL} "
+                f"WHERE {scope}"
+            ))
+            logger.info(
+                "H7 C-6: retain_until von %s Beratungsprotokoll-Zeilen auf Mandatsende "
+                "umgestellt (nie verkuerzend; offenes Mandat = NULL)", pending,
+            )
+    return int(pending)
 
 
 def run_advisory_log_migration(target_engine: Engine | None = None) -> None:
@@ -1624,113 +3012,200 @@ def _rebuild_risk_assessment_answers_from_old(cur) -> None:
     cur.execute('CREATE INDEX IF NOT EXISTS idx_risk_answers ON risk_assessment_answers(assessment_id)')
     cur.execute('DROP TABLE risk_assessment_answers__old')
 
+class AuditLogRebuildInterrupted(RuntimeError):
+    """N-869-1 (Pruefrunde #869): ein unterbrochener audit_log-Neuaufbau, der
+    sich nicht sicher automatisch abschliessen laesst. Start blockiert
+    (fail-closed), CRITICAL im Log -- nie still."""
+
+
+_audit_log_logger = logging.getLogger("database.audit_log")
+
+_AUDIT_LOG_REBUILT_DDL = """
+    CREATE TABLE audit_log (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        user_name TEXT NOT NULL,
+        table_name TEXT NOT NULL,
+        record_id TEXT NOT NULL,
+        action TEXT NOT NULL CHECK(action IN (
+            'CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET',
+            '2FA_DISABLE','2FA_ENABLE','2FA_RECOVERY_REGEN','2FA_RECOVERY_USED',
+            'ACTIVATE','APPROVE','BACKFILL','BACKUP','CLIENT_ERASE','CLONE',
+            'DB_OPTIMIZE','FOUNDATION_EXAMPLE','FOUNDATION_PURGE','INVITE',
+            'INVITE_ACCEPT','INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
+            'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
+            'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
+            'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT','COMPROMISE','INSERT','lifecycle_decision'
+        )),
+        field_name TEXT,
+        old_value TEXT,
+        new_value TEXT,
+        mandate_id TEXT,
+        client_id TEXT,
+        integrity_hash TEXT,
+        ip_address TEXT,
+        created_at TEXT NOT NULL,
+        tenant_id TEXT,
+        sequence INTEGER,
+        previous_hash TEXT
+    )
+"""
+
+
+def _audit_log_ddl_is_current(ddl_text: str) -> bool:
+    ddl_text = str(ddl_text or '').upper()
+    has_password_reset = 'PASSWORD_RESET' in ddl_text
+    has_integrity_hash = 'INTEGRITY_HASH' in ddl_text
+    has_ip_address = 'IP_ADDRESS' in ddl_text
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Marker fuer die erweiterte
+    # action-CHECK-Liste (siehe ares_schema.sql) -- ohne diesen 4. Marker
+    # wuerden bereits migrierte Installationen (die anderen 3 Marker bereits
+    # erfuellt) NIE die erweiterte Liste erhalten und weiterhin bei jedem
+    # Admin-Endpunkt mit einem der 26 fehlenden action-Werte crashen.
+    has_expanded_actions = 'UPSERT' in ddl_text
+    # DSG Art. 32 (2026-08-15): eigener Marker fuer die neue 'CLIENT_ERASE'-
+    # Action (identische Bugklasse wie has_expanded_actions oben).
+    has_erasure_action = 'CLIENT_ERASE' in ddl_text
+    # C-890-01 N-897-15: Marker fuer 'COMPROMISE' (Bestands-DBs werden neu aufgebaut).
+    has_compromise_action = "'COMPROMISE'" in ddl_text
+    return (
+        has_password_reset and has_integrity_hash and has_ip_address
+        and has_expanded_actions and has_erasure_action and has_compromise_action
+    )
+
+
 def ensure_audit_log_actions(target_engine: Engine | None = None) -> None:
+    """SQLite: audit_log auf den aktuellen action-CHECK bringen (RENAME +
+    Neuaufbau, SQLite kann CHECKs nicht aendern).
+
+    N-869-1 (Pruefrunde #869): Der Neuaufbau lief bisher in
+    ``engine.begin()``. pysqlite (Legacy-Transaktionsmodus) oeffnet die
+    Transaktion aber erst beim ersten DML -- RENAME und CREATE TABLE liefen im
+    Autocommit. Scheiterte das Kopieren (z.B. eine Altzeile verletzt den neuen
+    CHECK), blieben ``audit_log__old`` mit der GANZEN Historie und ein leeres
+    ``audit_log`` ohne Trigger committet zurueck; beim naechsten Start
+    erfuellte das neue DDL alle Marker, die Funktion kehrte sofort zurueck
+    und die Historie war fuer Export und Pruefung unsichtbar.
+
+    Jetzt (Muster run_risk_assessment_answer_migration): explizite
+    Transaktion ``BEGIN IMMEDIATE`` mit ``isolation_level=None`` -- RENAME,
+    CREATE, Kopie, Zeilenzahl-Abgleich, DROP und Trigger sind EINE atomare
+    Einheit, ein Fehler rollt alles zurueck. Ein vorgefundener unterbrochener
+    Zustand (``audit_log__old`` existiert) wird fortgesetzt, wenn die neue
+    Tabelle fehlt oder leer ist (WARNING); liegen in beiden Tabellen Zeilen,
+    ist der Zustand nicht sicher aufloesbar: CRITICAL und
+    AuditLogRebuildInterrupted (Start blockiert, DB unveraendert).
+    """
     target_engine = _resolve_engine(target_engine)
     inspector = inspect(target_engine)
-    if not inspector.has_table('audit_log'):
+    if not inspector.has_table('audit_log') and not inspector.has_table('audit_log__old'):
         return
 
-    with target_engine.begin() as conn:
-        ddl = conn.execute(
-            text("SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_log'")
-        ).scalar()
-        ddl_text = str(ddl or '').upper()
-        has_password_reset = 'PASSWORD_RESET' in ddl_text
-        has_integrity_hash = 'INTEGRITY_HASH' in ddl_text
-        has_ip_address = 'IP_ADDRESS' in ddl_text
-        # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Marker fuer die erweiterte
-        # action-CHECK-Liste (siehe ares_schema.sql) -- ohne
-        # diesen 4. Marker wuerden bereits migrierte Installationen (die
-        # anderen 3 Marker bereits erfuellt) NIE die erweiterte Liste
-        # erhalten und weiterhin bei jedem Admin-Endpunkt mit einem der 26
-        # fehlenden action-Werte crashen.
-        has_expanded_actions = 'UPSERT' in ddl_text
-        # DSG Art. 32 (2026-08-15): eigener Marker fuer die neue
-        # 'CLIENT_ERASE'-Action -- bereits migrierte Installationen (alle 4
-        # anderen Marker bereits erfuellt) wuerden diese neue Action sonst
-        # NIE erhalten und der Erase-Endpoint crasht auf ihnen dauerhaft mit
-        # IntegrityError (identische Bugklasse wie has_expanded_actions oben).
-        has_erasure_action = 'CLIENT_ERASE' in ddl_text
-        if (
-            has_password_reset and has_integrity_hash and has_ip_address
-            and has_expanded_actions and has_erasure_action
-        ):
-            return
+    raw = target_engine.raw_connection()
+    try:
+        dbapi = raw.driver_connection if hasattr(raw, "driver_connection") else raw.connection
+        previous_isolation = dbapi.isolation_level
+        dbapi.isolation_level = None  # explizite Transaktionssteuerung, DDL inklusive
+        cur = dbapi.cursor()
+        cur.execute('BEGIN IMMEDIATE')
+        try:
+            names = {r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if 'audit_log__old' in names:
+                n_old = cur.execute('SELECT COUNT(*) FROM audit_log__old').fetchone()[0]
+                if 'audit_log' in names:
+                    n_new = cur.execute('SELECT COUNT(*) FROM audit_log').fetchone()[0]
+                    if n_new:
+                        message = (
+                            "audit_log__old (%s Zeilen) existiert neben einer NICHT leeren "
+                            "audit_log (%s Zeilen) -- unterbrochener Neuaufbau, nicht sicher "
+                            "aufloesbar. Start blockiert, Datenbank unveraendert; bitte manuell "
+                            "pruefen (Historie liegt in audit_log__old)." % (n_old, n_new)
+                        )
+                        _audit_log_logger.critical(message)
+                        raise AuditLogRebuildInterrupted(message)
+                    cur.execute('DROP TABLE audit_log')
+                _audit_log_logger.warning(
+                    "Unterbrochener audit_log-Neuaufbau gefunden (%s Zeilen in audit_log__old) "
+                    "-- wird atomar fortgesetzt",
+                    n_old,
+                )
+            else:
+                ddl = cur.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_log'"
+                ).fetchone()[0]
+                if _audit_log_ddl_is_current(ddl):
+                    cur.execute('COMMIT')
+                    return
+                cur.execute('ALTER TABLE audit_log RENAME TO audit_log__old')
+            _rebuild_audit_log_from_old(cur)
+            cur.execute('COMMIT')
+        except Exception:
+            cur.execute('ROLLBACK')
+            raise
+        finally:
+            dbapi.isolation_level = previous_isolation
+    finally:
+        raw.close()
 
-        conn.execute(text('ALTER TABLE audit_log RENAME TO audit_log__old'))
-        conn.execute(text("""
-            CREATE TABLE audit_log (
-                id TEXT PRIMARY KEY,
-                user_id TEXT,
-                user_name TEXT NOT NULL,
-                table_name TEXT NOT NULL,
-                record_id TEXT NOT NULL,
-                action TEXT NOT NULL CHECK(action IN (
-                    'CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET',
-                    '2FA_DISABLE','2FA_ENABLE','2FA_RECOVERY_REGEN','2FA_RECOVERY_USED',
-                    'ACTIVATE','APPROVE','BACKFILL','BACKUP','CLIENT_ERASE','CLONE',
-                    'DB_OPTIMIZE','FOUNDATION_EXAMPLE','FOUNDATION_PURGE','INVITE',
-                    'INVITE_ACCEPT','INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
-                    'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
-                    'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
-                    'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT'
-                )),
-                field_name TEXT,
-                old_value TEXT,
-                new_value TEXT,
-                mandate_id TEXT,
-                client_id TEXT,
-                integrity_hash TEXT,
-                ip_address TEXT,
-                created_at TEXT NOT NULL,
-                tenant_id TEXT,
-                sequence INTEGER,
-                previous_hash TEXT
-            )
-        """))
-        # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): frueher wurden hier NUR die
-        # Spalten aus audit_log__old kopiert, die diese Migration bereits
-        # kannte -- ein bereits vorhandenes ip_address (aus einem frueheren
-        # Lauf dieser selben Migration, z.B. bei erneuter Ausfuehrung nach
-        # einem Teil-Upgrade) wuerde sonst stillschweigend verworfen. Daher
-        # dynamisch anhand der tatsaechlichen Spalten von audit_log__old.
-        # Roadmap #21 (2026-08-08): tenant_id nach demselben Muster -- sonst
-        # wuerde diese RENAME-Migration eine bereits per ensure_runtime_columns
-        # nachgezogene tenant_id-Spalte beim naechsten Lauf wieder verwerfen
-        # (identische Bugklasse wie der Trigger-Verlust oben).
-        # SEC-003 (Codex-Audit 2026-08-26): dito fuer sequence/previous_hash --
-        # ohne diese dynamische Uebernahme wuerde eine frische Installation
-        # (die diese RENAME-Migration beim ersten Start durchlaeuft) die per
-        # ensure_runtime_columns() bereits angelegten Sequenz-Spalten sofort
-        # wieder verlieren (real reproduziert waehrend der Implementierung
-        # dieses Fixes: Test schlug mit "no column named sequence" fehl, bis
-        # dieser Block ergaenzt wurde).
-        old_columns = {
-            row[1] for row in conn.execute(text("PRAGMA table_info(audit_log__old)"))
-        }
-        ip_address_select = "ip_address" if "ip_address" in old_columns else "NULL AS ip_address"
-        tenant_id_select = "tenant_id" if "tenant_id" in old_columns else "NULL AS tenant_id"
-        sequence_select = "sequence" if "sequence" in old_columns else "NULL AS sequence"
-        previous_hash_select = "previous_hash" if "previous_hash" in old_columns else "NULL AS previous_hash"
-        conn.execute(text(f"""
-            INSERT INTO audit_log (
-                id, user_id, user_name, table_name, record_id, action,
-                field_name, old_value, new_value, mandate_id, client_id,
-                integrity_hash, ip_address, created_at, tenant_id,
-                sequence, previous_hash
-            )
-            SELECT
-                id, user_id, user_name, table_name, record_id, action,
-                field_name, old_value, new_value, mandate_id, client_id,
-                NULL AS integrity_hash,
-                {ip_address_select},
-                created_at,
-                {tenant_id_select},
-                {sequence_select},
-                {previous_hash_select}
-            FROM audit_log__old
-        """))
-        conn.execute(text('DROP TABLE audit_log__old'))
+
+def _rebuild_audit_log_from_old(cur) -> None:
+    """Neue audit_log aus audit_log__old aufbauen -- innerhalb der expliziten
+    Transaktion des Aufrufers. Prueft, dass jede Zeile uebernommen wurde,
+    bevor __old geloescht wird, und legt die Trigger wieder an."""
+    n_old = cur.execute('SELECT COUNT(*) FROM audit_log__old').fetchone()[0]
+    cur.execute(_AUDIT_LOG_REBUILT_DDL)
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): frueher wurden hier NUR die
+    # Spalten aus audit_log__old kopiert, die diese Migration bereits
+    # kannte -- ein bereits vorhandenes ip_address (aus einem frueheren
+    # Lauf dieser selben Migration, z.B. bei erneuter Ausfuehrung nach
+    # einem Teil-Upgrade) wuerde sonst stillschweigend verworfen. Daher
+    # dynamisch anhand der tatsaechlichen Spalten von audit_log__old.
+    # Roadmap #21 (2026-08-08): tenant_id nach demselben Muster.
+    # SEC-003 (Codex-Audit 2026-08-26): dito fuer sequence/previous_hash --
+    # ohne diese dynamische Uebernahme wuerde eine frische Installation
+    # die per ensure_runtime_columns() bereits angelegten Sequenz-Spalten
+    # sofort wieder verlieren.
+    old_columns = {row[1] for row in cur.execute("PRAGMA table_info(audit_log__old)").fetchall()}
+    ip_address_select = "ip_address" if "ip_address" in old_columns else "NULL AS ip_address"
+    tenant_id_select = "tenant_id" if "tenant_id" in old_columns else "NULL AS tenant_id"
+    sequence_select = "sequence" if "sequence" in old_columns else "NULL AS sequence"
+    previous_hash_select = "previous_hash" if "previous_hash" in old_columns else "NULL AS previous_hash"
+    # H-865-1 (Pruefrunde #865): integrity_hash wurde hier bisher hart mit
+    # "NULL AS integrity_hash" kopiert -- jeder spaetere Neuaufbau haette
+    # ALLEN bestehenden Zeilen den Hash genommen, auch den verketteten.
+    # integrity_hash, sequence und previous_hash werden 1:1 uebernommen.
+    integrity_hash_select = (
+        "integrity_hash" if "integrity_hash" in old_columns else "NULL AS integrity_hash"
+    )
+    cur.execute(f"""
+        INSERT INTO audit_log (
+            id, user_id, user_name, table_name, record_id, action,
+            field_name, old_value, new_value, mandate_id, client_id,
+            integrity_hash, ip_address, created_at, tenant_id,
+            sequence, previous_hash
+        )
+        SELECT
+            id, user_id, user_name, table_name, record_id, action,
+            field_name, old_value, new_value, mandate_id, client_id,
+            {integrity_hash_select},
+            {ip_address_select},
+            created_at,
+            {tenant_id_select},
+            {sequence_select},
+            {previous_hash_select}
+        FROM audit_log__old
+    """)
+    n_new = cur.execute('SELECT COUNT(*) FROM audit_log').fetchone()[0]
+    if n_new != n_old:
+        raise RuntimeError(f"audit_log-Neuaufbau unvollstaendig ({n_new} von {n_old} Zeilen).")
+    cur.execute('DROP TABLE audit_log__old')
+    # H-865-1: SQLite verwirft beim DROP TABLE audit_log__old die dorthin
+    # mitgewanderten Unveraenderlichkeits-Trigger (Befund CEO/CFO/CIO-Audit
+    # 2026-08-07). Sie werden hier, in derselben (jetzt echten, N-869-1)
+    # Transaktion, wieder angelegt: die neue Tabelle ist nie ohne Schutz
+    # committet.
+    for statement in _AUDIT_LOG_TRIGGER_DDL:
+        cur.execute(statement)
 
 
 def ensure_audit_log_triggers(target_engine: Engine | None = None) -> None:
@@ -1753,16 +3228,58 @@ def ensure_audit_log_triggers(target_engine: Engine | None = None) -> None:
     if not inspector.has_table('audit_log'):
         return
     with target_engine.begin() as conn:
-        conn.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_update
-            BEFORE UPDATE ON audit_log FOR EACH ROW
-            BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
-        """))
-        conn.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_delete
-            BEFORE DELETE ON audit_log FOR EACH ROW
-            BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
-        """))
+        _create_audit_log_immutability_triggers(conn)
+
+
+_AUDIT_LOG_TRIGGER_DDL = (
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_update
+    BEFORE UPDATE ON audit_log FOR EACH ROW
+    BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_delete
+    BEFORE DELETE ON audit_log FOR EACH ROW
+    BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
+    """,
+    # N-869-3 (Pruefrunde #869): der eigentliche Single-Writer-Schutz. Jede
+    # NEUE Zeile muss Teil der Hash-Kette sein (sequence, integrity_hash,
+    # previous_hash gesetzt -- previous_hash ist bei der Genesis '' und nie
+    # NULL, siehe services/audit.py::log()). Altzeilen ohne sequence bleiben
+    # unberuehrt: der Trigger wirkt nur auf INSERT, und der Kopierschritt
+    # des Neuaufbaus laeuft, BEVOR die Trigger auf der neuen Tabelle
+    # angelegt werden (_rebuild_audit_log_from_old).
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_audit_log_require_chain
+    BEFORE INSERT ON audit_log FOR EACH ROW
+    WHEN NEW.sequence IS NULL OR NEW.integrity_hash IS NULL OR NEW.previous_hash IS NULL
+    BEGIN SELECT RAISE(ABORT, 'audit_log insert outside hash chain'); END
+    """,
+    # N-869-7 (Delta-Pruefung #869): INSERT OR REPLACE / REPLACE INTO mit einer
+    # vorhandenen id loescht die alte Zeile als Teil der Konfliktaufloesung --
+    # bei recursive_triggers=OFF (SQLite-Default) OHNE trg_audit_log_no_delete
+    # auszuloesen: eine Zeile liess sich so am Unveraenderlichkeitsschutz
+    # vorbei ersetzen. BEFORE-INSERT-Trigger feuern vor der Konfliktaufloesung;
+    # dieser weist jede bereits vorhandene id und jede bereits vergebene
+    # sequence ab (log() vergibt beide nie doppelt). Der Kopierschritt des
+    # Neuaufbaus laeuft vor dem Anlegen der Trigger; sqlite3.backup kopiert
+    # Seiten und loest keine Trigger aus.
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_replace
+    BEFORE INSERT ON audit_log FOR EACH ROW
+    WHEN EXISTS (SELECT 1 FROM audit_log WHERE id = NEW.id)
+      OR (NEW.sequence IS NOT NULL AND EXISTS (SELECT 1 FROM audit_log WHERE sequence = NEW.sequence))
+    BEGIN SELECT RAISE(ABORT, 'audit_log row already exists (no replace)'); END
+    """,
+)
+
+
+def _create_audit_log_immutability_triggers(conn) -> None:
+    """audit_log-Trigger idempotent anlegen (SQLite). Gemeinsame Quelle
+    _AUDIT_LOG_TRIGGER_DDL fuer ensure_audit_log_triggers() und den
+    Neuaufbau in ensure_audit_log_actions() (H-865-1, N-869-1)."""
+    for statement in _AUDIT_LOG_TRIGGER_DDL:
+        conn.execute(text(statement))
 
 
 SEED_ASSET_CLASS_RETURNS = [
@@ -1790,7 +3307,22 @@ SEED_ASSET_CLASS_RETURNS = [
 ]
 
 
+def annual_returns_release_required() -> bool:
+    """N-935-05: In Produktion bzw. der gepackten EXE kommen historische
+    Jahresrenditen nur aus einem freigegebenen Paket (kein Start-Seeding,
+    siehe ``_seed_asset_class_returns``); fehlen sie, lehnt der Backtest ab.
+    Fuer Aufrufer ohne eigene ``config``-Kante (z. B. PDF-Router)."""
+    return settings.production_mode
+
+
 def _seed_asset_class_returns(conn) -> None:
+    # N-935-05 (H-187 Fixrunde 1, CTO-Entscheid): historische Jahresrenditen
+    # fliessen in die Engine (Backtest) und kommen in Produktion bzw. der
+    # gepackten EXE nur aus einem freigegebenen Paket -- kein Start-Seeding.
+    # Fehlen sie dort, lehnt der Backtest typisiert ab
+    # (services.backtest_strategy.load_annual_returns_matrix). Quellbetrieb/Tests unveraendert.
+    if annual_returns_release_required():
+        return
     count = conn.execute(text("SELECT COUNT(*) FROM asset_class_annual_returns")).scalar()
     if count and count > 0:
         return
@@ -1802,6 +3334,30 @@ def _seed_asset_class_returns(conn) -> None:
             (id, year, asset_class, return_bps, source, created_at, updated_at)
             VALUES (:id, :year, :ac, :ret, 'seed', :now, :now)
         """), {"id": str(uuid.uuid4()), "year": year, "ac": ac, "ret": ret, "now": now})
+
+
+def ensure_product_evidence_tenant_triggers(target_engine: Engine) -> None:
+    """C-COMP-02: Tenantgrenze der Produktnachweise auf Rohschema-Bestaenden
+    (SQLite); frische Datenbanken erhalten die Trigger mit der Tabelle."""
+    if target_engine.dialect.name != 'sqlite':
+        return
+    inspector = inspect(target_engine)
+    tables = set(inspector.get_table_names())
+    if not {'products', 'product_evidence_items'} <= tables:
+        return
+    product_columns = {column['name'] for column in inspector.get_columns('products')}
+    if 'tenant_id' not in product_columns:
+        return
+    # C-COMP-02 (6.4): Identitaetstrigger erst, wenn die Identitaetsspalten
+    # der Produkte (Laufzeit-Patch) vorhanden sind.
+    identity = {'isin', 'internal_product_id', 'figi', 'share_class_figi'} <= product_columns
+    with target_engine.begin() as connection:
+        identity_triggers = SQLITE_IDENTITY_TRIGGERS + (SQLITE_PRODUCT_IDENTITY_TRIGGER,)
+        for statement in SQLITE_TENANT_TRIGGERS + (identity_triggers if identity else ()):
+            connection.execute(text(statement))
+        if 'product_evidence_snapshots' in tables:
+            # C-COMP-02 (6.3): neue Saetze nur mit gebundenen Dimensions-Snapshots.
+            connection.execute(text(SQLITE_SNAPSHOT_BINDING_TRIGGER))
 
 
 def ensure_snapshot_tables(target_engine: Engine | None = None) -> None:
@@ -1901,6 +3457,16 @@ def ensure_snapshot_tables(target_engine: Engine | None = None) -> None:
         _seed_asset_class_returns(conn)
 
 
+# N-869-9: partieller Unique-Index -- hoechstens ein Bestandssiegel-Eintrag
+# (field_name='LEGACY_SEAL' auf table_name='audit_log', siehe services/audit.py).
+# Gleiche Anweisung in Alembic d3b7f1a5c9e2 (PostgreSQL).
+_LEGACY_SEAL_UNIQUE_INDEX_SQL = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_audit_log_legacy_seal "
+    "ON audit_log(field_name) "
+    "WHERE field_name = 'LEGACY_SEAL' AND table_name = 'audit_log'"
+)
+
+
 def ensure_audit_log_indexes(target_engine: Engine | None = None) -> None:
     """Sprint U-38 (Roadmap-Punkt 38, 2026-06-01): idempotente Audit-Log-
     Indexes — inkl. neuer Composite-Index (mandate_id, table_name).
@@ -1951,6 +3517,26 @@ def ensure_audit_log_indexes(target_engine: Engine | None = None) -> None:
             "CREATE INDEX IF NOT EXISTS idx_audit_tenant "
             "ON audit_log(tenant_id)"
         ))
+        # N-869-7: Index fuer die sequence-Pruefung in trg_audit_log_no_replace
+        # und den Verifier (sonst Tabellenscan je INSERT).
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_audit_sequence "
+            "ON audit_log(sequence)"
+        ))
+    # N-869-9 (Delta 2 #869): hoechstens EIN Bestandssiegel (zweite
+    # Verteidigungslinie neben der Sperre in services/audit.py::
+    # ensure_legacy_seal). Eigene Transaktion: liegen ausnahmsweise schon
+    # zwei Siegel vor, scheitert nur dieser Index -- laut (CRITICAL), ohne
+    # den Start zu blockieren; der Verifier prueft dann beide.
+    try:
+        with target_engine.begin() as conn:
+            conn.execute(text(_LEGACY_SEAL_UNIQUE_INDEX_SQL))
+    except Exception as exc:  # noqa: BLE001 -- Index darf den Boot nicht stoppen
+        _audit_log_logger.critical(
+            "Unique-Index ux_audit_log_legacy_seal nicht angelegt (%s) -- mehr als ein "
+            "Bestandssiegel vorhanden? Pruefung: GET /admin/system/audit-log/verify",
+            type(exc).__name__,
+        )
 
 
 PURGE_HISTORY_COLUMNS: tuple[str, ...] = (
@@ -2013,6 +3599,82 @@ def ensure_purge_history_table(target_engine: Engine | None = None) -> None:
         ))
 
 
+# ---------------------------------------------------------------------------
+# Tier-1-Einzelfirmen-Gate (CH-RC 27.11.2026)
+# ---------------------------------------------------------------------------
+# Eine Ares-Instanz bedient im Modus ``single_company`` (Default, fail-closed)
+# genau EINE Firma. Alle Wege, die eine Firma (Tenant) anlegen oder eine
+# Datenbank in Betrieb nehmen, laufen ueber dieselben zwei Pruefungen:
+#   - assert_tenant_creation_allowed: Tenant-Admin-API UND Default-Seed
+#   - assert_single_company_database: Start (main.py-lifespan) und Restore
+# Der Modus selbst ist nach dem ersten Start unveraenderlich; ein Wechsel ist
+# nur mit ausdruecklicher Bestaetigung moeglich und wird im hash-verketteten
+# Audit-Manifest (audit_log, table_name='deployment_manifest') zu
+# deployment_mode festgehalten (routers/tenants.py, beim Start).
+
+SECOND_TENANT_FORBIDDEN = "SECOND_TENANT_FORBIDDEN"
+TENANT_COUNT_INVALID = "TENANT_COUNT_INVALID"
+DEPLOYMENT_MODE_CHANGED = "DEPLOYMENT_MODE_CHANGED"
+DEPLOYMENT_MANIFEST_TABLE = "deployment_manifest"
+DEPLOYMENT_MODES = ("single_company", "multi_tenant")
+
+
+class TenantDeploymentError(RuntimeError):
+    """Typisierter, fail-closed Abbruch des Einzelfirmen-Gates."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(f"{code}: {message}")
+        self.code = code
+        self.message = message
+
+
+def current_deployment_mode() -> str:
+    """Konfigurierter Modus; jeder unbekannte Wert gilt als single_company."""
+    mode = str(getattr(settings, "deployment_mode", "single_company") or "")
+    return mode if mode in DEPLOYMENT_MODES else "single_company"
+
+
+def count_tenants(db: Session) -> int:
+    """Anzahl Firmen (Tenants) in der Datenbank -- inklusive inaktiver und
+    soft-geloeschter Eintraege: auch eine ruhende zweite Firma ist eine
+    zweite Firma."""
+    # SELECT count(*) FROM tenants: dieselbe Zaehlung fuer Start (lifespan,
+    # routers.tenants), Restore-Vorpruefung und Tenant-Anlage.
+    return int(db.execute(text("SELECT count(*) FROM tenants")).scalar() or 0)
+
+
+def assert_tenant_creation_allowed(db: Session) -> None:
+    """Vor JEDEM Anlegen einer Firma: im Modus single_company nur, solange noch
+    keine Firma existiert (Default-Seed 'main'). Sonst SECOND_TENANT_FORBIDDEN."""
+    if current_deployment_mode() == "multi_tenant":
+        return
+    existing = count_tenants(db)
+    if existing >= 1:
+        raise TenantDeploymentError(
+            SECOND_TENANT_FORBIDDEN,
+            "Diese Ares-Instanz ist fuer genau eine Firma eingerichtet "
+            f"(deployment_mode=single_company, vorhanden: {existing}). "
+            "Eine weitere Firma braucht eine eigene Instanz.",
+        )
+
+
+def assert_single_company_database(db: Session, *, allow_empty: bool = False) -> None:
+    """Im Modus single_company muss die Datenbank genau eine Firma enthalten;
+    sonst TENANT_COUNT_INVALID (Start bzw. Restore wird abgebrochen).
+    ``allow_empty`` (nur Restore-Vorpruefung): eine Sicherung ganz ohne Firma
+    ist zulaessig, weil der anschliessende Start genau 'main' anlegt und dann
+    erneut mit der strengen Regel prueft."""
+    if current_deployment_mode() == "multi_tenant":
+        return
+    found = count_tenants(db)
+    if found > 1 or (found == 0 and not allow_empty):
+        raise TenantDeploymentError(
+            TENANT_COUNT_INVALID,
+            f"deployment_mode=single_company erwartet genau eine Firma, gefunden: {found}. "
+            "Die Datenbank wird nicht in Betrieb genommen.",
+        )
+
+
 def ensure_default_tenant(target_engine: Engine | None = None) -> None:
     """Sprint T1 (2026-06-08): legt den Default-Tenant 'main' an wenn nicht da.
 
@@ -2039,6 +3701,8 @@ def ensure_default_tenant(target_engine: Engine | None = None) -> None:
             ).first()
             if existing is not None:
                 return
+            # Tier-1-Einzelfirmen-Gate: derselbe Pre-Check wie die Tenant-API.
+            assert_tenant_creation_allowed(db)
             now = datetime.now(timezone.utc).strftime(
                 "%Y-%m-%dT%H:%M:%S.%f"
             )[:-3] + "Z"
@@ -2058,10 +3722,10 @@ def ensure_default_tenant(target_engine: Engine | None = None) -> None:
             )
             db.add(tenant)
             db.commit()
-    except Exception:
-        # Boot-Robustheit: Default-Tenant-Setup darf den Backend-Start
-        # nicht stoppen. Logging kann der Caller verarbeiten.
-        pass
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        # Fail-closed (SEED-FK-HYGIENE): ohne 'main' scheitern Tenant-Backfill
+        # und Lizenzpruefung; nur ein unvollstaendiges Schema wird uebersprungen.
+        _handle_startup_step_error("ensure_default_tenant", exc)
 
 
 def ensure_default_ch_jurisdiction(target_engine: Engine | None = None) -> None:
@@ -2110,10 +3774,8 @@ def ensure_default_ch_jurisdiction(target_engine: Engine | None = None) -> None:
             )
             db.add(profile)
             db.commit()
-    except Exception:
-        # Boot-Robustheit: Default-Jurisdiktion-Setup darf den Backend-Start
-        # nicht stoppen. Logging kann der Caller verarbeiten.
-        pass
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        _handle_startup_step_error("ensure_default_ch_jurisdiction", exc)
 
 
 def ensure_default_de_jurisdiction(target_engine: Engine | None = None) -> None:
@@ -2124,13 +3786,21 @@ def ensure_default_de_jurisdiction(target_engine: Engine | None = None) -> None:
     ensure_default_ch_jurisdiction() direkt darueber -- beruehrt NIE eine
     CH-Zeile und blockiert den Boot nie."""
     try:
-        from services.jurisdiction.de_seed import ensure_de_jurisdiction_seed
+        from services.jurisdiction.de_seed import (
+            ensure_de_jurisdiction_seed,
+            log_legacy_pseudo_created_by_repair,
+        )
 
         with _session_for(target_engine) as db:
-            ensure_de_jurisdiction_seed(db)
+            repaired = ensure_de_jurisdiction_seed(db)
             db.commit()
-    except Exception:
-        pass
+        # N-870-5: erst nach erfolgreichem Commit melden; bei Rollback keine
+        # Erfolgszeile.
+        log_legacy_pseudo_created_by_repair(repaired)
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        # Hier fiel der DE-Seed unter PRAGMA foreign_keys=ON still aus
+        # (Pseudo-Kennung in created_by, SEED-FK-HYGIENE).
+        _handle_startup_step_error("ensure_default_de_jurisdiction", exc)
 
 
 def ensure_client_login_user_tenant_backfill(engine_to_use=None) -> None:
@@ -2173,9 +3843,22 @@ def ensure_client_login_user_tenant_backfill(engine_to_use=None) -> None:
                     """
                 )
             )
-    except Exception:
-        # Tabelle/Spalte (noch) nicht vorhanden -> ueberspringen (Boot-Robustheit).
-        pass
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        # Tabelle/Spalte (noch) nicht vorhanden -> ueberspringen. Jeder andere
+        # Fehler bricht ab: sonst zoege ensure_tenant_backfill() danach die
+        # Client-User pauschal nach 'main' (Bruch der Mandantentrennung).
+        _handle_startup_step_error("ensure_client_login_user_tenant_backfill", exc)
+
+
+# KN3-B / N-917R2-01 (CTO-Entscheid 2026-11-19): ``tenant_id`` ist die
+# Mandantengrenze einer Zeile, kein Beratungsinhalt. Die Grenze schuetzen
+# Mandanten-Guards, RLS und Trigger; in die Siegel-Projektion (Hook in
+# models/snapshots.py, Manifest/Pull in services/effective_input_manifest.py)
+# gehoert sie nicht. Sonst entwertete der Start-Backfill NULL -> 'main'
+# (database.ensure_tenant_backfill, wealth_tenant_boundary ...) jede in der
+# ersten Sitzung publizierte Allokation, ohne dass sich an Kunde, Vermoegen
+# oder Strategie etwas geaendert haette. Fuer alle Abhaengigkeitstabellen.
+ADVISORY_TENANT_BOUNDARY_COLUMNS = frozenset({"tenant_id"})
 
 
 def ensure_tenant_backfill(engine_to_use=None) -> None:
@@ -2222,23 +3905,19 @@ def ensure_tenant_backfill(engine_to_use=None) -> None:
     if _effective_strict_tenant_isolation(settings):
         return
     eng = engine_to_use if engine_to_use is not None else engine
-    try:
-        from models.tenant import DEFAULT_TENANT_ID
-        from sqlalchemy import text as _sql_text
-        for table in ("users", "clients", "mandates", "protocol_bausteine"):
-            try:
-                with eng.begin() as conn:
-                    conn.execute(
-                        _sql_text(
-                            f"UPDATE {table} SET tenant_id = :tid WHERE tenant_id IS NULL"
-                        ),
-                        {"tid": DEFAULT_TENANT_ID},
-                    )
-            except Exception:
-                # Tabelle/Spalte (noch) nicht vorhanden -> ueberspringen.
-                pass
-    except Exception:
-        pass
+    from models.tenant import DEFAULT_TENANT_ID
+    for table in ("users", "clients", "mandates", "protocol_bausteine"):
+        try:
+            with eng.begin() as conn:
+                conn.execute(
+                    text(
+                        f"UPDATE {table} SET tenant_id = :tid WHERE tenant_id IS NULL"
+                    ),
+                    {"tid": DEFAULT_TENANT_ID},
+                )
+        except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+            # Tabelle/Spalte (noch) nicht vorhanden -> ueberspringen; sonst Abbruch.
+            _handle_startup_step_error(f"ensure_tenant_backfill[{table}]", exc)
 
 
 _LEGACY_HOUSE_MATRIX_REAL_ESTATE_MAX = {
@@ -2288,10 +3967,75 @@ def migrate_house_matrix_real_estate_cap_20(engine_to_use=None) -> int:
                 )
                 if result.rowcount and result.rowcount > 0:
                     updated += int(result.rowcount)
-    except Exception:
-        # Boot-Robustheit: eine alte/partielle DB darf den Start nicht stoppen.
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        # Eine alte/partielle DB (Tabelle/Spalte fehlt) darf den Start nicht
+        # stoppen; ein echter Fehler der Datenmigration schon.
+        _handle_startup_step_error("migrate_house_matrix_real_estate_cap_20", exc)
         return 0
     return updated
+
+
+def neutralize_legacy_property_values(conn, *, recorded_at: str | None = None) -> list[dict]:
+    """K1 Property-Gate (Alembic ``63332bb56098`` und SQLite-Startpfad): aktive
+    Altwerte deaktivierter Property-/Collateral-Funktionen auf
+    Ignorieren/false/0/NULL setzen und je Position als Owner-Review-Fall in
+    ``property_gate_review_json`` festhalten (alter Wert, Aktion) -- nicht still
+    verwerfen. "Gemischt" bleibt und wird offen gemeldet. Idempotent. Die
+    geaenderten Zeilen machen versiegelte Entscheide ueber die Kanten-Pull-
+    Pruefung STALE (nie FRESH)."""
+    recorded = recorded_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = conn.execute(text(
+        f"SELECT {', '.join(property_gate.LEGACY_COLUMNS)} FROM wealth_positions "
+        "WHERE deleted_at IS NULL ORDER BY id"
+    )).mappings().all()
+    cases: list[dict] = []
+    for row in rows:
+        update = property_gate.neutralization_update(dict(row), recorded_at=recorded)
+        if update is None:
+            continue
+        assignments = ", ".join(f"{column} = :{column}" for column in update)
+        conn.execute(text(f"UPDATE wealth_positions SET {assignments} WHERE id = :position_id"),
+                     {**update, "position_id": row["id"]})
+        cases.append({"position_id": row["id"], "client_id": row["client_id"],
+                      "findings": property_gate.review_findings(dict(row))})
+    if cases:
+        logger.warning("K1 Property-Gate: %d Position(en) als Owner-Review-Fall markiert "
+                       "(PROPERTY_ADVANCED_FEATURE_DISABLED): %s",
+                       len(cases), ", ".join(c["position_id"] for c in cases))
+    return cases
+
+
+def migrate_seal_protocol_texts(engine_to_use=None) -> dict:
+    """L2c (H-192), SQLite-Startpfad (gleiche Funktion wie Alembic
+    ``e2b7c4d9a1f3``): Altzeilen der Protokoll-Freitexte versiegeln
+    (advisory_log nur mit passendem Siegel, Interessenkonflikte,
+    Berichtsnotizen -> Version 1). Idempotent."""
+    eng = engine_to_use if engine_to_use is not None else engine
+    try:
+        with eng.begin() as conn:
+            counts = _advisory_log_integrity.seal_legacy_protocol_texts(conn)
+        if counts.get("advisory_log_skipped_tampered"):
+            logger.warning(
+                "L2c: %d Protokolleintrag/-eintraege mit nicht passendem Siegel bleiben im "
+                "Klartext (veraendert, Loeschung meldet UNSEALED_LEGACY_ROWS).",
+                counts["advisory_log_skipped_tampered"],
+            )
+        return counts
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        _handle_startup_step_error("migrate_seal_protocol_texts", exc)
+        return {}
+
+
+def migrate_property_advanced_gate(engine_to_use=None) -> int:
+    """K1 Property-Gate, SQLite-Startpfad (gleiche Funktion wie Alembic
+    ``63332bb56098``). Idempotent."""
+    eng = engine_to_use if engine_to_use is not None else engine
+    try:
+        with eng.begin() as conn:
+            return len(neutralize_legacy_property_values(conn))
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        _handle_startup_step_error("migrate_property_advanced_gate", exc)
+        return 0
 
 
 def _create_or_migrate_schema(active_url: str, target_engine: Engine | None = None) -> None:
@@ -2447,8 +4191,15 @@ def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -
     # Fail-closed (Closure-Review #675): wirft ManualMigrationRequired bzw.
     # FatalRecoveryFailed, wenn Vor- oder Zielzustand nicht verifiziert ist --
     # init_db() faehrt dann bewusst NICHT fort.
-    from services.sqlite_check_constraint_upgrade import ensure_sqlite_check_in_lists_current
+    from services.sqlite_check_constraint_upgrade import (
+        ensure_sqlite_check_in_lists_current,
+        ensure_sqlite_exact_check_rewrites_current,
+    )
 
+    # C-COMP-02 (6.1): Envelope-Bestand ``CHECK(schema_version = '.../1')``
+    # auf die IN-Liste V1+V2 lockern (gleiche Absicherung, fail-closed), VOR
+    # dem IN-Listen-Abgleich -- danach ist die Liste referenzgleich.
+    ensure_sqlite_exact_check_rewrites_current(eng)
     ensure_sqlite_check_in_lists_current(eng, resolve_schema_path())
     # PG-002: Tenant-Backfill + Link-/Tenant-Trigger fuer wealth_positions/
     # wealth_inflows; nach dem CHECK-Upgrade, das Tabellen neu aufbauen kann.
@@ -2463,10 +4214,12 @@ def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -
     from core.product_eligibility_override_schema import ensure_sqlite_override_append_only
 
     ensure_sqlite_override_append_only(eng)
+    ensure_product_evidence_tenant_triggers(eng)  # C-COMP-02
     # PG-002: Mandanten-Guard + Backfill der Mandats-Evidenz NACH dem
     # Override-Umbau (ein Tabellen-Neuaufbau verwirft alle Trigger).
     ensure_sqlite_mandate_evidence_tenant_boundary(eng)
     migrate_house_matrix_real_estate_cap_20(eng)
+    migrate_property_advanced_gate(eng)
     ensure_snapshot_tables(eng)
     from services.market_data.provider_health_registry import ensure_provider_health_table
 
@@ -2475,6 +4228,9 @@ def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -
     run_risk_assessment_answer_migration(eng)
     run_advisory_log_migration(eng)
     migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(eng)
+    migrate_advisory_log_retention_from_mandate_end(eng)
+    # L2c (H-192): nach Spalten-/Tabellen-Anlage und Hash-Migrationen.
+    migrate_seal_protocol_texts(eng)
     ensure_audit_log_actions(eng)
     # U-38: Indexes nach ensure_audit_log_actions, weil das die Tabelle
     # ggf. komplett neu baut (Index-Drift-Risk).

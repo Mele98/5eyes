@@ -3,7 +3,7 @@
 **Datum:** 2026-05-06
 **Owner:** Emanuele
 **Wer fuehrt aus:** Codex
-**Workspace:** `C:\5eyes\5eyes_stage9_release_ready`
+**Workspace:** `C:\LB-B\LB-B_stage9_release_ready`
 **Branch:** `codex/sprint-a-fe` von `codex/sprint-a-quick-wins` (FE only, Backend ist fertig)
 
 ## Vorbedingung

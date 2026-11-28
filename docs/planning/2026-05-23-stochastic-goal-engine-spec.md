@@ -12,7 +12,7 @@
 ## Ziel
 
 Die Allocation-Engine vom `house_matrix`-Default auf eine **stochastische
-Goal-Based-Optimierung** umstellen — methodisch näher an 3eyes — während die
+Goal-Based-Optimierung** umstellen — methodisch näher an LB-A — während die
 **Risk-Matrix** (HouseMatrix.max_risky_fraction + BuildingBlock-Risky-Fractions)
 zur **harten, FINMA-konformen Suitability-Schranke** ausgebaut wird. Das Risiko-
 profil definiert das maximale Risikobudget; der Optimizer optimiert
@@ -24,7 +24,7 @@ rahmen und Fallback. Frontend bleibt advisor-facing und ruhig.
 
 - `OPTIMIZER_MODE` ist heute `house_matrix`-Default; der vorhandene
   stochastische Solver (`services/optimizer/`, Phase 1-6 bereits gebaut) läuft
-  nur opt-in. Damit fehlt 3eyes-Parität bei der Goal-Based-Allokation.
+  nur opt-in. Damit fehlt LB-A-Parität bei der Goal-Based-Allokation.
 - Ein **Renditeziel** kann heute formal das Risikoprofil sprengen (es gibt
   keinen harten Optimizer-Constraint, der das Profil-Maximum gegen Renditeziele
   schützt — der Solver hat `build_risky_fraction_constraint`, aber sie wird
@@ -53,7 +53,7 @@ rahmen und Fallback. Frontend bleibt advisor-facing und ruhig.
   ergänzt (default τ=80%, owner-konfigurierbar pro Mandat).
 - Konflikt-/Fehlermeldungen advisor-facing in Kundensprache, niemals als
   Aufforderung zur Risikoerhöhung.
-- 3eyes-Parität: `stochastic` wird Default; `house_matrix` bleibt Fallback bei
+- LB-A-Parität: `stochastic` wird Default; `house_matrix` bleibt Fallback bei
   Solver-Divergenz; `shadow_stochastic` als Übergangsmodus.
 - Frontend-Cockpit: Review/Zusammenfassung erklärt Hauptziel, Zielerreichungs-
   wahrscheinlichkeit, limitierender Faktor (Risikoprofil / Konflikt / Solver),
@@ -68,7 +68,7 @@ rahmen und Fallback. Frontend bleibt advisor-facing und ruhig.
 - Kein FX/Currency-Umbau der Allocation-Engine (Backtest U-P19b ist FX-korrekt;
   Allocation-Engine bleibt in CHF-Annahmen aus CMA).
 - Kein Re-Design der Risk-Matrix-Werte selbst (BuildingBlock-Defaults stammen
-  aus 3eyes-Slide 17, sind verifiziert).
+  aus LB-A-Slide 17, sind verifiziert).
 - Keine Goal-Editor-UX-Revolution — nur Feld-Isolation und klare Konflikt-
   Anzeige, sonst bleibt der ruhige Stil.
 
@@ -360,9 +360,9 @@ Format:
 - **Keine Garantieversprechen.** "Erreichbar" ist immer als Wahrscheinlichkeit
   ausgewiesen, nie als "wird erreicht".
 
-## §6 3eyes-Parität
+## §6 LB-A-Parität
 
-### 6.1 Was 5eyes heute schon hat
+### 6.1 Was LB-B heute schon hat
 
 - Stochastischer Solver (SLSQP + GA-Fallback, Phase 1-6 fertig).
 - Cornish-Fisher Fat-Tail-Sampling.

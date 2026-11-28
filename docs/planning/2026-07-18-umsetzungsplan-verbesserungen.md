@@ -1,4 +1,4 @@
-# 5eyes — Effizienter Umsetzungsplan: „Was zu verbessern ist"
+# LB-B — Effizienter Umsetzungsplan: „Was zu verbessern ist"
 
 **Stand:** 18. Juli 2026 · Basis: [CTO-Standortbericht](./2026-07-18-cto-standortbericht.md) §04
 **Zweck:** Die 7 Verbesserungspunkte aus §04 in der kostengünstigsten Reihenfolge abarbeiten — so, dass jeder Schritt einzeln grün testbar ist und Risiko vom Rest getrennt bleibt.
@@ -35,7 +35,7 @@ Batchbar, kein Engine-Touch. Sofort machbar.
 
 ### 0.1 Repo-Hygiene · Schwere: Niedrig · ~1 h
 - `.gitignore` um `.tmp_*` ergänzen (heute nur `tmp_*` → 3 Junk-Dateien getrackt).
-- `git rm --cached .tmp_5eyes_frontend_check.js .tmp_5eyes_inline_bundle.js .tmp_pr_body.md` (520 KB raus).
+- `git rm --cached .tmp_LB-B_frontend_check.js .tmp_LB-B_inline_bundle.js .tmp_pr_body.md` (520 KB raus).
 - `scripts/cleanup-codex-branches-safe.ps1` einmal laufen lassen (löscht nur `ahead=0`-Branches, idempotent) → 179 Branches eindampfen.
 - **Test/Nachweis:** `git status` sauber, Suite unverändert grün. **PR:** `chore/repo-hygiene`.
 

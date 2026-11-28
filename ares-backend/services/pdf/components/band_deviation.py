@@ -15,6 +15,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import KeepTogether, Paragraph, Spacer, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from core.presentation_rounding import format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TEXT,
@@ -32,7 +33,7 @@ MISSING_REASON_TEXT = (
 
 
 def _pct(bps) -> str:
-    return f"{int(bps or 0) / 100:.1f}%"
+    return f"{format_bps_as_pct(int(bps or 0), decimals=1)}"
 
 
 def _style(name: str, *, bold: bool = False, size: float = 8.5, color=COLOR_TEXT) -> ParagraphStyle:

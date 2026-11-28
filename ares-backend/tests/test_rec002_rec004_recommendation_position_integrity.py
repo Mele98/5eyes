@@ -48,7 +48,7 @@ def _add_product(session_factory, product_id: str = "prod-rec002") -> str:
                 id=product_id, isin=f"CH{product_id[:10].rjust(10, '0')}",
                 symbol="X",
                 product_name="Test", asset_class="Aktien", currency="CHF",
-                product_type="ETF", is_active=1,
+                product_type="ETF", is_active=1, ter_bps=20,
                 created_at=now_iso, updated_at=now_iso,
             ))
             s.commit()

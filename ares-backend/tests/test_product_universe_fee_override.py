@@ -1,8 +1,10 @@
 """2026-07-27 (Fonds-Kuratierung): eine Verwaltung kann fuer ein Produkt eine
 eigene, ausgehandelte Gebuehr hinterlegen (ProductUniverseEntry.override_ter_bps).
-build_cost_disclosure muss diese live (kein Snapshot) statt product.ter_bps
-verwenden -- NUR fuer den betroffenen Tenant, das globale Produkt bleibt
-unveraendert.
+
+C-COMP-02: kundenwirksam ist die Kondition nur noch als freigegebener
+Tenant-Kostennachweis (Vorrang vor dem Plattform-Nachweis) -- NUR fuer den
+betroffenen Tenant und die Jurisdiktion; der Universumseintrag allein bewirkt
+nichts mehr. Das globale Produkt bleibt unveraendert.
 """
 from __future__ import annotations
 
@@ -56,6 +58,7 @@ def _seed(
     mandate_jurisdiction: str | None,
     product_ter_bps: int,
     override_entries: list[dict] | None = None,
+    bind_evidence: bool = False,
 ):
     now = _now()
     with SF() as s:
@@ -125,6 +128,30 @@ def _seed(
                 deleted_at=entry.get("deleted_at"),
             ))
         s.commit()
+        if bind_evidence:
+            _bind_evidence(s, override_entries or [])
+
+
+def _bind_evidence(s, override_entries):
+    """Plattform-Nachweise (Stammkondition) + je wirksamer Kondition ein
+    Tenant-Kostennachweis; danach echte Snapshot-Bindung."""
+    from product_evidence_test_support import add_synthetic_product_evidence
+    from services.product_eligibility import close_product_evidence_item, snapshot_run_product_evidence
+
+    product = s.get(Product, "prod-puf")
+    add_synthetic_product_evidence(s, [product], actor_id="advisor-puf", tenant_id=None)
+    for entry in override_entries:
+        if entry.get("override_ter_bps") is None:
+            continue
+        rows = add_synthetic_product_evidence(
+            s, [product], actor_id="advisor-puf", tenant_id=entry["tenant_id"],
+            jurisdiction=entry["jurisdiction"], kinds=("costs",),
+            overrides={"costs": {"payload": {"value": entry["override_ter_bps"], "unit": "bps_per_year"}}},
+        )
+        if entry.get("deleted_at"):
+            close_product_evidence_item(s, rows[0], status="retired", reason="CONDITION_ENDED", actor_id="advisor-puf")
+    snapshot_run_product_evidence(s, s.get(Mandate, "mandate-puf"), s.get(RecommendationRun, "run-puf"))
+    s.commit()
 
 
 def _mandate(SF):
@@ -138,8 +165,20 @@ def _ter_bps_of_only_position(payload):
     return items[0]
 
 
+def test_universe_entry_and_master_data_without_evidence_have_no_effect(session_factory):
+    """C-COMP-02: ungebundener Lauf -> TER unbekannt, nie Stammdaten, nie 0."""
+    _seed(
+        session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction="CH", product_ter_bps=20,
+        override_entries=[{"tenant_id": "firm-puf", "jurisdiction": "CH", "override_ter_bps": 5}],
+    )
+    with session_factory() as db:
+        payload = build_cost_disclosure(db, _mandate(session_factory))
+    assert payload["is_complete"] is False
+    assert not [i for i in payload["cost_items"] if i["category"] == "Produktkosten"]
+
+
 def test_no_override_entries_uses_product_ter_bps(session_factory):
-    _seed(session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction="CH", product_ter_bps=20)
+    _seed(session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction="CH", product_ter_bps=20, bind_evidence=True)
     with session_factory() as db:
         mandate = _mandate(session_factory)
         payload = build_cost_disclosure(db, mandate)
@@ -149,7 +188,7 @@ def test_no_override_entries_uses_product_ter_bps(session_factory):
 
 def test_override_replaces_ter_bps_for_matching_tenant_and_jurisdiction(session_factory):
     _seed(
-        session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction="CH", product_ter_bps=20,
+        session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction="CH", product_ter_bps=20, bind_evidence=True,
         override_entries=[{"tenant_id": "firm-puf", "jurisdiction": "CH", "override_ter_bps": 5}],
     )
     with session_factory() as db:
@@ -161,7 +200,7 @@ def test_override_replaces_ter_bps_for_matching_tenant_and_jurisdiction(session_
 
 def test_override_for_other_tenant_does_not_leak(session_factory):
     _seed(
-        session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction="CH", product_ter_bps=20,
+        session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction="CH", product_ter_bps=20, bind_evidence=True,
         override_entries=[{"tenant_id": "firm-other", "jurisdiction": "CH", "override_ter_bps": 5}],
     )
     with session_factory() as db:
@@ -173,7 +212,7 @@ def test_override_for_other_tenant_does_not_leak(session_factory):
 
 def test_override_for_other_jurisdiction_does_not_apply(session_factory):
     _seed(
-        session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction="CH", product_ter_bps=20,
+        session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction="CH", product_ter_bps=20, bind_evidence=True,
         override_entries=[{"tenant_id": "firm-puf", "jurisdiction": "DE", "override_ter_bps": 5}],
     )
     with session_factory() as db:
@@ -186,7 +225,7 @@ def test_override_for_other_jurisdiction_does_not_apply(session_factory):
 def test_null_jurisdiction_falls_back_to_ch(session_factory):
     """Mandate.jurisdiction=NULL (Bestandsmandat) -> Code interpretiert als 'CH'."""
     _seed(
-        session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction=None, product_ter_bps=20,
+        session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction=None, product_ter_bps=20, bind_evidence=True,
         override_entries=[{"tenant_id": "firm-puf", "jurisdiction": "CH", "override_ter_bps": 5}],
     )
     with session_factory() as db:
@@ -198,7 +237,7 @@ def test_null_jurisdiction_falls_back_to_ch(session_factory):
 
 def test_soft_deleted_override_entry_is_ignored(session_factory):
     _seed(
-        session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction="CH", product_ter_bps=20,
+        session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction="CH", product_ter_bps=20, bind_evidence=True,
         override_entries=[{
             "tenant_id": "firm-puf", "jurisdiction": "CH", "override_ter_bps": 5,
             "deleted_at": _now(),
@@ -215,7 +254,7 @@ def test_entry_without_override_value_does_not_change_ter_bps(session_factory):
     """Ein Eintrag existiert (z.B. nur fuer die Fonds-Filterung), aber ohne
     override_ter_bps gesetzt -> product.ter_bps bleibt massgebend."""
     _seed(
-        session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction="CH", product_ter_bps=20,
+        session_factory, mandate_tenant_id="firm-puf", mandate_jurisdiction="CH", product_ter_bps=20, bind_evidence=True,
         override_entries=[{"tenant_id": "firm-puf", "jurisdiction": "CH", "override_ter_bps": None}],
     )
     with session_factory() as db:
@@ -229,7 +268,7 @@ def test_mandate_without_tenant_id_uses_product_ter_bps(session_factory):
     """Bestandsmandate ohne tenant_id (Backwards-Compat vor Sprint T1) --
     Override-Lookup loest auf DEFAULT_TENANT_ID ('main') auf; ohne Eintraege
     fuer 'main' bleibt das Verhalten unveraendert, kein Crash."""
-    _seed(session_factory, mandate_tenant_id=None, mandate_jurisdiction="CH", product_ter_bps=20)
+    _seed(session_factory, mandate_tenant_id=None, mandate_jurisdiction="CH", product_ter_bps=20, bind_evidence=True)
     with session_factory() as db:
         mandate = _mandate(session_factory)
         payload = build_cost_disclosure(db, mandate)
@@ -244,7 +283,7 @@ def test_null_tenant_id_falls_back_to_main_tenant_override(session_factory):
     angelegt wurden -- sonst waere das Feature fuer genau den haeufigsten
     Single-Tenant-Deployment-Fall (Tier 1) unbenutzbar."""
     _seed(
-        session_factory, mandate_tenant_id=None, mandate_jurisdiction="CH", product_ter_bps=20,
+        session_factory, mandate_tenant_id=None, mandate_jurisdiction="CH", product_ter_bps=20, bind_evidence=True,
         override_entries=[{"tenant_id": "main", "jurisdiction": "CH", "override_ter_bps": 5}],
     )
     with session_factory() as db:

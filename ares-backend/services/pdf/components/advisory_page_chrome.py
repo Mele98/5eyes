@@ -66,7 +66,7 @@ class AdvisoryNumberedCanvas(Canvas):
         self._advisory_mandate_number = str(mandate_number or "—")
         self._advisory_generated_at = _format_swiss_datetime(generated_at_iso)
         # Sprint U-91 (2026-06-06): Wasserzeichen-Modus
-        self._advisory_watermark_mode = str(watermark_mode or "none").strip().lower()
+        self._advisory_watermark_mode = watermark_mode
 
     def showPage(self) -> None:  # noqa: N802 - ReportLab API name
         self._saved_page_states.append(dict(self.__dict__))
@@ -107,6 +107,9 @@ def make_advisory_page_chrome(
     mandate_number: str,
     generated_at_iso: str,
     total_pages_hint: int | None = None,
+    decision_label: str | None = None,
+    watermark_mode: str = "none",
+    view_reason: str | None = None,
 ) -> Callable[[Canvas, object], None]:
     """Liefert einen Page-Callback (signature: canvas, doc) für ReportLab.
 
@@ -131,6 +134,14 @@ def make_advisory_page_chrome(
             total_pages=total_pages_hint,
             mandate_number=safe_mandate,
             generated_at_pretty=pretty_dt,
+            decision_label=decision_label,
+        )
+        # H-193 Fixrunde 1 (N-939-05): Entwurf/Ansicht auf jeder Seite (auch
+        # Cover) sichtbar, mit dem eigentlichen Grund; final ("none") zeichnet nichts.
+        page_width, page_height = PAGE_SIZE
+        draw_watermark(
+            canvas, mode=watermark_mode, page_width=page_width, page_height=page_height,
+            view_reason=view_reason,
         )
 
     return draw
@@ -143,6 +154,7 @@ def _draw_advisory_page_chrome(
     total_pages: int | None,
     mandate_number: str,
     generated_at_pretty: str,
+    decision_label: str | None = None,
 ) -> None:
     if page_number == 1:
         return
@@ -160,7 +172,8 @@ def _draw_advisory_page_chrome(
     canvas.drawString(
         MARGIN_LEFT + 16 * mm,
         header_y,
-        f"Depotcheck  ·  {mandate_number}",
+        # KN6 / N-917R5-03: Seitenkopf = Dokumentname (Advisory-Report), nicht «Depotcheck».
+        f"Advisory-Report  ·  {mandate_number}",
     )
 
     if total_pages:
@@ -197,6 +210,9 @@ def _draw_advisory_page_chrome(
     canvas.drawRightString(
         page_width - MARGIN_RIGHT, footer_y, "Ares Advisory Report"
     )
+    if decision_label:
+        # CCX P5: Pruefnummer des versiegelten Beratungsentscheids.
+        canvas.drawCentredString(page_width / 2, footer_y, decision_label)
 
     canvas.restoreState()
 

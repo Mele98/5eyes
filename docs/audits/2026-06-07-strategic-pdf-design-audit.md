@@ -125,6 +125,6 @@ flow once the local preview connection is available.
 
 A complete `tests/` run was also attempted. It was not a valid release signal
 in the sandbox because many unrelated API fixtures started the application
-against `C:\Users\Emanuele\5eyes\5eyes.db`; schema bootstrap then failed with
+against `C:\Users\Emanuele\LB-B\LB-B.db`; schema bootstrap then failed with
 `sqlite3.OperationalError: attempt to write a readonly database`. The focused
 PDF and PDF-integration suites above were rerun separately and passed.

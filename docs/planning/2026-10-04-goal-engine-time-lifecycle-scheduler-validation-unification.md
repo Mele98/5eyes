@@ -270,7 +270,7 @@ Vier verschiedene Formeln sind heute aktiv:
 
 **Empfehlung:** Jeder Optimizer-Run / jede Report-Generierung bindet `valuation_date` explizit beim Zeitpunkt der User-Aktion (Klick auf "Anlagestrategie berechnen" / "Report generieren"), persistiert ihn im Run/Allocation-Datensatz, und jede Folgeberechnung (Replay, PDF-Reprint, UI-Reload) liest den GESPEICHERTEN Stichtag — niemals erneut `date.today()`. Ein Reload mit dem heutigen Tag muss explizit als neuer, separat benannter "Counterfactual-Run" angestossen werden, nicht automatisch beim Öffnen einer bestehenden Ansicht.
 
-**Begründung:** Audit-Trail-Integrität (vgl. bereits etabliertes Projekt-Prinzip, siehe `project_5eyes_ceo_cfo_cio_audit_2026_08_07`-Memory: der Audit-Log-Unveränderlichkeits-Trigger-Bugfix wurde als kritisch eingestuft — dieselbe Logik gilt für Berechnungs-Stichtage: ein Replay darf nicht leise ein anderes wirtschaftliches Ergebnis liefern als beim ersten Lauf).
+**Begründung:** Audit-Trail-Integrität (vgl. bereits etabliertes Projekt-Prinzip, siehe `project_LB-B_ceo_cfo_cio_audit_2026_08_07`-Memory: der Audit-Log-Unveränderlichkeits-Trigger-Bugfix wurde als kritisch eingestuft — dieselbe Logik gilt für Berechnungs-Stichtage: ein Replay darf nicht leise ein anderes wirtschaftliches Ergebnis liefern als beim ersten Lauf).
 
 ☑ Bestätigt ☐ Abgelehnt
 
@@ -301,7 +301,7 @@ Dies ist exakt, was `contribution_for_year()` bereits berechnet. Der Fix besteht
 
 ### OWNER-DECISION 2a — Endpunkt-Inklusivität
 
-**Empfehlung:** Inklusiv (`t_k ≤ t_end`, nicht `<`). Dies ist bereits die etablierte Projekt-Konvention für `valid_until` bei Cashflows (siehe `feedback_conservative_values`/`project_5eyes_cashflow_konventionen`-Memory: "valid_until INKLUSIV"). Keine neue Entscheidung nötig — nur Bestätigung, dass dieselbe Konvention für Goals gilt.
+**Empfehlung:** Inklusiv (`t_k ≤ t_end`, nicht `<`). Dies ist bereits die etablierte Projekt-Konvention für `valid_until` bei Cashflows (siehe `feedback_conservative_values`/`project_LB-B_cashflow_konventionen`-Memory: "valid_until INKLUSIV"). Keine neue Entscheidung nötig — nur Bestätigung, dass dieselbe Konvention für Goals gilt.
 
 ☑ Bestätigt ☐ Abgelehnt
 
@@ -527,7 +527,7 @@ Das Audit selbst benennt zwei konsistente, sich gegenseitig ausschliessende Vari
 1. **Priorisiertes Goal Funding:** Spending-Goals sind finanzierbare Wünsche. Ein versionierter `GoalFundingPolicy`-Resolver verteilt pro Pfad/Fälligkeit das verfügbare Vermögen nach kanonischem Rang/Härte. Ein nicht finanziertes niedrigeres Ziel wird nicht so ausgeführt, dass es ein höheres Ziel nachträglich zerstört.
 2. **Unbedingter gemeinsamer Plan:** Jeder Outflow ist zwingend. Dann darf "opportunistisch" bei Spending-Goals nicht länger als "optional"/"nur mitgenommen" kommuniziert werden; die Engine veröffentlicht stattdessen eine gemeinsame Plan-Solvabilität statt einer Prioritätshierarchie.
 
-**Empfehlung: Variante 1 (priorisiertes Funding).** Begründung: Die bereits bestehende Produktdokumentation (`docs/planning/2026-05-23-stochastic-goal-engine-spec.md:216-241/288-306/607-609`, `docs/engine-spec.md:421`, `docs/methodology/5eyes-engine-whitepaper.md:85-91`) behauptet bereits HEUTE explizit, dass opportunistische Ziele nicht erzwungen werden und das Hauptziel nicht vom Nebenziel dominiert werden darf. Variante 1 ist damit keine neue Produktentscheidung, sondern die Korrektur einer Implementierung, die ihrer eigenen bereits dokumentierten Spezifikation widerspricht. Variante 2 wäre zulässig, erfordert aber eine bewusste, nach aussen kommunizierte Rücknahme dieser bestehenden Zusage.
+**Empfehlung: Variante 1 (priorisiertes Funding).** Begründung: Die bereits bestehende Produktdokumentation (`docs/planning/2026-05-23-stochastic-goal-engine-spec.md:216-241/288-306/607-609`, `docs/engine-spec.md:421`, `docs/methodology/LB-B-engine-whitepaper.md:85-91`) behauptet bereits HEUTE explizit, dass opportunistische Ziele nicht erzwungen werden und das Hauptziel nicht vom Nebenziel dominiert werden darf. Variante 1 ist damit keine neue Produktentscheidung, sondern die Korrektur einer Implementierung, die ihrer eigenen bereits dokumentierten Spezifikation widerspricht. Variante 2 wäre zulässig, erfordert aber eine bewusste, nach aussen kommunizierte Rücknahme dieser bestehenden Zusage.
 
 ☑ Variante 1 (priorisiertes Funding, empfohlen) ☐ Variante 2 (unbedingter gemeinsamer Plan, erfordert Kommunikationsänderung)
 

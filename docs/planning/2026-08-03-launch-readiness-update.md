@@ -1,4 +1,4 @@
-# 5eyes WealthArchitekten — Launch-Readiness-Update
+# LB-B LB-C — Launch-Readiness-Update
 
 > ⚠️ **ERSETZT** durch [2026-08-04-mega-audit-standortbericht.md](./2026-08-04-mega-audit-standortbericht.md). **Wichtige Korrektur:** RES-1 (teilweise), RES-2/goals-1/OPT-2 (vollständig gefixt seit 24.7., hier fälschlich als "bewusst offen" gelistet) und AUTH-01 (hier fälschlich als "gefixt" gelistet, tatsächlich weiterhin offen) — siehe Mega-Audit-Anhang "Was seit dem Vortag korrigiert wurde".
 
@@ -92,7 +92,7 @@ Diese kann ich nicht aus dem Code beantworten — nur benennen, damit sie nicht 
 - Endgültiges Preis-/Lizenzmodell + Rechnungsstellung (Tenant-Lizenz-Enforcement ist technisch gebaut, siehe Memory, aber Preismodell selbst ist eine Geschäftsentscheidung)
 - Support-/Incident-Response-Prozess für den ersten Kunden (wer nimmt Anrufe entgegen, SLA?)
 - Onboarding-Dokumentation/Schulung für den ersten Berater
-- Ggf. FINMA-/SRO-Registrierungsstatus der nutzenden Beratungsfirma selbst (nicht von 5eyes, aber Voraussetzung, dass der Kunde die Software überhaupt regulatorisch einsetzen darf)
+- Ggf. FINMA-/SRO-Registrierungsstatus der nutzenden Beratungsfirma selbst (nicht von LB-B, aber Voraussetzung, dass der Kunde die Software überhaupt regulatorisch einsetzen darf)
 
 ---
 

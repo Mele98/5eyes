@@ -3,7 +3,7 @@
 **Datum:** 2026-05-06
 **Owner:** Emanuele
 **Wer fuehrt aus:** Codex
-**Workspace:** `C:\5eyes\5eyes_stage9_release_ready` (oder `_develop_security` — egal welcher, nur EINEN waehlen)
+**Workspace:** `C:\LB-B\LB-B_stage9_release_ready` (oder `_develop_security` — egal welcher, nur EINEN waehlen)
 
 ## Ziel
 
@@ -29,7 +29,7 @@ der **gleichen** Reihenfolge per PR in `develop`.
 
 ```powershell
 # Workspace waehlen — Empfehlung _release_ready (FE ist da)
-cd C:\5eyes\5eyes_stage9_release_ready
+cd C:\LB-B\LB-B_stage9_release_ready
 git fetch origin
 git checkout develop
 git pull origin develop
