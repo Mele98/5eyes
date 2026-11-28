@@ -41,10 +41,10 @@
   }
   function today(){ return new Date().toISOString().slice(0, 10); }
   function badge(ok, yes, no){
-    return '<span style="font-size:9px;padding:1px 6px;border-radius:8px;background:' + (ok ? 'var(--pos-bg,#e7f6ec)' : 'var(--neg-bg,#fdecec)')
+    return '<span style="font-size:12px;padding:1px 6px;border-radius:8px;background:' + (ok ? 'var(--pos-bg,#e7f6ec)' : 'var(--neg-bg,#fdecec)')
       + ';color:' + (ok ? 'var(--pos)' : 'var(--neg)') + '">' + esc(ok ? yes : no) + '</span>';
   }
-  var L = '<label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">';
+  var L = '<label style="font-size:12px;color:var(--n4);display:block;margin-bottom:2px">';
   var BTN = 'style="font-size:10px;padding:3px 10px"', TD = '<td style="padding:3px 6px">', FS = 'style="font-size:10px"';
 
   async function run(action, success){
@@ -66,10 +66,10 @@
     var overdue = state.requests.filter(function(r){ return r.overdue; }).length;
     var open = (reg.open_blocking_fields || []);
     return '<div class="admin-section-title">Datenschutz</div>'
-      + '<div class="admin-risk-note" style="font-size:10px;line-height:1.6">Verzeichnis der Bearbeitungstätigkeiten, Angaben des Verantwortlichen, '
+      + '<div class="admin-risk-note" style="font-size:12px;line-height:1.6">Verzeichnis der Bearbeitungstätigkeiten, Angaben des Verantwortlichen, '
       + 'Betroffenenanfragen, Sicherheitsvorfälle und ausgehende Verbindungen. Ares belegt keine Angabe des Verantwortlichen vor; '
       + 'solange eine Pflichtangabe fehlt, ist die Auskunft an betroffene Personen gesperrt. Keine Rechtsberatung.</div>'
-      + '<div id="pg-summary" style="display:flex;flex-wrap:wrap;gap:10px;font-size:10px">'
+      + '<div id="pg-summary" style="display:flex;flex-wrap:wrap;gap:10px;font-size:12px">'
       + '<div>Verzeichnis: ' + badge(reg.complete, 'vollständig', 'unvollständig') + '</div>'
       + '<div>Auskunft ausgeben: ' + badge(reg.customer_output_ready, 'bereit', 'gesperrt (' + open.length + ' Angaben offen)') + '</div>'
       + '<div>Sicherheitsvorfälle: ' + badge(!gate.blocked, 'keine offene Meldepflicht', 'Meldeentscheid/Meldung offen') + '</div>'
@@ -85,14 +85,14 @@
     var rows = state.fields.map(function(f, i){
       var blocking = f.blocking === 'customer_output' ? 'Pflicht (Auskunft)' : (f.blocking === 'channel' ? 'Pflicht für Kanal' : 'Information');
       return '<tr data-owner-field="' + esc(f.key) + '">' + TD + esc(f.label)
-        + '<div style="font-size:8px;color:var(--n4)">' + esc(f.key) + ' &middot; ' + esc(blocking) + '</div></td>'
+        + '<div style="font-size:12px;color:var(--n4)">' + esc(f.key) + ' &middot; ' + esc(blocking) + '</div></td>'
         + TD + badge(f.status === 'CONFIRMED', 'bestätigt (Rev. ' + f.revision + ')', 'offen') + '</td>'
         + TD + '<input class="fi" id="pg-of-' + i + '" value="' + esc(f.value || '') + '" style="font-size:10px;width:100%"></td>'
         + TD + '<button class="btn-s" ' + BTN + ' onclick="savePrivacyOwnerField(' + i + ')">Speichern</button></td></tr>';
     }).join('');
     return '<div class="admin-section-title" style="margin-top:12px">Angaben des Verantwortlichen</div>'
-      + '<div style="font-size:9px;color:var(--n4);margin-bottom:4px">Je Zeile den Wert der Firma eintragen und speichern. Jede Änderung wird versioniert und im Audit-Log festgehalten.</div>'
-      + '<table id="pg-owner-fields" style="width:100%;border-collapse:collapse;font-size:10px">' + rows + '</table>';
+      + '<div style="font-size:12px;color:var(--n4);margin-bottom:4px">Je Zeile den Wert der Firma eintragen und speichern. Jede Änderung wird versioniert und im Audit-Log festgehalten.</div>'
+      + '<table id="pg-owner-fields" style="width:100%;border-collapse:collapse;font-size:12px">' + rows + '</table>';
   }
 
   async function savePrivacyOwnerField(index){
@@ -123,7 +123,7 @@
       if (box) {
         box.innerHTML = '<div class="admin-risk-note" ' + FS + '>Neue Fassung freigeben: '
           + esc(kind === 'egress-manifest' ? 'Egress-Manifest' : 'Verzeichnis der Bearbeitungen')
-          + '. Neuer Hash je Eintrag (aktuell / bisher freigegeben):</div><table style="font-size:9px">' + approvalRows(kind) + '</table>'
+          + '. Neuer Hash je Eintrag (aktuell / bisher freigegeben):</div><table style="font-size:12px">' + approvalRows(kind) + '</table>'
           + '<button class="btn-p" ' + BTN + ' onclick="approvePrivacyArtifact(\'' + kind + '\', true)">Freigabe bestätigen</button>';
       }
       return null;  // ohne Bestaetigung nie freigeben
@@ -159,7 +159,7 @@
       el = document.createElement('div');
       el.id = 'pg-egress-banner';
       el.setAttribute('role', 'alert');
-      el.style.cssText = 'position:sticky;top:0;z-index:9999;background:var(--neg-bg,#fdecec);color:var(--neg,#a00);padding:6px 12px;font-size:11px;border-bottom:1px solid var(--neg,#a00)';
+      el.style.cssText = 'position:sticky;top:0;z-index:9999;background:var(--neg-bg,#fdecec);color:var(--neg,#a00);padding:6px 12px;font-size:12px;border-bottom:1px solid var(--neg,#a00)';
       document.body.insertBefore(el, document.body.firstChild);
     }
     // N-899-16: Klartext vorne; Kanal-IDs/Reason-Codes nur in den Details.
@@ -168,7 +168,7 @@
       + (asOf.fx_message ? ' Devisen: ' + esc(asOf.fx_message) + '.' : '') + '</span>';
     var details = (status.blocked_channels || []).map(function(c){ return '<li>' + esc(c.channel_id) + ' – gesperrt: ' + esc(c.reason || c.reason_code) + ' (' + esc(c.reason_code) + ')</li>'; }).join('');
     el.innerHTML = '<b>' + lines.map(esc).join(' ') + '</b> ' + (status.is_admin ? '<button class="btn-p" ' + BTN + ' onclick="openPrivacyApproval(\'' + esc(act.field || '') + '\')">' + esc(act.label || 'Jetzt freigeben') + '</button>' : esc(status.advisor_hint || 'Bitte Administrator informieren.'))
-      + stand + (details ? ' <details style="display:inline-block;font-size:10px"><summary style="cursor:pointer">Details</summary><ul style="margin:2px 0 0 14px;padding:0">' + details + '</ul></details>' : '');
+      + stand + (details ? ' <details style="display:inline-block;font-size:12px"><summary style="cursor:pointer">Details</summary><ul style="margin:2px 0 0 14px;padding:0">' + details + '</ul></details>' : '');
     return status;
   }
 
@@ -228,24 +228,24 @@
     var rows = state.requests.map(function(r){
       var due = r.effective_due_at + (r.overdue ? ' <b style="color:var(--neg)">überfällig</b>' : (r.days_remaining != null ? ' (' + r.days_remaining + ' Tage)' : ''));
       return '<tr data-subject-request="' + esc(r.id) + '">' + TD + esc(REQUEST_TYPES[r.request_type] || r.request_type)
-        + '<div style="font-size:8px;color:var(--n4)">' + esc(clientName(r.client_id)) + '</div></td>'
+        + '<div style="font-size:12px;color:var(--n4)">' + esc(clientName(r.client_id)) + '</div></td>'
         + TD + esc(String(r.received_at || '').slice(0, 10)) + '</td>'
         + TD + due + '</td>'
         + TD + esc(STATUS[r.status] || r.status) + (r.decision ? ' &middot; ' + esc(r.decision) : '') + '</td>'
         + TD + nextStepForm(r) + '</td></tr>';
-    }).join('') || '<tr><td style="font-size:10px;color:var(--n4)">Keine Anfragen erfasst.</td></tr>';
+    }).join('') || '<tr><td style="font-size:12px;color:var(--n4)">Keine Anfragen erfasst.</td></tr>';
     var clientOptions = '<option value="">Kunde wählen</option>' + state.clients.map(function(c){
       return '<option value="' + esc(c.id) + '">' + esc(clientName(c.id)) + '</option>';
     }).join('');
     return '<div class="admin-section-title" style="margin-top:12px">Betroffenenanfragen</div>'
-      + '<div style="font-size:9px;color:var(--n4);margin-bottom:4px">Frist: 30 Tage ab Eingang. Der Datenexport entsteht nur über die Anfrage.</div>'
+      + '<div style="font-size:10px;color:var(--n4);margin-bottom:4px">Frist: 30 Tage ab Eingang. Der Datenexport entsteht nur über die Anfrage.</div>'
       + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;margin-bottom:6px">'
       + '<div>' + L + 'Kunde</label><select class="fsel" id="pg-new-client" ' + FS + '>' + clientOptions + '</select></div>'
       + '<div>' + L + 'Art</label><select class="fsel" id="pg-new-type" ' + FS + '>' + opts(REQUEST_TYPES) + '</select></div>'
       + '<div>' + L + 'Eingang</label><input class="fi" type="date" id="pg-new-received" value="' + today() + '" ' + FS + '></div>'
       + '<div>' + L + 'Kanal</label><select class="fsel" id="pg-new-channel" ' + FS + '>' + opts(CHANNELS) + '</select></div>'
       + '<button class="btn-p" ' + BTN + ' onclick="openSubjectRequest()">Anfrage erfassen</button></div>'
-      + '<table id="pg-requests" style="width:100%;border-collapse:collapse;font-size:10px">' + rows + '</table>';
+      + '<table id="pg-requests" style="width:100%;border-collapse:collapse;font-size:12px">' + rows + '</table>';
   }
 
   async function openSubjectRequest(){
@@ -333,11 +333,11 @@
     }).join('');
     var rows = state.incidents.map(function(i){
       return '<tr data-incident="' + esc(i.id) + '">' + TD + esc(i.reference)
-        + '<div style="font-size:8px;color:var(--n4)">' + esc(INCIDENT_TYPES[i.incident_type] || i.incident_type) + ' &middot; ' + esc(String(i.discovered_at || '').slice(0, 16)) + '</div></td>'
+        + '<div style="font-size:12px;color:var(--n4)">' + esc(INCIDENT_TYPES[i.incident_type] || i.incident_type) + ' &middot; ' + esc(String(i.discovered_at || '').slice(0, 16)) + '</div></td>'
         + TD + esc(i.description) + '</td>'
         + TD + esc(STATUS[i.status] || i.status) + (i.risk_level ? ' &middot; Risiko ' + esc({HIGH: 'hoch', UNKNOWN: 'unbekannt', LOW: 'nicht hoch'}[i.risk_level] || i.risk_level) : '') + '</td>'
         + TD + incidentActions(i) + '</td></tr>';
-    }).join('') || '<tr><td style="font-size:10px;color:var(--n4)">Keine Vorfälle erfasst.</td></tr>';
+    }).join('') || '<tr><td style="font-size:12px;color:var(--n4)">Keine Vorfälle erfasst.</td></tr>';
     var contact = gate.escalation_contact || {};
     return '<div class="admin-section-title" style="margin-top:12px">Sicherheitsvorfälle</div>'
       + '<div id="pg-incident-gate" data-blocked="' + (gate.blocked ? '1' : '0') + '" ' + FS + '>'
@@ -347,9 +347,9 @@
       + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;margin:6px 0">'
       + '<div>' + L + 'Entdeckt am</label><input class="fi" type="datetime-local" id="pg-inc-new-at" ' + FS + '></div>'
       + '<div>' + L + 'Art</label><select class="fsel" id="pg-inc-new-type" ' + FS + '>' + opts(INCIDENT_TYPES) + '</select></div>'
-      + '<div style="flex:1;min-width:200px">' + L + 'Beschreibung (ohne Personendaten)</label><input class="fi" id="pg-inc-new-desc" style="font-size:10px;width:100%"></div>'
+      + '<div style="flex:1;min-width:200px">' + L + 'Beschreibung (ohne Personendaten)</label><input class="fi" id="pg-inc-new-desc" style="font-size:12px;width:100%"></div>'
       + '<button class="btn-p" ' + BTN + ' onclick="recordSecurityIncident()">Vorfall erfassen</button></div>'
-      + '<table id="pg-incidents" style="width:100%;border-collapse:collapse;font-size:10px">' + rows + '</table>';
+      + '<table id="pg-incidents" style="width:100%;border-collapse:collapse;font-size:12px">' + rows + '</table>';
   }
 
   function incidentPost(id, path, body, message){
@@ -376,7 +376,7 @@
     var runtime = egress.runtime || {channels: [], recent_blocked: []};
     var rows = (runtime.channels || []).map(function(c){
       var why = !c.approved ? 'gesperrt: Freigabe fehlt/veraltet' : (c.owner_block ? 'gesperrt: ' + c.owner_block : 'gesperrt');
-      var allowed = c.allowed_now ? badge(true, 'erlaubt', '') : (c.configured ? badge(false, '', why) : '<span style="font-size:9px;color:var(--n4)">nicht konfiguriert</span>');
+      var allowed = c.allowed_now ? badge(true, 'erlaubt', '') : (c.configured ? badge(false, '', why) : '<span style="font-size:10px;color:var(--n4)">nicht konfiguriert</span>');
       return '<tr data-egress-channel="' + esc(c.id) + '">' + TD + esc(c.id) + '</td>' + TD + esc(c['class'])
         + '</td>' + TD + esc((c.hosts || []).join(', ')) + '</td>' + TD + (c.personal_data ? 'ja' : 'nein')
         + '</td>' + TD + allowed + '</td></tr>';
@@ -385,11 +385,11 @@
       return '<li>' + esc(b.at) + ' &middot; ' + esc(b.host) + ' &middot; ' + esc(b.reason_code) + '</li>';
     }).join('');
     return '<div class="admin-section-title" style="margin-top:12px">Ausgehende Verbindungen</div>'
-      + '<div style="font-size:9px;color:var(--n4);margin-bottom:4px">Nur Kanäle aus dem Egress-Manifest sind erlaubt; alles andere wird blockiert. '
+      + '<div style="font-size:12px;color:var(--n4);margin-bottom:4px">Nur Kanäle aus dem Egress-Manifest sind erlaubt; alles andere wird blockiert. '
       + 'Laufzeitschutz: ' + (runtime.active ? 'aktiv' : '<b style="color:var(--neg)">inaktiv</b>') + '. Jeder Kanal braucht eine freigegebene Fassung. '
       + '<button class="btn-p" ' + BTN + ' onclick="approvePrivacyArtifact(\'egress-manifest\')">Manifest freigeben</button></div>'
-      + '<table id="pg-egress" style="width:100%;border-collapse:collapse;font-size:10px">' + rows + '</table>'
-      + (blocked ? '<div style="font-size:9px;margin-top:4px">Zuletzt blockiert:<ul style="margin:2px 0 0 14px;padding:0">' + blocked + '</ul></div>' : '');
+      + '<table id="pg-egress" style="width:100%;border-collapse:collapse;font-size:12px">' + rows + '</table>'
+      + (blocked ? '<div style="font-size:12px;margin-top:4px">Zuletzt blockiert:<ul style="margin:2px 0 0 14px;padding:0">' + blocked + '</ul></div>' : '');
   }
 
   // ── Protokoll-Ansicht ──
@@ -402,9 +402,9 @@
       : 'Keine Einträge';
     var prevDisabled = _auditLogOffset <= 0;
     var nextDisabled = (_auditLogOffset + _auditLogLimit) >= _auditLogTotal;
-    container.innerHTML = '<button class="btn" style="font-size:10px;padding:2px 8px"' + (prevDisabled ? ' disabled' : '') + ' onclick="loadAdminAuditLog(' + Math.max(0, _auditLogOffset - _auditLogLimit) + ')">&larr; Zurück</button>'
+    container.innerHTML = '<button class="btn" style="font-size:12px;padding:2px 8px"' + (prevDisabled ? ' disabled' : '') + ' onclick="loadAdminAuditLog(' + Math.max(0, _auditLogOffset - _auditLogLimit) + ')">&larr; Zurück</button>'
       + '<span style="padding:0 6px">' + escapeHtml(label) + '</span>'
-      + '<button class="btn" style="font-size:10px;padding:2px 8px"' + (nextDisabled ? ' disabled' : '') + ' onclick="loadAdminAuditLog(' + (_auditLogOffset + _auditLogLimit) + ')">Weiter &rarr;</button>';
+      + '<button class="btn" style="font-size:12px;padding:2px 8px"' + (nextDisabled ? ' disabled' : '') + ' onclick="loadAdminAuditLog(' + (_auditLogOffset + _auditLogLimit) + ')">Weiter &rarr;</button>';
   }
 
   // ── Laden ──
@@ -422,7 +422,7 @@
       state.clients = Array.isArray(results[6]) ? results[6] : ((results[6] && results[6].items) || []);
       host.innerHTML = renderSummary() + '<div id="pg-approve-confirm"></div>' + renderOwnerFields() + renderRequests() + renderIncidents() + renderEgress();
     } catch (e) {
-      host.innerHTML = '<div style="font-size:10px;color:var(--neg)">' + esc(errText(e, 'Datenschutz-Angaben konnten nicht geladen werden.')) + '</div>';
+      host.innerHTML = '<div style="font-size:12px;color:var(--neg)">' + esc(errText(e, 'Datenschutz-Angaben konnten nicht geladen werden.')) + '</div>';
     }
   }
 

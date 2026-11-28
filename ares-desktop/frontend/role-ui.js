@@ -85,14 +85,14 @@
     }).join(' · ');
     var action = item.can_publish
       ? '<button class="btn btn-sm" data-inbox-approve="' + escapeText(item.mandate_id) + '">Freigeben</button>'
-      : '<span style="font-size:10px;color:var(--n4)">Noch nicht freigebbar (Prüfung offen)</span>';
+      : '<span style="font-size:12px;color:var(--n4)">Noch nicht freigebbar (Prüfung offen)</span>';
     return '<div class="card mb" style="padding:8px">'
-      + '<div style="font-size:11px;font-weight:600">Mandat ' + escapeText(item.mandate_number || item.mandate_id)
+      + '<div style="font-size:12px;font-weight:600">Mandat ' + escapeText(item.mandate_number || item.mandate_id)
       + (item.client_name ? ' · ' + escapeText(item.client_name) : '')
       + (item.mandate_type ? ' · ' + escapeText(item.mandate_type) : '') + '</div>'
-      + '<div style="font-size:10px;color:var(--n4)">Vorbereitet von ' + escapeText(item.prepared_by_name || '–')
+      + '<div style="font-size:12px;color:var(--n4)">Vorbereitet von ' + escapeText(item.prepared_by_name || '–')
       + (item.sealed_at ? ' am ' + escapeText(String(item.sealed_at).slice(0, 10)) : '') + '</div>'
-      + '<div style="font-size:10px;margin:4px 0">' + escapeText(targets) + '</div>' + action + '</div>';
+      + '<div style="font-size:12px;margin:4px 0">' + escapeText(targets) + '</div>' + action + '</div>';
   }
 
   async function openInbox() {
@@ -111,7 +111,7 @@
     panel.style.display = 'block';
     panel.innerHTML = '<div style="font-size:12px;font-weight:600;margin-bottom:6px">Freigaben (Vier-Augen-Publikation)'
       + '<button class="btn btn-sm" data-inbox-close="1" style="float:right">Schliessen</button></div>'
-      + '<div id="ares-publication-inbox-body" style="font-size:10px">Wird geladen…</div>';
+      + '<div id="ares-publication-inbox-body" style="font-size:12px">Wird geladen…</div>';
     var body = document.getElementById('ares-publication-inbox-body');
     try {
       var items = await apiCall('/publication-inbox');
@@ -193,13 +193,13 @@
       + (draft.isin ? ' · ' + escapeText(draft.isin) : '')
       + (draft.asset_class ? ' · ' + escapeText(draft.asset_class) : '');
     var action = draft.authored_by_current_user
-      ? '<span style="font-size:10px;color:var(--n4)">Selbst erfasst – Freigabe durch eine andere Person</span>'
+      ? '<span style="font-size:12px;color:var(--n4)">Selbst erfasst – Freigabe durch eine andere Person</span>'
       : '<button class="btn btn-sm" data-elig-approve="' + escapeText(draft.product_id) + '">Freigeben</button>';
     return '<div class="card mb" style="padding:8px">'
-      + '<div style="font-size:11px;font-weight:600">' + title + '</div>'
-      + '<div style="font-size:10px;color:var(--n4)">Erfasst von ' + escapeText((draft.authored_by_names || []).join(', ') || '–')
+      + '<div style="font-size:12px;font-weight:600">' + title + '</div>'
+      + '<div style="font-size:12px;color:var(--n4)">Erfasst von ' + escapeText((draft.authored_by_names || []).join(', ') || '–')
       + '</div>'
-      + (draft.rules || []).map(function (r) { return '<div style="font-size:10px;margin:4px 0">' + ruleText(r) + '</div>'; }).join('')
+      + (draft.rules || []).map(function (r) { return '<div style="font-size:12px;margin:4px 0">' + ruleText(r) + '</div>'; }).join('')
       + action + '</div>';
   }
 
@@ -211,7 +211,7 @@
     var box = document.getElementById('elig-reviewer-body');
     if (!box) return;
     box.innerHTML = '<div style="font-size:12px;font-weight:600">Produkt-Eignungsregeln (Freigabe als zweite Person)</div>'
-      + '<div id="elig-reviewer-list" style="font-size:10px">Wird geladen…</div>';
+      + '<div id="elig-reviewer-list" style="font-size:12px">Wird geladen…</div>';
     var list = document.getElementById('elig-reviewer-list');
     try {
       var res = await apiCall('/products/eligibility-drafts');

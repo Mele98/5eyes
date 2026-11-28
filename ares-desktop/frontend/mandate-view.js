@@ -300,9 +300,9 @@
         if (c && hero) {
           hero.dataset.rvMask = 'stale';
           hero.style.cssText = 'background:#fff7ed;border:1px solid rgba(194,65,12,0.3);border-radius:var(--r2);padding:24px 28px;margin-bottom:14px';
-          hero.innerHTML = '<div style="font-size:9px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#9a3412;margin-bottom:10px">STRATEGIE VERALTET</div>'
+          hero.innerHTML = '<div style="font-size:12px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#9a3412;margin-bottom:10px">STRATEGIE VERALTET</div>'
             + '<div id="rv-stale-cause" style="font-size:15px;font-weight:700;color:var(--n8);margin-bottom:6px">' + esc(c) + '</div>'
-            + '<div style="font-size:11px;color:var(--n6);line-height:1.65;margin-bottom:12px">Die publizierte Soll-Allokation ist nicht mehr aktuell. Bitte die Anlagestrategie neu berechnen, finalisieren und publizieren.</div>'
+            + '<div style="font-size:12px;color:var(--n6);line-height:1.65;margin-bottom:12px">Die publizierte Soll-Allokation ist nicht mehr aktuell. Bitte die Anlagestrategie neu berechnen, finalisieren und publizieren.</div>'
             + '<div><button class="btn btn-sm" type="button" onclick="go(\'al\')">Zur Asset Allokation</button></div>';
         }
         return r;
@@ -380,9 +380,9 @@
     if (pv && pv.previousElementSibling) pv.previousElementSibling.textContent = 'Prognose';
     setRiskTiles();
     var bars = byId('sr-allocation-bars');
-    if (bars) bars.innerHTML = '<div style="font-size:10px;color:var(--n5)">Soll-Allokation erscheint nach der nächsten Berechnung.</div>';
+    if (bars) bars.innerHTML = '<div style="font-size:12px;color:var(--n5)">Soll-Allokation erscheint nach der nächsten Berechnung.</div>';
     var goals = byId('sr-goal-priority-list');
-    if (goals) goals.innerHTML = '<div style="font-size:10px;color:var(--n5)">Zielauswertung erscheint nach der nächsten Berechnung.</div>';
+    if (goals) goals.innerHTML = '<div style="font-size:12px;color:var(--n5)">Zielauswertung erscheint nach der nächsten Berechnung.</div>';
   }
   function resetGlobals(){
     try { currentReviewState = {triggers: [], logs: [], documents: [], conflicts: [], suitability: [], allocation: null, recommendation: null}; } catch(_){}
@@ -469,7 +469,7 @@
           var steps = byId('sr-implementation-steps');
           var c = staleCause();
           if (steps) steps.innerHTML = '<div style="grid-column:1/-1;border:1px solid var(--b1);border-radius:var(--r2);padding:12px;background:var(--bg)"><div style="font-size:11px;color:var(--n8);font-weight:500;margin-bottom:4px">'
-            + (c ? 'Strategie veraltet' : 'Noch keine Soll-Allokation') + '</div><div style="font-size:10px;color:var(--n6)">'
+            + (c ? 'Strategie veraltet' : 'Noch keine Soll-Allokation') + '</div><div style="font-size:12px;color:var(--n6)">'
             + esc(c ? c + '. Empfehlungen je Anlageklasse erscheinen nach «Anlagestrategie berechnen».' : 'Empfehlungen je Anlageklasse erscheinen nach «Anlagestrategie berechnen».') + '</div></div>';
         }
         var meta = byId('sr-decision-meta');
@@ -514,7 +514,7 @@
       // (inaktive Schritte nur Nummer, Name als title/Screenreader), Rueckfall Scrollleiste der .tnav.
       + '.topbar .tr{flex-shrink:0}'
       + '@media(max-width:1440px){#current-user-label{display:none}.topbar .tr{gap:5px;padding:0 8px}.topbar .tr .t-btn{padding:5px 8px}'
-      + '.tstep:not(.active){font-size:0;gap:0;padding:0 6px}.tstep:not(.active) .sn{font-size:9px}}'
+      + '.tstep:not(.active){font-size:0;gap:0;padding:0 6px}.tstep:not(.active) .sn{font-size:10px}}'
       + '@media(max-width:1180px){.logo{width:112px;min-width:112px;padding:0 10px}.logo-s{display:none}'
       + '#btn-presentation-mode-toggle{max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}';
     document.head.appendChild(st);

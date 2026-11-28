@@ -100,14 +100,14 @@ async function saveContractDocumentDraft(){
     return '<div class="modal" style="width:620px;max-height:84vh;overflow-y:auto">'
       + '<div class="mhd"><div class="mtitle">Beratungsvertrag</div><button class="mx" onclick="cm(\'m-advice-contract\')">✕</button></div>'
       + '<div class="mbody">'
-      + '<div id="ac-template" style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);padding:10px;margin-bottom:10px;font-size:11px;color:var(--n6)">Lädt…</div>'
-      + '<div id="ac-readonly" style="display:none;font-size:11px;color:var(--warn);margin-bottom:8px">Nur Lesen: Ihre Rolle kann keinen Beratungsvertrag erstellen oder unterzeichnen.</div>'
+      + '<div id="ac-template" style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);padding:10px;margin-bottom:10px;font-size:12px;color:var(--n6)">Lädt…</div>'
+      + '<div id="ac-readonly" style="display:none;font-size:12px;color:var(--warn);margin-bottom:8px">Nur Lesen: Ihre Rolle kann keinen Beratungsvertrag erstellen oder unterzeichnen.</div>'
       + '<div class="frow"><div class="fg"><label class="fl" for="ac-place">Ort der Unterzeichnung (Pflicht)</label><input class="fi" id="ac-place" autocomplete="off"></div>'
       + '<div class="fg"><label class="fl" for="ac-date">Datum</label><input class="fi" type="date" id="ac-date"></div></div>'
       + '<div class="frow"><div class="fg"><label class="fl" for="ac-special">Sondervereinbarungen (optional)</label>'
       + '<textarea class="fi" id="ac-special" rows="2" style="resize:vertical;min-height:50px"></textarea></div></div>'
-      + '<div id="ac-error" role="alert" style="display:none;white-space:pre-line;font-size:11px;color:var(--neg);margin-top:6px"></div>'
-      + '<div id="ac-result" style="display:none;white-space:pre-line;font-size:11px;margin-top:6px"></div>'
+      + '<div id="ac-error" role="alert" style="display:none;white-space:pre-line;font-size:12px;color:var(--neg);margin-top:6px"></div>'
+      + '<div id="ac-result" style="display:none;white-space:pre-line;font-size:12px;margin-top:6px"></div>'
       + '</div><div class="mfooter">'
       + '<button class="btn" onclick="cm(\'m-advice-contract\')">Schliessen</button>'
       + '<button class="btn-p" id="btn-ac-save" onclick="saveAdviceContract()">Entwurf speichern</button>'
@@ -147,7 +147,7 @@ async function saveContractDocumentDraft(){
     }
     var lines = findingLines(layer && layer.findings);
     if (lines.length) {
-      html += '<div id="ac-findings" style="margin-top:6px;font-size:10px;color:var(--n6)"><b>Offen für den Vertragsabschluss:</b><br>' + lines.map(esc).join('<br>') + '</div>';
+      html += '<div id="ac-findings" style="margin-top:6px;font-size:12px;color:var(--n6)"><b>Offen für den Vertragsabschluss:</b><br>' + lines.map(esc).join('<br>') + '</div>';
     }
     return html;
   }

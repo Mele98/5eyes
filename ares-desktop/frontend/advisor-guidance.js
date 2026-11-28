@@ -61,7 +61,7 @@
   function renderFirm(host, t){
     var on = Number(t.single_person_firm || 0) === 1;
     var lic = t.max_users == null ? 'ohne Begrenzung' : (String(t.max_users) + ' Benutzer');
-    host.innerHTML = '<div class="card"><div class="chd"><span class="cht">Firma</span></div><div class="cbody" style="font-size:11px;line-height:1.6">'
+    host.innerHTML = '<div class="card"><div class="chd"><span class="cht">Firma</span></div><div class="cbody" style="font-size:12px;line-height:1.6">'
       + '<div><b>' + esc(t.display_name || '') + '</b> · Land ' + esc(t.home_jurisdiction || '') + ' · Lizenz ' + esc(lic) + '</div>'
       + '<fieldset style="border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;margin-top:10px">'
       + '<legend style="font-weight:600;padding:0 4px">Freigabe der Soll-Allokation</legend>'
@@ -74,7 +74,7 @@
       + 'Ausgeschaltet gilt das Vier-Augen-Prinzip. Jede Änderung wird im Protokoll festgehalten.</div>'
       + '<div style="color:var(--n5);margin:6px 0 0 24px">' + esc(FIRM_EXPLAIN) + '</div>'
       + '<div style="margin:10px 0 0 24px"><button class="btn-p" type="button" id="btn-firm-save" onclick="saveAdminFirm()">Speichern</button></div>'
-      + '<div id="firm-status" role="status" style="margin:6px 0 0 24px;font-size:10px"></div>'
+      + '<div id="firm-status" role="status" style="margin:6px 0 0 24px;font-size:12px"></div>'
       + '</fieldset></div></div>';
   }
 
@@ -87,7 +87,7 @@
       renderFirm(host, t);
       return t;
     } catch(e) {
-      host.innerHTML = '<div style="color:var(--neg);font-size:10px">' + esc(errorText(e, 'Firmenangaben konnten nicht geladen werden.')) + '</div>';
+      host.innerHTML = '<div style="color:var(--neg);font-size:12px">' + esc(errorText(e, 'Firmenangaben konnten nicht geladen werden.')) + '</div>';
       return null;
     }
   }
@@ -251,10 +251,10 @@
     m.id = 'm-fx-quick';
     m.innerHTML = '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="fxq-title" style="max-width:540px">'
       + '<div class="mhd"><div class="mtitle" id="fxq-title">Wechselkurse erfassen</div><button class="mx" type="button" aria-label="Schliessen" onclick="cm(\'m-fx-quick\')">&#10005;</button></div>'
-      + '<div class="mbody"><div style="font-size:11px;color:var(--n6);line-height:1.5;margin-bottom:8px">Ein Kurs gilt erst als belegt, wenn Sie ihn erfassen oder als geprüft bestätigen. Ersatzkurse werden nie kundenwirksam verwendet. '
+      + '<div class="mbody"><div style="font-size:12px;color:var(--n6);line-height:1.5;margin-bottom:8px">Ein Kurs gilt erst als belegt, wenn Sie ihn erfassen oder als geprüft bestätigen. Ersatzkurse werden nie kundenwirksam verwendet. '
       + 'Dieselben Kurse stehen in der Administration unter Kapitalmarkt-Annahmen › Rendite &amp; Vol. › Wechselkurse.</div>'
       + '<div id="fxq-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px"></div>'
-      + '<div id="fxq-status" role="status" style="font-size:10px;color:var(--n5);margin-top:8px"></div></div>'
+      + '<div id="fxq-status" role="status" style="font-size:12px;color:var(--n5);margin-top:8px"></div></div>'
       + '<div class="mfooter"><button class="btn" type="button" onclick="cm(\'m-fx-quick\')">Schliessen</button>'
       + '<button class="btn-p" type="button" id="btn-fxq-save" onclick="saveFxQuickEditor()">Kurse speichern</button></div></div>';
     document.body.appendChild(m);
@@ -279,7 +279,7 @@
         + (sub ? '<span style="color:var(--neg);font-weight:600">Ersatzkurs – nicht belegt</span>' : esc(fxSourceText(r.source) + ', ' + String(r.valid_from || '').slice(0, 10))) + '</label>'
         + '<input class="fi fxq-input" id="fxq-rate-' + esc(ccy) + '" type="number" step="0.0001" min="0.0001" data-currency="' + esc(ccy) + '" data-original="' + (sub ? '' : esc(shown)) + '"'
         + (sub ? ' placeholder="' + esc(shown) + '" value=""' : ' value="' + esc(shown) + '"') + '>'
-        + '<label style="font-size:10px;color:var(--n5);display:flex;gap:4px;align-items:center;margin-top:3px"><input type="checkbox" class="fxq-confirm" data-currency="' + esc(ccy) + '"> Kurs geprüft (Quelle manuell, Datum heute)</label></div>';
+        + '<label style="font-size:12px;color:var(--n5);display:flex;gap:4px;align-items:center;margin-top:3px"><input type="checkbox" class="fxq-confirm" data-currency="' + esc(ccy) + '"> Kurs geprüft (Quelle manuell, Datum heute)</label></div>';
     }).join('');
     try { var first = grid.querySelector('.fxq-input'); if (first) first.focus(); } catch(_){}
     return true;
@@ -362,7 +362,7 @@
     var fg = document.createElement('div');
     fg.className = 'fg';
     fg.innerHTML = '<label class="fl" for="maw-currency">Währung</label><select class="fsel" id="maw-currency" aria-describedby="maw-currency-hint" onchange="syncWealthCurrency(this.value)"></select>'
-      + '<div id="maw-currency-hint" style="font-size:9px;color:var(--n5);margin-top:2px"></div>';
+      + '<div id="maw-currency-hint" style="font-size:12px;color:var(--n5);margin-top:2px"></div>';
     row.appendChild(fg);
   }
   function fillCurrencyOptions(sel, codes, selected){
@@ -469,7 +469,7 @@
       : (String(err.reason_code || '').indexOf('CCX_FX_BASIS') === 0
         ? 'Kurs nicht belegt: ' + ((err.currencies || foreign).map(up).join(', ')) + (up(err.fx_status) === 'STALE' || err.reason_code === 'CCX_FX_BASIS_STALE' ? ' (abgelaufen)' : ' (fehlt oder nur Ersatzkurs)') + '.'
         : 'Eine umgerechnete Summe liegt nicht vor.');
-    return '<div data-wealth-fx-notice="1" role="status" style="margin-bottom:10px;padding:9px 11px;border:1px solid rgba(194,65,12,0.25);background:#fff7ed;border-radius:var(--r2);font-size:11px;line-height:1.5;color:var(--n7)">'
+    return '<div data-wealth-fx-notice="1" role="status" style="margin-bottom:10px;padding:9px 11px;border:1px solid rgba(194,65,12,0.25);background:#fff7ed;border-radius:var(--r2);font-size:12px;line-height:1.5;color:var(--n7)">'
       + '<b>Positionen in mehreren Währungen (' + esc((mix.currencies || []).filter(function(c){ return c !== '?'; }).join(', ')) + ').</b> '
       + 'Summen und Anteile werden nur in ' + esc(baseCcy()) + ' mit belegten Kursen gezeigt. ' + esc(why) + ' '
       + '<a href="#" onclick="openFxQuickEditor(' + esc(JSON.stringify(foreign)).replace(/"/g, '&quot;') + ');return false;">Wechselkurs erfassen</a></div>';
@@ -567,7 +567,7 @@
       el = document.createElement('div');
       el.id = 'po-sample-warning';
       el.setAttribute('role', 'alert');
-      el.style.cssText = 'display:none;background:#fff7ed;border:1px solid rgba(194,65,12,0.3);border-radius:var(--r);padding:10px 12px;margin-bottom:10px;font-size:11px;line-height:1.5;color:#7c2d12';
+      el.style.cssText = 'display:none;background:#fff7ed;border:1px solid rgba(194,65,12,0.3);border-radius:var(--r);padding:10px 12px;margin-bottom:10px;font-size:12px;line-height:1.5;color:#7c2d12';
       wrap.parentNode.insertBefore(el, wrap);
     }
     syncFinalizeButton();
@@ -626,10 +626,10 @@
     card.id = 'cf-retirement';
     card.setAttribute('role', 'group');
     card.setAttribute('aria-label', 'Pensionierung');
-    card.style.cssText = 'display:none;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding:8px 12px;border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg);font-size:11px';
+    card.style.cssText = 'display:none;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding:8px 12px;border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg);font-size:12px';
     card.innerHTML = '<span style="font-weight:600">Pensionierung:</span> <span id="cf-retirement-text"></span>'
-      + '<label for="cf-retirement-year" style="margin-left:auto;font-size:10px;color:var(--n5)">Pensionierungsjahr</label>'
-      + '<input class="fi" id="cf-retirement-year" type="number" min="2000" max="2100" placeholder="z.B. 2031" style="width:90px;font-size:11px">'
+      + '<label for="cf-retirement-year" style="margin-left:auto;font-size:12px;color:var(--n5)">Pensionierungsjahr</label>'
+      + '<input class="fi" id="cf-retirement-year" type="number" min="2000" max="2100" placeholder="z.B. 2031" style="width:90px;font-size:12px">'
       + '<button class="btn btn-sm" type="button" id="btn-cf-retirement-save" onclick="saveRetirementYear()">Speichern</button>';
     pad.insertBefore(card, pad.firstChild);
   }

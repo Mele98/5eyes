@@ -35,11 +35,11 @@ async function openTradeList(confirmNoHoldings){
   var confirmed=confirmNoHoldings===true;
   _tlHandoffCtx={mandateId:mandateId,runId:runId,confirmNoHoldings:confirmed};
   if(!mandateId||!runId){
-    body.innerHTML='<div style="font-size:11px;color:var(--n5);padding:12px">Keine Handelsliste verfügbar.</div>';
+    body.innerHTML='<div style="font-size:12px;color:var(--n5);padding:12px">Keine Handelsliste verfügbar.</div>';
     om('m-tl');
     return;
   }
-  body.innerHTML='<div style="font-size:11px;color:var(--n5);padding:12px">Handelsliste wird berechnet…</div>';
+  body.innerHTML='<div style="font-size:12px;color:var(--n5);padding:12px">Handelsliste wird berechnet…</div>';
   om('m-tl');
   var preview;
   try{
@@ -64,7 +64,7 @@ function tradeListGuideButton(label,action){
 }
 function renderTradeListUnavailable(body,detail){
   var msg=String(detail.message||'Keine Handelsliste verfügbar.').replace(/\s*\(confirm_no_existing_holdings\)/g,'');
-  var html='<div style="font-size:11px;color:var(--n6);padding:12px">'+escapeHtml(msg)+'</div>';
+  var html='<div style="font-size:12px;color:var(--n6);padding:12px">'+escapeHtml(msg)+'</div>';
   var guide='';
   if(detail.reason_code===TRADE_LIST_NO_HOLDINGS_REASON){
     var depots=tradeListAdvisoryDepots();
@@ -90,7 +90,7 @@ function renderTradeListUnavailable(body,detail){
       +(typeof currentUser!=='undefined'&&currentUser&&currentUser.role==='admin'?tradeListGuideButton('Datenschutz-Freigabe öffnen',"cm('m-tl');openAdminModal();adminShowSection('sec-privacy-gov');loadPrivacyGovernance()"):'')
       +'</div>';
   }
-  if(guide)html+='<div id="tl-guide" role="note" style="margin:0 12px 12px;padding:10px 12px;border:1px solid var(--b1);border-radius:var(--r);background:var(--bg);font-size:11px;line-height:1.5;color:var(--n7)">'+guide+'</div>';
+  if(guide)html+='<div id="tl-guide" role="note" style="margin:0 12px 12px;padding:10px 12px;border:1px solid var(--b1);border-radius:var(--r);background:var(--bg);font-size:12px;line-height:1.5;color:var(--n7)">'+guide+'</div>';
   body.innerHTML=html;
 }
 
@@ -132,23 +132,23 @@ function renderTradeListPreview(body,preview){
   var hasExternal=trades.some(isExternalTradeRow);
   var rows=trades.map(function(p){
     var color=actionColor(p.rebalance_action_code);
-    var outside=isExternalTradeRow(p)?'<div style="font-size:9px;font-weight:600;color:var(--n5)">ausserhalb der Empfehlung · Vorschlag</div>':'';
+    var outside=isExternalTradeRow(p)?'<div style="font-size:12px;font-weight:600;color:var(--n5)">ausserhalb der Empfehlung · Vorschlag</div>':'';
     return '<tr style="border-bottom:1px solid var(--b1)">'
-      +'<td style="padding:6px 8px;font-size:11px;font-weight:500">'+escapeHtml(p.product_name||'')+outside+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;color:var(--n5)">'+escapeHtml(p.sub_asset_class||p.asset_class||'')+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;font-weight:700;color:'+color+'">'+escapeHtml(p.rebalance_action||'')+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatRappen(p.current_market_value_rappen))+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatRappen(p.target_amount_rappen))+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;text-align:right;font-weight:600;color:'+color+'">'+escapeHtml(fmtDelta(p.rebalance_amount_rappen))+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatBpsPercent(p.target_weight_bps))+'</td>'
+      +'<td style="padding:6px 8px;font-size:12px;font-weight:500">'+escapeHtml(p.product_name||'')+outside+'</td>'
+      +'<td style="padding:6px 8px;font-size:12px;color:var(--n5)">'+escapeHtml(p.sub_asset_class||p.asset_class||'')+'</td>'
+      +'<td style="padding:6px 8px;font-size:12px;font-weight:700;color:'+color+'">'+escapeHtml(p.rebalance_action||'')+'</td>'
+      +'<td style="padding:6px 8px;font-size:12px;text-align:right">'+escapeHtml(formatRappen(p.current_market_value_rappen))+'</td>'
+      +'<td style="padding:6px 8px;font-size:12px;text-align:right">'+escapeHtml(formatRappen(p.target_amount_rappen))+'</td>'
+      +'<td style="padding:6px 8px;font-size:12px;text-align:right;font-weight:600;color:'+color+'">'+escapeHtml(fmtDelta(p.rebalance_amount_rappen))+'</td>'
+      +'<td style="padding:6px 8px;font-size:12px;text-align:right">'+escapeHtml(formatBpsPercent(p.target_weight_bps))+'</td>'
       +'</tr>';
   }).join('');
   var basisLabel=preview&&preview.holdings_basis==='confirmed_no_holdings'
     ?'Basis: bestätigtes Neugeld (kein bestehender Bestand)'
     :'Basis: erfasster Depotbestand inkl. bewerteter Liquidität';
-  var thS='padding:6px 8px;text-align:left;font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n4);border-bottom:2px solid var(--b1)';
+  var thS='padding:6px 8px;text-align:left;font-size:12px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n4);border-bottom:2px solid var(--b1)';
   var thR=thS+';text-align:right';
-  body.innerHTML='<div style="margin-bottom:10px;font-size:11px;color:var(--n5)">'
+  body.innerHTML='<div style="margin-bottom:10px;font-size:12px;color:var(--n5)">'
     +escapeHtml(String(trades.length))+' Positionen'
     +' &middot; Kaufvolumen: <span style="color:var(--pos)">'+escapeHtml(formatRappen(totalBuy))+'</span>'
     +' &middot; Verkaufsvolumen: <span style="color:var(--neg)">'+escapeHtml(formatRappen(totalSell))+'</span>'
@@ -166,7 +166,7 @@ function renderTradeListPreview(body,preview){
     +'</tr></thead>'
     +'<tbody>'+rows+'</tbody>'
     +'</table></div>'
-    +(hasExternal?'<div role="note" style="margin-top:8px;font-size:11px;color:var(--n6);line-height:1.5">'
+    +(hasExternal?'<div role="note" style="margin-top:8px;font-size:12px;color:var(--n6);line-height:1.5">'
       +'Titel ausserhalb der Empfehlung: «Verkauf prüfen» ist ein Vorschlag. Verkaufen oder halten entscheidet der Kunde; '
       +'es wird nichts automatisch verkauft. Ihr Wert zählt zum erfassten Depot (IST), ihr SOLL ist 0.</div>':'')
     +'<div style="margin-top:8px">'+tradeListGuideButton('Titel ausserhalb der Empfehlung bearbeiten','openExternalHoldingsEditor()')+'</div>'
@@ -203,8 +203,8 @@ function externalMinorToText(minor,ccy){
 function externalHoldingRowHtml(item){
   item=item||{};
   var opts=EXTERNAL_ASSET_CLASSES.map(function(c){return '<option'+(item.asset_class===c?' selected':'')+'>'+escapeHtml(c)+'</option>';}).join('');
-  var st=item.status&&item.status!=='ok'?'<div style="font-size:10px;color:var(--neg)">'+escapeHtml(item.status_text||'nicht bewertbar')+'</div>':'';
-  var inp='padding:3px 4px;font-size:11px;border:1px solid var(--b1);border-radius:4px';
+  var st=item.status&&item.status!=='ok'?'<div style="font-size:12px;color:var(--neg)">'+escapeHtml(item.status_text||'nicht bewertbar')+'</div>':'';
+  var inp='padding:3px 4px;font-size:12px;border:1px solid var(--b1);border-radius:4px';
   return '<tr class="ext-row">'
     +'<td><input class="ext-label" aria-label="Bezeichnung" style="'+inp+';width:140px" value="'+escapeHtml(item.label||'')+'">'+st+'</td>'
     +'<td><input class="ext-isin" aria-label="ISIN (optional)" style="'+inp+';width:110px" value="'+escapeHtml(item.isin||'')+'"></td>'
@@ -234,28 +234,28 @@ async function openExternalHoldingsEditor(){
   var mandateId=getActiveMandateId();
   if(!body||!mandateId)return;
   om('m-tl');
-  body.innerHTML='<div style="font-size:11px;color:var(--n5);padding:12px">Titel ausserhalb der Empfehlung werden geladen…</div>';
+  body.innerHTML='<div style="font-size:12px;color:var(--n5);padding:12px">Titel ausserhalb der Empfehlung werden geladen…</div>';
   var data;
   try{data=await API.get('/mandates/'+encodeURIComponent(mandateId)+'/external-holdings');}
-  catch(e){body.innerHTML='<div style="font-size:11px;color:var(--n6);padding:12px">'+escapeHtml(tradeListErrorDetail(e).message)+'</div>';return;}
+  catch(e){body.innerHTML='<div style="font-size:12px;color:var(--n6);padding:12px">'+escapeHtml(tradeListErrorDetail(e).message)+'</div>';return;}
   renderExternalHoldingsEditor(body,mandateId,data);
 }
 function renderExternalHoldingsEditor(body,mandateId,data,notice){
   var depots=(data&&data.depots)||[];
-  var th='padding:4px;text-align:left;font-size:9px;font-weight:600;text-transform:uppercase;color:var(--n4)';
+  var th='padding:4px;text-align:left;font-size:12px;font-weight:600;text-transform:uppercase;color:var(--n4)';
   var head='<tr><th style="'+th+'">Bezeichnung</th><th style="'+th+'">ISIN</th><th style="'+th+'">Anlageklasse</th>'
     +'<th style="'+th+'">Währung</th><th style="'+th+'">Marktwert</th><th style="'+th+'">Stichtag</th><th></th></tr>';
-  var html='<div style="font-size:11px;line-height:1.5;color:var(--n7);margin-bottom:8px"><b>Titel ausserhalb der Empfehlung.</b> '
+  var html='<div style="font-size:12px;line-height:1.5;color:var(--n7);margin-bottom:8px"><b>Titel ausserhalb der Empfehlung.</b> '
     +'Gehaltene Titel, die nicht in der Empfehlung stehen, mit Marktwert und Stichtag aus dem Depotauszug. '
     +'Ohne Marktwert oder Stichtag bleibt ein Titel «nicht bewertbar» – dann gibt es keine Handelsliste und keine Bandaussage. '
     +'Titel der Empfehlung erfassen Sie bei der Empfehlungsposition.</div>';
-  if(notice)html+='<div role="status" style="font-size:11px;margin-bottom:8px;color:var(--n7)">'+escapeHtml(notice)+'</div>';
+  if(notice)html+='<div role="status" style="font-size:12px;margin-bottom:8px;color:var(--n7)">'+escapeHtml(notice)+'</div>';
   if(!depots.length){
-    body.innerHTML=html+'<div style="font-size:11px;color:var(--n6)">Im Vermögen ist kein aktives Wertschriftendepot im Beratungsvermögen erfasst.</div>';
+    body.innerHTML=html+'<div style="font-size:12px;color:var(--n6)">Im Vermögen ist kein aktives Wertschriftendepot im Beratungsvermögen erfasst.</div>';
     return;
   }
   depots.forEach(function(d,idx){
-    html+='<div style="margin-top:10px;font-size:11px;font-weight:600">'+escapeHtml(d.depot_label||'Depot')+'</div>'
+    html+='<div style="margin-top:10px;font-size:12px;font-weight:600">'+escapeHtml(d.depot_label||'Depot')+'</div>'
       +'<div style="overflow-x:auto"><table class="ext-table" data-idx="'+idx+'" data-wp="'+escapeHtml(d.wealth_position_id)+'" style="border-collapse:collapse">'
       +'<thead>'+head+'</thead><tbody>'+((d.items||[]).map(externalHoldingRowHtml).join('')||externalHoldingRowHtml({}))+'</tbody></table></div>'
       +'<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'

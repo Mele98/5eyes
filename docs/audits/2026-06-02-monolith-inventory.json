@@ -9266,14 +9266,14 @@
     {
       "kind": "css",
       "path": "ares-desktop/frontend/ares.css",
-      "sha256": "25e9c2c0a22540e826b0a177e103dd545f770db4f084c661b6bf6a270b2157b1",
-      "size_bytes": 90094
+      "sha256": "406515da45c907ca3a6e793700a58b1737846875d71cfdc79ca2d60bf3196d62",
+      "size_bytes": 90162
     },
     {
       "kind": "css",
       "path": "ares-desktop/frontend/aa-chart.css",
-      "sha256": "f7a6b988ed7d2b3dca6e699e47ffabe6b8368321336135117bd2c79018525b6f",
-      "size_bytes": 5978
+      "sha256": "9cac8b0ac354189874e27905152506582dab14af22f1cc5c78d03ca6f323f3f2",
+      "size_bytes": 5970
     },
     {
       "kind": "js",
@@ -9314,38 +9314,38 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/goal-review-runtime.js",
-      "sha256": "7957db5e3c472dd1b9de907d79613c4cc91ee0da7a1183e560425176c2fbe5cd",
-      "size_bytes": 83782
+      "sha256": "cb0518f740a19e23b9f2dbe139189ec24b53654879746521ba05b1a54edde5bf",
+      "size_bytes": 83798
     },
     {
       "kind": "js",
       "path": "ares-desktop/frontend/client-compliance.js",
-      "sha256": "cd38d6c008c7fb0446bf025141d2c7ad0c2e03a22ffcc06e597ebf7efdd0ec86",
-      "size_bytes": 29962
+      "sha256": "8fd0a000a8a6897eb0d577f23be03a91ff6e0421bfdc55d1a602dc1ea6e90606",
+      "size_bytes": 29971
     },
     {
       "kind": "js",
       "path": "ares-desktop/frontend/kyc-review-policy.js",
-      "sha256": "d206077e6edd194f7606b3394a8cd9273abef307a73a11a1883e6f606cb72948",
-      "size_bytes": 25832
+      "sha256": "81e82146dc3316eb609e796196470649d24d6d1255d53a9bd97e32548dbe8964",
+      "size_bytes": 25842
     },
     {
       "kind": "js",
       "path": "ares-desktop/frontend/owner-content.js",
-      "sha256": "630372e22a2dd10b16c882437cf28e8f67374a84bcea5791d8ef4c395256aa3e",
-      "size_bytes": 21153
+      "sha256": "6fff33e7289499ccc4ab19dd09a4265ed102bc9a2b38ee5790eb4fad3ceb6ef3",
+      "size_bytes": 21170
     },
     {
       "kind": "js",
       "path": "ares-desktop/frontend/advice-contract.js",
-      "sha256": "e49387adc3a54a791b287a2b0a3121227d998516eb0bed1f7b09aaf5652ec9ad",
+      "sha256": "0d74a899dc67c2b046fd9a68a7095ceeea43fa921f8f76b7a4028fd9370d9958",
       "size_bytes": 18981
     },
     {
       "kind": "js",
       "path": "ares-desktop/frontend/privacy-governance.js",
-      "sha256": "61d8b2ead3cfb732aacd546d699e4dc6ef478a065c421bdc6bb09b83d91508a2",
-      "size_bytes": 35247
+      "sha256": "60a82453853c851c5070a6e714b204d6e07cd1bfaa21a33e405a1a49ecc3e128",
+      "size_bytes": 35258
     },
     {
       "kind": "js",
@@ -9356,8 +9356,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/allocation-publication.js",
-      "sha256": "3fb9a723d4a130d368e973847f85654d6ecec5f547e4b0c9208a31ee12443f45",
-      "size_bytes": 13775
+      "sha256": "23d199dd2fac79d233dd8520a971318097758a5eddf08e7815122cd778f724cf",
+      "size_bytes": 13776
     },
     {
       "kind": "js",
@@ -9368,20 +9368,20 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/fx-rates-editor.js",
-      "sha256": "8243a50dfac2704b7e5d7e73be5b2fb368e1fde7f0cacc1e1969c787e47ab304",
-      "size_bytes": 5091
+      "sha256": "c0f18b8b66da79fc61aaa572cbec48056bc9f8f8c57d6f80e44994ca6910752b",
+      "size_bytes": 5093
     },
     {
       "kind": "js",
       "path": "ares-desktop/frontend/advisor-guidance.js",
-      "sha256": "d965820f67c735bf7e162c33338c55a61899a9496846971c587be249425d1240",
-      "size_bytes": 43963
+      "sha256": "ba845d27258a3c737d47168f20acde81fe35f30834cf7b28288b3f94f20d4c75",
+      "size_bytes": 43964
     },
     {
       "kind": "js",
       "path": "ares-desktop/frontend/mandate-view.js",
-      "sha256": "fdf23b30259deabf05f73227c3ca077cb51cc1ae3e3cece07e6b67506b204dd7",
-      "size_bytes": 35395
+      "sha256": "35fdf626867f85ff1fbe57e5b7aaf1f44966d95a5ba89d708106818aed659c0d",
+      "size_bytes": 35397
     },
     {
       "kind": "js",
@@ -9422,8 +9422,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/sustainability-preferences.js",
-      "sha256": "70126c2de2dce4a06ff32107530d33ec88f7f5d3a0312949f858ed53d275b991",
-      "size_bytes": 26065
+      "sha256": "fc95e3e7686e5c3cf0f99f9a2c6a48f55521e904a104206268bf1bfc0e5e368c",
+      "size_bytes": 26053
     }
   ],
   "ids": [
@@ -25628,8 +25628,8 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "c940b0773d2dd055266e082431ec53a1bb749de993a1e100b180ccd8658a5f9c",
-  "source_size_bytes": 1612619,
+  "source_sha256": "3c01f99ed016d4fc1b69428c368c4e65c01cf0e9d2950874a4123f3dc372517a",
+  "source_size_bytes": 1612882,
   "sub_sections": [
     {
       "class": "sbb",

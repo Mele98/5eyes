@@ -31,7 +31,7 @@ async function loadAdminFxRates(){
   var grid=document.getElementById('admin-fx-rates-grid');
   var status=document.getElementById('admin-fx-rates-status');
   if(!grid)return;
-  grid.innerHTML='<div style="grid-column:span 4;font-size:10px;color:var(--n5);text-align:center;padding:8px">Lädt...</div>';
+  grid.innerHTML='<div style="grid-column:span 4;font-size:12px;color:var(--n5);text-align:center;padding:8px">Lädt...</div>';
   if(status)status.textContent='';
   try{
     var rates=await API.get('/fx-rates/current');
@@ -47,16 +47,16 @@ async function loadAdminFxRates(){
         ?'<span style="color:var(--neg);font-weight:600">Ersatzkurs – nicht belegt</span>'
         :'<span style="color:var(--n3);font-weight:400">('+escapeHtml(fxSourceText(entry.source))+', '+escapeHtml(String(entry.valid_from||'').slice(0,10))+')</span>';
       var cell=document.createElement('div');
-      cell.innerHTML='<label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">'+escapeHtml(ccy)+' '+hint+'</label>'+
+      cell.innerHTML='<label style="font-size:12px;color:var(--n4);display:block;margin-bottom:2px">'+escapeHtml(ccy)+' '+hint+'</label>'+
         '<input class="fi admin-fx-rate-input" data-currency="'+escapeHtml(ccy)+'" data-original="'+(substitute?'':escapeHtml(shown))+'" type="number" step="0.0001" min="0.0001" '+
-        (substitute?'placeholder="'+escapeHtml(shown)+'" value=""':'value="'+escapeHtml(shown)+'"')+' style="font-size:11px">'+
-        '<label style="font-size:9px;color:var(--n4);display:flex;gap:4px;align-items:center;margin-top:2px">'+
+        (substitute?'placeholder="'+escapeHtml(shown)+'" value=""':'value="'+escapeHtml(shown)+'"')+' style="font-size:12px">'+
+        '<label style="font-size:12px;color:var(--n4);display:flex;gap:4px;align-items:center;margin-top:2px">'+
         '<input type="checkbox" class="admin-fx-rate-confirm" data-currency="'+escapeHtml(ccy)+'"> Kurs geprüft (Quelle manuell, Datum heute)</label>';
       grid.appendChild(cell);
     });
     if(status)status.textContent='Geladen: '+rates.length+' Wechselkurse. Ersatzkurse sind nur Platzhalter und werden nie gespeichert.';
   }catch(e){
-    grid.innerHTML='<div style="grid-column:span 4;color:var(--neg);font-size:10px">Fehler beim Laden: '+escapeHtml(String(e&&(e.detail||e.message)||'?'))+'</div>';
+    grid.innerHTML='<div style="grid-column:span 4;color:var(--neg);font-size:12px">Fehler beim Laden: '+escapeHtml(String(e&&(e.detail||e.message)||'?'))+'</div>';
   }
 }
 function adminFxRateRows(){

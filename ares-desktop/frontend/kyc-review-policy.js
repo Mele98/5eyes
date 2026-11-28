@@ -34,7 +34,7 @@
     abgelaufen: 'abgelaufen',
     gesperrt: 'gesperrt (Policy-Kette ungültig)'
   };
-  var L = '<label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">';
+  var L = '<label style="font-size:12px;color:var(--n4);display:block;margin-bottom:2px">';
 
   function esc(v){
     if (typeof escapeHtml === 'function') return escapeHtml(String(v == null ? '' : v));
@@ -65,27 +65,27 @@
   function bannerHtml(data){
     var eff = data.effective_policy;
     if (data.status === 'effective' && eff) {
-      return '<div id="krp-banner" data-status="effective" style="font-size:11px;font-weight:600;color:var(--pos)">'
+      return '<div id="krp-banner" data-status="effective" style="font-size:12px;font-weight:600;color:var(--pos)">'
         + 'Wirksame Frist: Policy ' + esc(eff.policy_id) + ' Version ' + esc(eff.version) + ' (seit ' + esc(eff.effective_from) + ') – '
         + 'nächste KYC-Aktualisierung höchstens ' + months(eff.normal_max_months) + ' nach dem Formulardatum, bei PEP/erhöhtem Risiko höchstens '
         + months(eff.elevated_max_months == null ? eff.normal_max_months : eff.elevated_max_months) + '.</div>';
     }
-    return '<div id="krp-banner" data-status="' + esc(data.status) + '" style="font-size:11px;font-weight:700;color:var(--neg)">'
+    return '<div id="krp-banner" data-status="' + esc(data.status) + '" style="font-size:12px;font-weight:700;color:var(--neg)">'
       + 'Keine wirksame Frist – Kundenfreigaben gesperrt.</div>'
-      + '<div style="font-size:9px;color:var(--n5)">Grund: ' + esc(data.reason_code || data.status) + '. Ares setzt keine eigene Frist; '
+      + '<div style="font-size:12px;color:var(--n5)">Grund: ' + esc(data.reason_code || data.status) + '. Ares setzt keine eigene Frist; '
       + 'KYC-Bestätigungen, Finalisierung, Unterzeichnung, Weiterleitung und Kundendokumente bleiben gesperrt, bis eine Version erfasst und von einer zweiten Person freigegeben ist.</div>';
   }
 
   function approvalHtml(p){
     var u = me();
     if (u && String(p.created_by) === String(u.id)) {
-      return '<div class="krp-self" style="font-size:9px;color:var(--warn)">Von Ihnen erfasst – die Freigabe muss eine zweite Person erteilen (Vier-Augen-Prinzip).</div>';
+      return '<div class="krp-self" style="font-size:12px;color:var(--warn)">Von Ihnen erfasst – die Freigabe muss eine zweite Person erteilen (Vier-Augen-Prinzip).</div>';
     }
     return '<div style="display:grid;gap:4px;margin-top:4px">'
-      + '<div style="font-size:9px;color:var(--n5)">Prüfwert (Hash) dieser Version:<br><code id="krp-hash-' + esc(p.id) + '" style="font-size:9px;word-break:break-all">' + esc(p.policy_hash) + '</code></div>'
-      + '<div>' + L + 'Freigabereferenz (z. B. Beschluss oder Vorgabe der Aufsichtsorganisation)</label><input class="fi" id="krp-ref-' + esc(p.id) + '" style="font-size:11px"></div>'
-      + '<label style="font-size:10px"><input type="checkbox" id="krp-ok-' + esc(p.id) + '"> Ich habe Fristen, Gültigkeit, Quelle und Prüfwert geprüft und gebe diese Version frei.</label>'
-      + '<div><button class="btn-p" id="krp-approve-' + esc(p.id) + '" style="font-size:10px;padding:3px 10px" onclick="activateKycReviewPolicy(\'' + esc(p.id) + '\')">Freigeben (zweite Person)</button></div>'
+      + '<div style="font-size:12px;color:var(--n5)">Prüfwert (Hash) dieser Version:<br><code id="krp-hash-' + esc(p.id) + '" style="font-size:12px;word-break:break-all">' + esc(p.policy_hash) + '</code></div>'
+      + '<div>' + L + 'Freigabereferenz (z. B. Beschluss oder Vorgabe der Aufsichtsorganisation)</label><input class="fi" id="krp-ref-' + esc(p.id) + '" style="font-size:12px"></div>'
+      + '<label style="font-size:12px"><input type="checkbox" id="krp-ok-' + esc(p.id) + '"> Ich habe Fristen, Gültigkeit, Quelle und Prüfwert geprüft und gebe diese Version frei.</label>'
+      + '<div><button class="btn-p" id="krp-approve-' + esc(p.id) + '" style="font-size:12px;padding:3px 10px" onclick="activateKycReviewPolicy(\'' + esc(p.id) + '\')">Freigeben (zweite Person)</button></div>'
       + '</div>';
   }
 
@@ -101,17 +101,17 @@
 
   function inviteFormHtml(){
     if (isReviewer()) return '';
-    return '<div style="font-weight:600;font-size:10px;margin-top:12px">Externe Compliance-Person einladen</div>'
-      + '<div style="font-size:9px;color:var(--n5);line-height:1.5">Für Firmen mit nur einer Person: eine externe, qualifizierte Person gibt als zweite Person frei (Frist und KYC-Bestätigungen). '
+    return '<div style="font-weight:600;font-size:12px;margin-top:12px">Externe Compliance-Person einladen</div>'
+      + '<div style="font-size:12px;color:var(--n5);line-height:1.5">Für Firmen mit nur einer Person: eine externe, qualifizierte Person gibt als zweite Person frei (Frist und KYC-Bestätigungen). '
       + 'Sie erhält einen Einladungslink, setzt ihr Passwort selbst und richtet die Zwei-Faktor-Anmeldung ein. Ihr Passwort, ihre E-Mail und ihre Rolle kann kein Admin ändern.</div>'
       + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:4px">'
-      + '<div>' + L + 'Name</label><input class="fi" id="krp-inv-name" style="font-size:11px"></div>'
-      + '<div>' + L + 'Benutzername</label><input class="fi" id="krp-inv-username" style="font-size:11px"></div>'
-      + '<div>' + L + 'E-Mail</label><input class="fi" id="krp-inv-email" style="font-size:11px"></div>'
-      + '<div>' + L + 'Organisation</label><input class="fi" id="krp-inv-org" style="font-size:11px"></div>'
-      + '<div style="grid-column:span 2">' + L + 'Referenz / Mandat (z. B. Vertrag mit der externen Stelle)</label><input class="fi" id="krp-inv-ref" style="font-size:11px"></div>'
+      + '<div>' + L + 'Name</label><input class="fi" id="krp-inv-name" style="font-size:12px"></div>'
+      + '<div>' + L + 'Benutzername</label><input class="fi" id="krp-inv-username" style="font-size:12px"></div>'
+      + '<div>' + L + 'E-Mail</label><input class="fi" id="krp-inv-email" style="font-size:12px"></div>'
+      + '<div>' + L + 'Organisation</label><input class="fi" id="krp-inv-org" style="font-size:12px"></div>'
+      + '<div style="grid-column:span 2">' + L + 'Referenz / Mandat (z. B. Vertrag mit der externen Stelle)</label><input class="fi" id="krp-inv-ref" style="font-size:12px"></div>'
       + '</div><button class="btn btn-sm" id="btn-krp-invite" style="margin-top:4px" onclick="inviteKycReviewer()">Einladungslink erzeugen</button>'
-      + '<div id="krp-inv-link" style="font-size:9px;word-break:break-all;margin-top:4px"></div>';
+      + '<div id="krp-inv-link" style="font-size:12px;word-break:break-all;margin-top:4px"></div>';
   }
 
   async function inviteKycReviewer(){
@@ -148,8 +148,8 @@
 
   function versionsHtml(data){
     var rows = data.policies || [];
-    if (!rows.length) return '<div style="font-size:10px;color:var(--n5)">Noch keine Version erfasst.</div>';
-    var html = '<table style="width:100%;border-collapse:collapse;font-size:10px"><thead><tr style="color:var(--n4);text-align:left">'
+    if (!rows.length) return '<div style="font-size:12px;color:var(--n5)">Noch keine Version erfasst.</div>';
+    var html = '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:var(--n4);text-align:left">'
       + '<th>Version</th><th>Policy-ID</th><th>Normalfrist</th><th>PEP/erhöht</th><th>Gültig</th><th>Quelle</th><th>Status</th></tr></thead><tbody>';
     rows.forEach(function(p){
       html += '<tr data-policy-status="' + esc(p.status) + '" style="border-top:1px solid var(--b1);vertical-align:top">'
@@ -158,7 +158,7 @@
         + '<td>ab ' + esc(p.valid_from) + (p.valid_until ? ' bis ' + esc(p.valid_until) : '') + '</td>'
         + '<td>' + esc(p.source_reference) + '</td>'
         + '<td><span class="krp-status">' + statusLabel(p) + '</span>'
-        + (p.approved_at ? '<div style="font-size:9px;color:var(--n5)">Freigabe ' + esc(String(p.approved_at).slice(0, 10)) + ' · Referenz ' + esc(p.approval_reference) + accountHtml(p.approver_account) + '</div>' : '')
+        + (p.approved_at ? '<div style="font-size:12px;color:var(--n5)">Freigabe ' + esc(String(p.approved_at).slice(0, 10)) + ' · Referenz ' + esc(p.approval_reference) + accountHtml(p.approver_account) + '</div>' : '')
         + (p.status === 'entwurf' ? approvalHtml(p) : '') + '</td></tr>';
     });
     return html + '</tbody></table>';
@@ -166,25 +166,25 @@
 
   function createFormHtml(data){
     if (isReviewer()) return '';
-    return '<div style="font-weight:600;font-size:10px;margin-top:10px">Neue Version erfassen</div>'
-      + '<div style="font-size:9px;color:var(--n5);line-height:1.5">Tragen Sie die von Ihrer Geschäftsleitung bzw. Aufsichtsorganisation festgelegte Frist ein. '
+    return '<div style="font-weight:600;font-size:12px;margin-top:10px">Neue Version erfassen</div>'
+      + '<div style="font-size:12px;color:var(--n5);line-height:1.5">Tragen Sie die von Ihrer Geschäftsleitung bzw. Aufsichtsorganisation festgelegte Frist ein. '
       + 'Die Frist zählt in ganzen Monaten ab dem Datum des KYC-Formulars. Die Frist für PEP/erhöhtes Risiko darf nicht länger sein als die Normalfrist; leer = gleiche Frist. '
       + 'Erst nach der Freigabe durch eine zweite Person ist die Version wirksam.</div>'
       + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:4px">'
-      + '<div>' + L + 'Land (Sitz der Firma)</label><input class="fi" id="krp-jurisdiction" value="' + esc(data.jurisdiction || '') + '" maxlength="2" style="font-size:11px"></div>'
-      + '<div>' + L + 'Policy-ID (Ihre Bezeichnung)</label><input class="fi" id="krp-policy-id" style="font-size:11px"></div>'
+      + '<div>' + L + 'Land (Sitz der Firma)</label><input class="fi" id="krp-jurisdiction" value="' + esc(data.jurisdiction || '') + '" maxlength="2" style="font-size:12px"></div>'
+      + '<div>' + L + 'Policy-ID (Ihre Bezeichnung)</label><input class="fi" id="krp-policy-id" style="font-size:12px"></div>'
       + '<div>' + L + 'Normalfrist (Monate)</label><input class="fi" type="number" min="1" step="1" id="krp-normal" style="font-size:11px"></div>'
       + '<div>' + L + 'Frist PEP/erhöhtes Risiko (Monate, optional)</label><input class="fi" type="number" min="1" step="1" id="krp-elevated" style="font-size:11px"></div>'
-      + '<div>' + L + 'Gültig ab</label><input class="fi" type="date" id="krp-valid-from" style="font-size:11px"></div>'
-      + '<div>' + L + 'Gültig bis (optional)</label><input class="fi" type="date" id="krp-valid-until" style="font-size:11px"></div>'
-      + '<div style="grid-column:1/-1">' + L + 'Quelle (z. B. Reglement der Aufsichtsorganisation, interne Weisung)</label><input class="fi" id="krp-source" style="font-size:11px"></div>'
-      + '</div><button class="btn-p" id="btn-krp-create" style="margin-top:4px;font-size:10px;padding:3px 10px" onclick="createKycReviewPolicy()">Neue Version erfassen</button>';
+      + '<div>' + L + 'Gültig ab</label><input class="fi" type="date" id="krp-valid-from" style="font-size:12px"></div>'
+      + '<div>' + L + 'Gültig bis (optional)</label><input class="fi" type="date" id="krp-valid-until" style="font-size:12px"></div>'
+      + '<div style="grid-column:1/-1">' + L + 'Quelle (z. B. Reglement der Aufsichtsorganisation, interne Weisung)</label><input class="fi" id="krp-source" style="font-size:12px"></div>'
+      + '</div><button class="btn-p" id="btn-krp-create" style="margin-top:4px;font-size:12px;padding:3px 10px" onclick="createKycReviewPolicy()">Neue Version erfassen</button>';
   }
 
   function render(host, data){
     host.innerHTML = '<div class="admin-section-title">KYC-Wiedervorlage (maximale Frist bis zur nächsten KYC-Aktualisierung)</div>'
       + bannerHtml(data)
-      + '<div style="font-weight:600;font-size:10px;margin-top:8px">Versionen</div>' + versionsHtml(data)
+      + '<div style="font-weight:600;font-size:12px;margin-top:8px">Versionen</div>' + versionsHtml(data)
       + createFormHtml(data)
       + '<div id="krp-approvals" style="margin-top:12px"></div>'
       + inviteFormHtml();
@@ -195,23 +195,23 @@
   function yesNo(v){ return v == null ? '—' : (v ? 'ja' : 'nein'); }
 
   function pendingHtml(items){
-    var html = '<div class="admin-section-title" style="font-size:11px">Offene KYC-Freigaben (zweite Person)</div>';
-    if (!items.length) return html + '<div id="krp-approvals-empty" style="font-size:10px;color:var(--n5)">Keine offenen Freigaben.</div>';
+    var html = '<div class="admin-section-title" style="font-size:12px">Offene KYC-Freigaben (zweite Person)</div>';
+    if (!items.length) return html + '<div id="krp-approvals-empty" style="font-size:12px;color:var(--n5)">Keine offenen Freigaben.</div>';
     items.forEach(function(i){
       var id = esc(i.confirmation_id);
-      html += '<div class="krp-approval" data-confirmation-id="' + id + '" style="border:1px solid var(--b1);padding:6px;margin:4px 0;font-size:10px;line-height:1.6">'
+      html += '<div class="krp-approval" data-confirmation-id="' + id + '" style="border:1px solid var(--b1);padding:6px;margin:4px 0;font-size:12px;line-height:1.6">'
         + '<div><b>Kunde ' + esc(i.client_number || '—') + '</b> · Grund: ' + esc((i.approval_reasons || []).map(function(r){ return REASON_LABELS[r] || r; }).join(', ')) + '</div>'
         + '<div>Risikokategorie: ' + esc(i.risk_category_previous || '—') + ' → ' + esc(i.risk_category_new) + ' · PEP: ' + yesNo(i.is_pep_previous) + ' → ' + yesNo(i.is_pep_new) + '</div>'
         + '<div>Formular ' + esc(i.form_type) + ' · Referenz ' + esc(i.external_reference) + ' · erfasst von ' + esc(i.recorded_by_name || '—') + ' am ' + esc(String(i.recorded_at || '').slice(0, 16).replace('T', ' ')) + '</div>'
         + (i.note ? '<div>Bemerkung: ' + esc(i.note) + '</div>' : '')
-        + '<div style="color:var(--n5)">Prüfwert (Hash): <code id="krp-chash-' + id + '" style="font-size:9px;word-break:break-all">' + esc(i.confirmation_hash) + '</code></div>';
+        + '<div style="color:var(--n5)">Prüfwert (Hash): <code id="krp-chash-' + id + '" style="font-size:12px;word-break:break-all">' + esc(i.confirmation_hash) + '</code></div>';
       if (i.recorded_by_self) {
         html += '<div class="krp-self" style="color:var(--warn)">Von Ihnen erfasst – entscheiden muss eine zweite Person.</div></div>';
         return;
       }
-      html += '<div>' + L + 'Begründung des Entscheids (Pflicht)</label><input class="fi" id="krp-reason-' + id + '" style="font-size:11px"></div>'
+      html += '<div>' + L + 'Begründung des Entscheids (Pflicht)</label><input class="fi" id="krp-reason-' + id + '" style="font-size:12px"></div>'
         + '<label><input type="checkbox" id="krp-cok-' + id + '"> Ich habe die Angaben und den Prüfwert geprüft.</label> '
-        + '<button class="btn-p" id="krp-capprove-' + id + '" style="font-size:10px;padding:3px 10px" onclick="decideKycApproval(\'' + id + '\',\'approve\')">Freigeben</button> '
+        + '<button class="btn-p" id="krp-capprove-' + id + '" style="font-size:12px;padding:3px 10px" onclick="decideKycApproval(\'' + id + '\',\'approve\')">Freigeben</button> '
         + '<button class="btn btn-sm" id="krp-creject-' + id + '" onclick="decideKycApproval(\'' + id + '\',\'reject\')">Ablehnen</button></div>';
     });
     return html;
@@ -223,7 +223,7 @@
     try {
       box.innerHTML = pendingHtml((await API.get('/compliance/kyc-approvals')).items || []);
     } catch(e) {
-      box.innerHTML = '<div style="color:var(--neg);font-size:10px">' + esc(errText(e, 'Offene Freigaben konnten nicht geladen werden.')) + '</div>';
+      box.innerHTML = '<div style="color:var(--neg);font-size:12px">' + esc(errText(e, 'Offene Freigaben konnten nicht geladen werden.')) + '</div>';
     }
   }
 
@@ -254,7 +254,7 @@
     try {
       render(host, await API.get('/compliance/kyc-review-policies'));
     } catch(e) {
-      host.innerHTML = '<div style="color:var(--neg);font-size:10px">' + esc(errText(e, 'KYC-Wiedervorlage konnte nicht geladen werden.')) + '</div>';
+      host.innerHTML = '<div style="color:var(--neg);font-size:12px">' + esc(errText(e, 'KYC-Wiedervorlage konnte nicht geladen werden.')) + '</div>';
     }
   }
 
@@ -381,9 +381,9 @@
     var u = me() || {};
     view.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
       + '<div style="font-size:14px;font-weight:700">Ares – Compliance-Freigabe</div>'
-      + '<div style="font-size:10px">' + esc(u.full_name || u.username || '') + ' · <button class="btn btn-sm" id="krp-logout" onclick="kycReviewerLogout()">Abmelden</button></div></div>'
-      + '<div style="font-size:10px;color:var(--n5);margin-bottom:8px">Dieses Konto darf nur als zweite Person freigeben: die KYC-Wiedervorlage-Policy der Firma und offene KYC-Bestätigungen (PEP, erhöhtes Risiko, Herabstufung).</div>'
-      + (Number(u.totp_enabled) ? '' : '<div id="krp-2fa-hint" style="font-size:11px;font-weight:600;color:var(--neg);margin-bottom:8px">Vor der ersten Freigabe die Zwei-Faktor-Anmeldung einrichten. '
+      + '<div style="font-size:12px">' + esc(u.full_name || u.username || '') + ' · <button class="btn btn-sm" id="krp-logout" onclick="kycReviewerLogout()">Abmelden</button></div></div>'
+      + '<div style="font-size:12px;color:var(--n5);margin-bottom:8px">Dieses Konto darf nur als zweite Person freigeben: die KYC-Wiedervorlage-Policy der Firma und offene KYC-Bestätigungen (PEP, erhöhtes Risiko, Herabstufung).</div>'
+      + (Number(u.totp_enabled) ? '' : '<div id="krp-2fa-hint" style="font-size:12px;font-weight:600;color:var(--neg);margin-bottom:8px">Vor der ersten Freigabe die Zwei-Faktor-Anmeldung einrichten. '
         + '<button class="btn btn-sm" onclick="typeof open2faSetup===\'function\'&&open2faSetup(true)">2FA einrichten</button></div>')
       + '<div id="krp-reviewer-body" style="display:grid;gap:8px"></div>';
     return loadKycReviewPolicies();

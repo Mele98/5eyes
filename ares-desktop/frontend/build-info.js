@@ -29,7 +29,7 @@
     if (!anchor || !anchor.parentNode) return null;
     el = document.createElement('div');
     el.id = 'ares-build-info';
-    el.style.cssText = 'font-size:10px;color:var(--text-muted);margin-top:2px;';
+    el.style.cssText = 'font-size:12px;color:var(--text-muted);margin-top:2px;';
     anchor.parentNode.appendChild(el);
     return el;
   }

@@ -143,7 +143,7 @@ def test_compliance_panel_shows_backend_findings_and_unanswered_kyc_selects():
     assert "Zu tun: Berater: KYC-Bestaetigung erfassen" in html
     assert '<option value="" selected>nicht beantwortet</option>' in html
     for select_id in ("kyc-form", "kyc-risk", "kyc-pep", "rep-type"):
-        assert f'id="{select_id}" style="font-size:11px"><option value="">bitte wählen</option>' in html, select_id
+        assert f'id="{select_id}" style="font-size:12px"><option value="">bitte wählen</option>' in html, select_id
     assert result["DOM"]["sd-client-compliance"]["attrs"]["data-release-ready"] == "0"
 
 

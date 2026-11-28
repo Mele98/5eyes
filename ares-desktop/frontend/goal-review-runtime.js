@@ -36,28 +36,28 @@ function goalBadgeHtml(goal){
   var badges=[];
   var typeLabel=goalTypeDisplayLabel(goal&&goal.goal_type||'');
   if(typeLabel){
-    badges.push('<span style="font-size:9px;color:var(--n5);background:var(--bg2);border-radius:999px;padding:2px 6px;white-space:nowrap">'+escapeHtml(typeLabel)+'</span>');
+    badges.push('<span style="font-size:10px;color:var(--n5);background:var(--bg2);border-radius:999px;padding:2px 6px;white-space:nowrap">'+escapeHtml(typeLabel)+'</span>');
   }
   var hardness=goalHardnessTone(goal);
   if(hardness==='hart'){
-    badges.push('<span style="font-size:9px;font-weight:700;color:#166534;background:rgba(22,101,52,0.10);border-radius:999px;padding:2px 6px;white-space:nowrap">HART</span>');
+    badges.push('<span style="font-size:10px;font-weight:700;color:#166534;background:rgba(22,101,52,0.10);border-radius:999px;padding:2px 6px;white-space:nowrap">HART</span>');
   }else if(hardness==='opp'){
-    badges.push('<span style="font-size:9px;font-weight:600;color:var(--n5);background:var(--bg2);border-radius:999px;padding:2px 6px;white-space:nowrap">OPP.</span>');
+    badges.push('<span style="font-size:10px;font-weight:600;color:var(--n5);background:var(--bg2);border-radius:999px;padding:2px 6px;white-space:nowrap">OPP.</span>');
   }else{
-    badges.push('<span style="font-size:9px;font-weight:700;color:#9a3412;background:rgba(154,52,18,0.10);border-radius:999px;padding:2px 6px;white-space:nowrap">PRIM\u00c4R</span>');
+    badges.push('<span style="font-size:10px;font-weight:700;color:#9a3412;background:rgba(154,52,18,0.10);border-radius:999px;padding:2px 6px;white-space:nowrap">PRIM\u00c4R</span>');
   }
   if(isWealthGoalType(goal&&goal.goal_type||'')&&goalValueMode(goal&&goal.value_mode)==='real'){
-    badges.push('<span style="font-size:9px;font-weight:700;color:#1d4ed8;background:rgba(29,78,216,0.08);border-radius:999px;padding:2px 6px;white-space:nowrap">REAL</span>');
+    badges.push('<span style="font-size:10px;font-weight:700;color:#1d4ed8;background:rgba(29,78,216,0.08);border-radius:999px;padding:2px 6px;white-space:nowrap">REAL</span>');
   }
   var prob=goal&&goal.probability_pct;
   if(prob!=null&&Number(prob)<100){
     var probClamped=Math.max(0,Math.min(100,Number(prob)));
-    badges.push('<span style="font-size:9px;font-weight:700;color:#7c2d12;background:rgba(234,88,12,0.10);border-radius:999px;padding:2px 6px;white-space:nowrap" title="Bedingtes Ziel: Reserve-Beitrag wird mit '+probClamped+'% gewichtet.">BEDINGT '+probClamped+'%</span>');
+    badges.push('<span style="font-size:10px;font-weight:700;color:#7c2d12;background:rgba(234,88,12,0.10);border-radius:999px;padding:2px 6px;white-space:nowrap" title="Bedingtes Ziel: Reserve-Beitrag wird mit '+probClamped+'% gewichtet.">BEDINGT '+probClamped+'%</span>');
   }
   var pillar=goal&&goal.pension_pillar;
   if(pillar&&['AHV','BVG','3a','1e','FZG'].indexOf(String(pillar))>=0){
     var pillarTitle=pillar==='AHV'?'AHV: staatliche 1. Säule (ohne Leistungsnachweis wie normales Ausgabenziel behandelt)':'Vorsorge-Säule '+pillar;
-    badges.push('<span style="font-size:9px;font-weight:700;color:#0c4a6e;background:rgba(14,116,144,0.10);border-radius:999px;padding:2px 6px;white-space:nowrap" title="'+escapeHtml(pillarTitle)+'">'+escapeHtml(pillar)+'</span>');
+    badges.push('<span style="font-size:10px;font-weight:700;color:#0c4a6e;background:rgba(14,116,144,0.10);border-radius:999px;padding:2px 6px;white-space:nowrap" title="'+escapeHtml(pillarTitle)+'">'+escapeHtml(pillar)+'</span>');
   }
   return badges.join('');
 }
@@ -243,7 +243,7 @@ function syncGoalModalState(){
     if(priorityField){
       hardnessHint=document.createElement('div');
       hardnessHint.id='nz-hardness-hint';
-      hardnessHint.style.cssText='font-size:10px;color:var(--n5);margin-top:3px;line-height:1.45';
+      hardnessHint.style.cssText='font-size:12px;color:var(--n5);margin-top:3px;line-height:1.45';
       priorityField.appendChild(hardnessHint);
     }
   }
@@ -1155,15 +1155,15 @@ function renderSensitivitySlidersForResult(result){
     row.style.cssText='border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px;display:grid;gap:6px';
     row.innerHTML=''
       +'<div style="display:flex;justify-content:space-between;align-items:center">'
-      +  '<span style="font-size:11px;font-weight:500">'+escapeHtml(label)+'</span>'
-      +  '<span class="tag tn" style="font-size:9px">Was-w\u00e4re-wenn</span>'
+      +  '<span style="font-size:12px;font-weight:500">'+escapeHtml(label)+'</span>'
+      +  '<span class="tag tn" style="font-size:10px">Was-w\u00e4re-wenn</span>'
       +'</div>'
       +'<div style="display:flex;gap:4px;flex-wrap:wrap">'
       +  ['-20','-10','0','10','20'].map(function(d){
-           return '<button class="btn-p sens-btn" data-goal="'+escapeHtml(gid)+'" data-delta="'+d+'" data-mandate="'+escapeHtml(String(mandateId))+'" style="font-size:10px;padding:4px 10px;background:var(--bg2);color:var(--n6);min-width:0">'+(Number(d)>=0?'+':'')+d+'%</button>';
+           return '<button class="btn-p sens-btn" data-goal="'+escapeHtml(gid)+'" data-delta="'+d+'" data-mandate="'+escapeHtml(String(mandateId))+'" style="font-size:12px;padding:4px 10px;background:var(--bg2);color:var(--n6);min-width:0">'+(Number(d)>=0?'+':'')+d+'%</button>';
          }).join('')
       +'</div>'
-      +'<div class="sens-result" style="font-size:10px;color:var(--n6);min-height:14px;font-family:var(--f-d)">—</div>';
+      +'<div class="sens-result" style="font-size:12px;color:var(--n6);min-height:14px;font-family:var(--f-d)">—</div>';
     wrap.appendChild(row);
   });
   wrap.querySelectorAll('.sens-btn').forEach(function(btn){
@@ -1448,7 +1448,7 @@ function reviewAllocationPortraitHtml(rows){
     var pct=Math.max(0,bps/total*100);
     if(pct<0.3)return '';
     return '<div style="width:'+pct.toFixed(2)+'%;background:'+getColor(key)+';display:flex;align-items:center;justify-content:center;overflow:hidden" title="'+escapeHtml(label)+': '+escapeHtml(m[key]||formatBpsPercent(bps))+'">'
-      +(pct>=9?'<span style="font-size:8px;color:'+assetClassTextOn(key)+';font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums">'+escapeHtml(m[key]||formatBpsPercent(bps))+'</span>':'')
+      +(pct>=9?'<span style="font-size:12px;color:'+assetClassTextOn(key)+';font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums">'+escapeHtml(m[key]||formatBpsPercent(bps))+'</span>':'')
       +'</div>';
   }
   var sollBar=rows.map(function(r){return seg(Math.max(0,Number(r.targetWeightBps||0)),totalSoll,r.assetKey,r.assetClass,sollM);}).join('');
@@ -1458,18 +1458,18 @@ function reviewAllocationPortraitHtml(rows){
     var hasIssue=meta&&meta.tagClass&&meta.tagClass!=='tg';
     return '<div style="display:flex;align-items:center;gap:4px">'
       +'<div style="width:8px;height:8px;border-radius:2px;background:'+getColor(r.assetKey)+';flex-shrink:0"></div>'
-      +'<span style="font-size:9px;color:var(--n6)">'+escapeHtml(r.assetClass)+'</span>'
-      +(hasIssue?'<span class="tag '+meta.tagClass+'" style="font-size:8px;padding:1px 5px;line-height:14px">'+escapeHtml(meta.label)+'</span>':'')
+      +'<span style="font-size:12px;color:var(--n6)">'+escapeHtml(r.assetClass)+'</span>'
+      +(hasIssue?'<span class="tag '+meta.tagClass+'" style="font-size:10px;padding:1px 5px;line-height:14px">'+escapeHtml(meta.label)+'</span>':'')
       +'</div>';
   }).join('');
   return '<div style="margin-bottom:14px;padding:12px 14px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2)">'
-    +'<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:10px">Allokation — IST vs. SOLL</div>'
+    +'<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:10px">Allokation — IST vs. SOLL</div>'
     +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">'
-    +'<span style="font-size:9px;color:var(--n5);width:28px;flex-shrink:0;text-align:right">SOLL</span>'
+    +'<span style="font-size:12px;color:var(--n5);width:28px;flex-shrink:0;text-align:right">SOLL</span>'
     +'<div style="flex:1;height:30px;display:flex;border-radius:4px;overflow:hidden;border:1px solid rgba(15,23,42,0.1)">'+sollBar+'</div>'
     +'</div>'
     +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
-    +'<span style="font-size:9px;color:var(--n5);width:28px;flex-shrink:0;text-align:right">IST</span>'
+    +'<span style="font-size:12px;color:var(--n5);width:28px;flex-shrink:0;text-align:right">IST</span>'
     +'<div style="flex:1;height:30px;display:flex;border-radius:4px;overflow:hidden;border:1px solid rgba(15,23,42,0.1)">'+istBar+'</div>'
     +'</div>'
     +'<div style="display:flex;flex-wrap:wrap;gap:6px 16px;padding-left:36px">'+legend+'</div>'
@@ -1507,9 +1507,9 @@ renderStrategySummary=function(){
       var bgColor=ampel.bg;
       return '<div>'
         +'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">'
-        +'<div><span style="font-size:9px;font-weight:600;color:var(--n5);margin-right:5px">RANG '+escapeHtml(String(goal.rank||'—'))+'</span><span style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(goal.label||'Ziel')+'</span></div>'
+        +'<div><span style="font-size:12px;font-weight:600;color:var(--n5);margin-right:5px">RANG '+escapeHtml(String(goal.rank||'—'))+'</span><span style="font-size:12px;font-weight:500;color:var(--n8)">'+escapeHtml(goal.label||'Ziel')+'</span></div>'
         +'<div style="display:flex;align-items:center;gap:7px"><span style="font-size:12px;font-weight:700;color:'+tone+'" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP+(goalSuccessIsEstimate(goal)?(' \u2013 '+GOAL_SUCCESS_ESTIMATE_HINT):''))+'">'+(success==null?'\u2014':fmtProbPct(success))+(goalSuccessIsEstimate(goal)?'*':'')+'</span>'
-        +'<span style="font-size:9px;color:'+tone+';background:'+bgColor+';border-radius:999px;padding:2px 7px">'+escapeHtml(statusLabel)+'</span>'
+        +'<span style="font-size:12px;color:'+tone+';background:'+bgColor+';border-radius:999px;padding:2px 7px">'+escapeHtml(statusLabel)+'</span>'
         +'</div></div>'
         +'<div style="position:relative;height:6px;background:var(--bg2);border-radius:999px;margin-bottom:2px">'
         +'<div style="position:absolute;left:0;top:0;height:100%;width:'+score+'%;background:'+tone+';border-radius:999px;transition:width 0.4s"></div>'
@@ -1526,10 +1526,10 @@ renderStrategySummary=function(){
       var color=srAcColor2(bucket.asset_class);
       return '<div style="display:grid;grid-template-columns:8px 94px 1fr 54px 86px;gap:6px;align-items:center">'
         +'<div style="width:8px;height:8px;border-radius:2px;background:'+color+';flex-shrink:0"></div>'
-        +'<span style="font-size:10px;color:var(--n6)">'+escapeHtml(assetDisplayName(bucket.asset_class))+'</span>'
+        +'<span style="font-size:12px;color:var(--n6)">'+escapeHtml(assetDisplayName(bucket.asset_class))+'</span>'
         +'<div style="height:7px;background:var(--bg2);border-radius:3px"><div style="width:'+pct+'%;height:100%;background:'+color+';border-radius:3px;opacity:0.85"></div></div>'
-        +'<span style="font-size:10px;font-weight:600;color:var(--n7);text-align:right">'+sollPct(bucket.asset_class,bucket.target_weight_bps,allocation.buckets)+'</span>'
-        +'<span style="font-size:10px;color:var(--n5);text-align:right">'+escapeHtml(targetValue)+'</span>'
+        +'<span style="font-size:12px;font-weight:600;color:var(--n7);text-align:right">'+sollPct(bucket.asset_class,bucket.target_weight_bps,allocation.buckets)+'</span>'
+        +'<span style="font-size:12px;color:var(--n5);text-align:right">'+escapeHtml(targetValue)+'</span>'
         +'</div>';
     }).join('');
   }

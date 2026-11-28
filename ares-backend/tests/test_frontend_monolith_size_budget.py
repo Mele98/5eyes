@@ -231,6 +231,12 @@ UX-L1a (UX-CH-05, Sie-Ansprache): reine Textaenderung in bestehenden Zeilen, Sie
 sind laenger -> Monolith 26252/1612646 auf dem UX-Strang, im RC-Kopf 26252/1612619 (+77 B, keine neue Logik, keine neue Zeile).
 UX-L1b (UX-Vertrag 27.11.2026, WCAG AA): im Dark-Theme zeigt --text-muted auf --n5 (6.4:1 auf
 --surface statt 4.23:1); --n4 bleibt fuer Grafik/Linien. ares.css 1143/90094 (+24 B, keine neue Zeile).
+UX-L1c (UX-Vertrag 27.11.2026, Typografie): jede Schriftgroesse unter 12 px (Tabellen,
+Badges/Tags/Chips, Schrittkreise unter 10 px) auf das Minimum angehoben; nur Zahlwerte in
+bestehenden Zeilen ("9px" -> "12px" ist 1 Byte laenger). Monolith 26252/1612882, ares.css
+1143/90162, goal-review-runtime.js 83798, client-compliance.js 29971, kyc-review-policy.js 25842,
+owner-content.js 21170, privacy-governance.js 35258, fx-rates-editor.js 5093,
+mandate-view.js 35397, advisor-guidance.js 43964 (keine neue Zeile, keine neue Logik).
 """
 from __future__ import annotations
 
@@ -241,12 +247,12 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 26252
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1612619
+MONOLITH_MAX_BYTES = 1612882
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
 EXTRACTED_PART_BUDGETS = {
-    "ares.css": (1143, 90094),
+    "ares.css": (1143, 90162),
     "aa-chart.css": (66, 5978),
     "intro-sequence.js": (761, 36764),
     "aa-chart.js": (316, 20608),
@@ -254,25 +260,25 @@ EXTRACTED_PART_BUDGETS = {
     "session-boundary.js": (53, 2763),
     "ist-projection-basis.js": (87, 4627),
     "unsaved-changes.js": (82, 4342),
-    "goal-review-runtime.js": (1561, 83782),
-    "client-compliance.js": (469, 29962),
-    "kyc-review-policy.js": (427, 25832),
-    "owner-content.js": (336, 21153),
+    "goal-review-runtime.js": (1561, 83798),
+    "client-compliance.js": (469, 29971),
+    "kyc-review-policy.js": (427, 25842),
+    "owner-content.js": (336, 21170),
     "advice-contract.js": (366, 19058),
-    "privacy-governance.js": (500, 35256),
+    "privacy-governance.js": (500, 35258),
     "sustainability-preferences.js": (517, 26065),
     "wealth-inflows.js": (282, 16491),
     "allocation-publication.js": (272, 13780),
     "finalize-attestation.js": (24, 1621),
-    "fx-rates-editor.js": (97, 5091),
-    "mandate-view.js": (604, 35395),
+    "fx-rates-editor.js": (97, 5093),
+    "mandate-view.js": (604, 35397),
     "kn3-ui.js": (259, 14886),
     "kn4-ui.js": (250, 14025),
     "kn5-ui.js": (105, 6960),
     "p5c-ui.js": (44, 3318),
     "conflict-mitigation.js": (14, 854),
     "ux-step-states.js": (43, 2177),
-    "advisor-guidance.js": (728, 43963),
+    "advisor-guidance.js": (728, 43964),
 }
 
 

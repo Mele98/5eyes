@@ -11,31 +11,31 @@
  * "keine Retrozession" und wird beim Bearbeiten nie zu einer erfundenen 0.
  */
 (function(){
-  var L = '<label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">';
+  var L = '<label style="font-size:12px;color:var(--n4);display:block;margin-bottom:2px">';
   var FLAG = '<option value="">nicht erfasst</option><option value="true">ja</option><option value="false">nein</option>';
   var FIELDS_HTML = ''
-    + '<div style="grid-column:1/-1;font-size:10px;font-weight:600;color:var(--n6);margin-top:4px">Produkt-Stammdaten (FIDLEG) – leer lassen = nicht erfasst</div>'
-    + '<div>' + L + 'Domizil (ISO-Land, z.B. IE)</label><input class="fi" id="pf-domicile" maxlength="2" style="font-size:11px"></div>'
-    + '<div>' + L + 'Valor (optional)</label><input class="fi" id="pf-valor" style="font-size:11px"></div>'
-    + '<div>' + L + 'Währungsgesichert</label><select class="fsel" id="pf-is-hedged" style="font-size:11px">' + FLAG + '</select></div>'
-    + '<div>' + L + 'Absicherungswährung (nur bei ja)</label><input class="fi" id="pf-hedge-currency" maxlength="3" style="font-size:11px"></div>'
-    + '<div>' + L + 'TER-Quelle</label><input class="fi" id="pf-ter-source" placeholder="z.B. Basisinformationsblatt" style="font-size:11px"></div>'
+    + '<div style="grid-column:1/-1;font-size:12px;font-weight:600;color:var(--n6);margin-top:4px">Produkt-Stammdaten (FIDLEG) – leer lassen = nicht erfasst</div>'
+    + '<div>' + L + 'Domizil (ISO-Land, z.B. IE)</label><input class="fi" id="pf-domicile" maxlength="2" style="font-size:12px"></div>'
+    + '<div>' + L + 'Valor (optional)</label><input class="fi" id="pf-valor" style="font-size:12px"></div>'
+    + '<div>' + L + 'Währungsgesichert</label><select class="fsel" id="pf-is-hedged" style="font-size:12px">' + FLAG + '</select></div>'
+    + '<div>' + L + 'Absicherungswährung (nur bei ja)</label><input class="fi" id="pf-hedge-currency" maxlength="3" style="font-size:12px"></div>'
+    + '<div>' + L + 'TER-Quelle</label><input class="fi" id="pf-ter-source" placeholder="z.B. Basisinformationsblatt" style="font-size:12px"></div>'
     + '<div>' + L + 'TER-Stichtag</label><input class="fi" type="date" id="pf-ter-as-of" style="font-size:11px"></div>'
     + '<div>' + L + 'Retrozession (Bps p.a.; 0 = keine; leer = unbekannt)</label><input class="fi" type="number" min="0" max="1000" step="1" id="pf-retro" style="font-size:11px"></div>'
-    + '<div>' + L + 'Retrozession-Quelle (Pflicht bei Satz)</label><input class="fi" id="pf-retro-source" style="font-size:11px"></div>'
-    + '<div>' + L + 'Hausprodukt</label><select class="fsel" id="pf-house-product" style="font-size:11px">' + FLAG + '</select></div>'
-    + '<div>' + L + 'Ausschüttungsart</label><select class="fsel" id="pf-distribution" style="font-size:11px"><option value="">nicht erfasst</option><option value="accumulating">thesaurierend</option><option value="distributing">ausschüttend</option></select></div>'
+    + '<div>' + L + 'Retrozession-Quelle (Pflicht bei Satz)</label><input class="fi" id="pf-retro-source" style="font-size:12px"></div>'
+    + '<div>' + L + 'Hausprodukt</label><select class="fsel" id="pf-house-product" style="font-size:12px">' + FLAG + '</select></div>'
+    + '<div>' + L + 'Ausschüttungsart</label><select class="fsel" id="pf-distribution" style="font-size:12px"><option value="">nicht erfasst</option><option value="accumulating">thesaurierend</option><option value="distributing">ausschüttend</option></select></div>'
     + '<div>' + L + 'Mindestanlage (in Fondswährung, optional)</label><input class="fi" type="number" min="0" step="any" id="pf-min-investment" style="font-size:11px"></div>'
     // Owner-Anforderung P1: eigene Fonds (kotiert/nicht kotiert), Bewertung, Liquiditaetsrhythmus.
-    + '<div>' + L + 'Kotierung</label><select class="fsel" id="pf-listing-status" style="font-size:11px"><option value="">nicht erfasst</option><option value="listed">kotiert (ISIN Pflicht)</option><option value="unlisted">nicht kotiert (ohne ISIN: interne ID Pflicht)</option></select></div>'
-    + '<div>' + L + 'Interne Produkt-ID (eindeutig je Verwaltung)</label><input class="fi" id="pf-internal-id" maxlength="64" style="font-size:11px"></div>'
-    + '<div>' + L + 'Bewertungsquelle</label><select class="fsel" id="pf-price-source" style="font-size:11px"><option value="">nicht erfasst</option><option value="market">Börsenkurs</option><option value="manual_nav">NAV manuell</option><option value="provider">NAV Anbieter</option></select></div>'
-    + '<div>' + L + 'NAV-Rhythmus</label><select class="fsel" id="pf-nav-frequency" style="font-size:11px"><option value="">nicht erfasst</option><option value="daily">täglich</option><option value="weekly">wöchentlich</option><option value="monthly">monatlich</option><option value="quarterly">quartalsweise</option></select></div>'
+    + '<div>' + L + 'Kotierung</label><select class="fsel" id="pf-listing-status" style="font-size:12px"><option value="">nicht erfasst</option><option value="listed">kotiert (ISIN Pflicht)</option><option value="unlisted">nicht kotiert (ohne ISIN: interne ID Pflicht)</option></select></div>'
+    + '<div>' + L + 'Interne Produkt-ID (eindeutig je Verwaltung)</label><input class="fi" id="pf-internal-id" maxlength="64" style="font-size:12px"></div>'
+    + '<div>' + L + 'Bewertungsquelle</label><select class="fsel" id="pf-price-source" style="font-size:12px"><option value="">nicht erfasst</option><option value="market">Börsenkurs</option><option value="manual_nav">NAV manuell</option><option value="provider">NAV Anbieter</option></select></div>'
+    + '<div>' + L + 'NAV-Rhythmus</label><select class="fsel" id="pf-nav-frequency" style="font-size:12px"><option value="">nicht erfasst</option><option value="daily">täglich</option><option value="weekly">wöchentlich</option><option value="monthly">monatlich</option><option value="quarterly">quartalsweise</option></select></div>'
     + '<div>' + L + 'NAV-Stichtag</label><input class="fi" type="date" id="pf-nav-as-of" style="font-size:11px"></div>'
     + '<div>' + L + 'Rücknahmefrist (Tage)</label><input class="fi" type="number" min="0" step="1" id="pf-redemption-days" style="font-size:11px"></div>'
     + '<div>' + L + 'Kündigungsfrist (Tage)</label><input class="fi" type="number" min="0" step="1" id="pf-notice-days" style="font-size:11px"></div>'
-    + '<div>' + L + 'Gating möglich</label><select class="fsel" id="pf-has-gating" style="font-size:11px">' + FLAG + '</select></div>'
-    + '<div style="grid-column:1/-1">' + L + 'Gating-Bedingungen (optional)</label><input class="fi" id="pf-gating-terms" style="font-size:11px"></div>';
+    + '<div>' + L + 'Gating möglich</label><select class="fsel" id="pf-has-gating" style="font-size:12px">' + FLAG + '</select></div>'
+    + '<div style="grid-column:1/-1">' + L + 'Gating-Bedingungen (optional)</label><input class="fi" id="pf-gating-terms" style="font-size:12px"></div>';
 
   function ensureFundMasterDataFields(){
     var host = document.getElementById('pf-master-data');
@@ -203,7 +203,7 @@ function renderCostRetrocessions(data){
     ? '<div style="font-weight:600;margin-bottom:6px">Retrozessionen je Produkt</div>'
     : '<div style="font-weight:600;margin-bottom:6px;color:var(--neg)">Retrozessionen je Produkt – Pflichtangaben unvollständig</div>';
   box.style.display='';
-  box.innerHTML=head+'<div style="border:1px solid var(--b1);border-radius:var(--r);overflow:hidden;font-size:11px">'
+  box.innerHTML=head+'<div style="border:1px solid var(--b1);border-radius:var(--r);overflow:hidden;font-size:12px">'
     +lines.map(function(line){
       var rate=line.status==='unknown'?'unbekannt':(line.status==='none'?'keine':fmtPct(Number(line.rate_bps),2));
       var amount=line.status==='present'?'geschätzt '+_retroAmount(line.estimated_annual_rappen, currency):'—';
@@ -214,7 +214,7 @@ function renderCostRetrocessions(data){
         +'<div>'+escapeHtml(String(line.product_name||''))+'</div>'
         +'<div style="text-align:right">'+escapeHtml(rate)+'</div>'
         +'<div style="text-align:right">'+escapeHtml(amount)+'</div>'
-        +'<div style="font-size:10px;color:var(--n5)">'+escapeHtml(String(line.treatment_label||''))+'</div>'
+        +'<div style="font-size:12px;color:var(--n5)">'+escapeHtml(String(line.treatment_label||''))+'</div>'
         +'</div>';
     }).join('')+'</div>';
 }

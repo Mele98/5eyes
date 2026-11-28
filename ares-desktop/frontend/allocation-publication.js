@@ -45,13 +45,13 @@ function openPortfolioUmsetzenModal(){
         ?'Band: '+formatBpsPercent(b.band_min_bps)+'–'+formatBpsPercent(b.band_max_bps)
         :'Band: —';
       return '<div style="display:grid;grid-template-columns:1.2fr 60px 100px 1fr;gap:6px;align-items:center;padding:6px 12px;border-bottom:1px solid var(--b1)">'
-        +'<div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(label)+'</div>'
-        +'<div style="text-align:right;font-size:11px;font-weight:600;color:var(--n8)">'+escapeHtml(pct)+'</div>'
-        +'<div style="text-align:right;font-size:10px;color:var(--n5)">'+escapeHtml(formatRappen(targetRappen))+'</div>'
-        +'<div style="font-size:9px;color:var(--n4)">'+escapeHtml(bandInfo)+'</div>'
+        +'<div style="font-size:12px;font-weight:500;color:var(--n8)">'+escapeHtml(label)+'</div>'
+        +'<div style="text-align:right;font-size:12px;font-weight:600;color:var(--n8)">'+escapeHtml(pct)+'</div>'
+        +'<div style="text-align:right;font-size:12px;color:var(--n5)">'+escapeHtml(formatRappen(targetRappen))+'</div>'
+        +'<div style="font-size:12px;color:var(--n4)">'+escapeHtml(bandInfo)+'</div>'
         +'</div>';
     }).join('');
-    var totalHtml='<div style="display:flex;justify-content:space-between;padding:8px 12px;border-top:2px solid var(--b1);font-size:11px;font-weight:600;color:var(--n7)">'
+    var totalHtml='<div style="display:flex;justify-content:space-between;padding:8px 12px;border-top:2px solid var(--b1);font-size:12px;font-weight:600;color:var(--n7)">'
       +'<span>Beratungsvermögen</span>'
       +'<span>'+escapeHtml(formatRappen(totalAdvisoryRappen))+'</span>'
       +'</div>';

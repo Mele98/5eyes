@@ -90,13 +90,13 @@ function renderGoalAchievementSollIst(result){
   }).join('');
   el.style.display='';
   el.innerHTML='<div style="border:1px solid var(--b1);border-radius:8px;overflow:hidden">'
-    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-weight:600;padding:8px 8px 4px">Erfolgswahrscheinlichkeit je Ziel — SOLL vs IST</div>'
-    +'<table style="width:100%;border-collapse:collapse;font-size:11px"><thead>'
-    +'<tr style="border-bottom:1px solid var(--b1)"><th style="text-align:left;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)">Ziel</th>'
-    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:var(--soll)" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+' (SOLL-Strategie)">Erfolgs-Wkt. SOLL</th>'
-    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:var(--n6)" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+' (heutige Anlage)">IST</th>'
-    +'<th style="text-align:right;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)" title="Erreichungsgrad im mittleren Szenario (Median), SOLL / IST">Erreichungsgrad (Median) S/I</th>'
-    +'<th style="text-align:right;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)" title="Fehlbetrag im ung\u00fcnstigen Szenario (P25), SOLL / IST">Fehlbetrag ung\u00fcnstig (P25) S/I</th></tr>'
+    +'<div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-weight:600;padding:8px 8px 4px">Erfolgswahrscheinlichkeit je Ziel — SOLL vs IST</div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:12px"><thead>'
+    +'<tr style="border-bottom:1px solid var(--b1)"><th style="text-align:left;padding:5px 8px;font-size:12px;text-transform:uppercase;color:var(--n4)">Ziel</th>'
+    +'<th style="text-align:right;padding:5px 8px;font-size:12px;color:var(--soll)" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+' (SOLL-Strategie)">Erfolgs-Wkt. SOLL</th>'
+    +'<th style="text-align:right;padding:5px 8px;font-size:12px;color:var(--n6)" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+' (heutige Anlage)">IST</th>'
+    +'<th style="text-align:right;padding:5px 8px;font-size:12px;text-transform:uppercase;color:var(--n4)" title="Erreichungsgrad im mittleren Szenario (Median), SOLL / IST">Erreichungsgrad (Median) S/I</th>'
+    +'<th style="text-align:right;padding:5px 8px;font-size:12px;text-transform:uppercase;color:var(--n4)" title="Fehlbetrag im ung\u00fcnstigen Szenario (P25), SOLL / IST">Fehlbetrag ung\u00fcnstig (P25) S/I</th></tr>'
     +'</thead><tbody style="font-family:var(--f-d)">'+rows+'</tbody></table>'
     +'<div style="padding:4px 8px 6px">'+goalAmpelLegendHtml()+'</div></div>';
 }

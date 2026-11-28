@@ -70,11 +70,11 @@
       var open = (p.issues || []).map(function(x){ return esc(kindLabel(x.evidence_kind)) + ': ' + esc(reasonText(x.reason_code)); });
       return '<tr><td>' + esc(p.sub_asset_class || '–') + '</td><td>' + esc(p.product_name) + '</td>'
         + '<td><span class="tag ' + (ok ? 'tg' : 'ta') + '">' + (ok ? 'vollständig belegt' : 'gesperrt') + '</span></td>'
-        + '<td style="font-size:10px">' + open.join('<br>') + '</td>'
+        + '<td style="font-size:12px">' + open.join('<br>') + '</td>'
         + '<td><button class="btn bs" data-pe-open="' + i + '">Nachweise</button></td></tr>';
     });
     return '<div class="card"><div style="font-weight:600;margin-bottom:6px">Produktnachweise</div>'
-      + '<div style="font-size:11px;color:var(--n5);margin-bottom:8px">Ohne vollständige, freigegebene und gültige Nachweise '
+      + '<div style="font-size:12px;color:var(--n5);margin-bottom:8px">Ohne vollständige, freigegebene und gültige Nachweise '
       + 'wird keine Empfehlung mit dem Produkt gespeichert, publiziert oder ausgeliefert.</div>'
       + '<table class="tbl"><thead><tr><th>Anlageklasse</th><th>Produkt</th><th>Status</th><th>Offen</th><th></th></tr></thead><tbody>'
       + rows.join('') + '</tbody></table></div>';
@@ -89,27 +89,27 @@
     }
     return '<tr><td>' + esc(kindLabel(item.evidence_kind)) + '</td><td>' + esc(STATUS[item.status] || item.status)
       + (item.reason_code ? ' (' + esc(reasonText(item.reason_code)) + ')' : '') + '</td><td>' + esc(item.valid_from) + ' – '
-      + esc(item.valid_until || 'offen') + '</td><td style="font-size:10px">' + esc(item.source_document_title) + '<br>'
-      + esc(item.source_reference) + '</td><td style="font-size:10px;word-break:break-all">' + esc(item.canonical_payload_json)
+      + esc(item.valid_until || 'offen') + '</td><td style="font-size:12px">' + esc(item.source_document_title) + '<br>'
+      + esc(item.source_reference) + '</td><td style="font-size:12px;word-break:break-all">' + esc(item.canonical_payload_json)
       + '<br>Prüfwert ' + esc(String(item.canonical_payload_hash).slice(0, 12)) + '</td><td>' + actions + '</td></tr>';
   }
 
   function field(id, label, attrs){
-    return '<div><label style="font-size:9px;color:var(--n4);display:block" for="' + id + '">' + label + '</label>'
-      + '<input class="fi" id="' + id + '" style="font-size:11px" ' + (attrs || '') + '></div>';
+    return '<div><label style="font-size:12px;color:var(--n4);display:block" for="' + id + '">' + label + '</label>'
+      + '<input class="fi" id="' + id + '" style="font-size:12px" ' + (attrs || '') + '></div>';
   }
 
   function formHtml(){
     if (!isAdmin()) return '';
     return '<div class="card"><div style="font-weight:600;margin-bottom:6px">Nachweis als Entwurf erfassen</div>'
       + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">'
-      + '<div><label style="font-size:9px;color:var(--n4);display:block" for="pe-kind">Nachweisart</label><select class="fsel" id="pe-kind">'
+      + '<div><label style="font-size:12px;color:var(--n4);display:block" for="pe-kind">Nachweisart</label><select class="fsel" id="pe-kind">'
       + KINDS.map(function(k){ return '<option value="' + k[0] + '">' + k[1] + '</option>'; }).join('') + '</select></div>'
       + field('pe-source-type', 'Quellentyp') + field('pe-reference', 'Quelle / Fundstelle') + field('pe-title', 'Dokumenttitel')
       + field('pe-version', 'Dokumentversion (optional)') + field('pe-docdate', 'Dokumentdatum (optional)', 'type="date"')
       + field('pe-sha', 'SHA-256 des Dokuments', 'maxlength="64"') + field('pe-asof', 'Stichtag', 'type="date"')
       + field('pe-from', 'Gültig ab', 'type="date"') + field('pe-until', 'Gültig bis (optional)', 'type="date"')
-      + '<div><label style="font-size:9px;color:var(--n4);display:block" for="pe-status">Aussage</label><select class="fsel" id="pe-status">'
+      + '<div><label style="font-size:12px;color:var(--n4);display:block" for="pe-status">Aussage</label><select class="fsel" id="pe-status">'
       + '<option value="">bitte wählen</option><option value="documented">belegt</option>'
       + '<option value="not_applicable">nicht anwendbar (laut Quelle)</option></select></div>'
       + field('pe-value', 'Satz in Bps p.a. (Kosten/Retrozession)', 'type="number" min="0" step="1"')
@@ -120,7 +120,7 @@
   function detailHtml(){
     if (!state.product) return '';
     return '<div class="card"><div style="font-weight:600;margin-bottom:6px">' + esc(state.product.product_name) + '</div>'
-      + '<div style="font-size:10px;color:var(--n5)">Identität: ' + esc(state.product.stable_instrument_id) + ' / Anteilsklasse: '
+      + '<div style="font-size:12px;color:var(--n5)">Identität: ' + esc(state.product.stable_instrument_id) + ' / Anteilsklasse: '
       + esc(state.product.share_class_id || 'keine') + '</div><table class="tbl"><thead><tr><th>Art</th><th>Status</th><th>Gültig</th>'
       + '<th>Quelle</th><th>Inhalt</th><th></th></tr></thead><tbody>' + state.items.map(itemHtml).join('') + '</tbody></table>'
       + field('pe-attestation', 'Begründung nur bei Einzelfreigabe (genau eine freigabeberechtigte Person)')

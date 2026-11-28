@@ -48,8 +48,8 @@ function sustCard(){
   return card;
 }
 
-var SUST_LBL='display:flex;gap:7px;align-items:flex-start;margin:4px 0;font-size:11px;color:var(--n7);cursor:pointer';
-var SUST_LEG='font-size:11.5px;font-weight:600;color:var(--n8);margin-bottom:4px';
+var SUST_LBL='display:flex;gap:7px;align-items:flex-start;margin:4px 0;font-size:12px;color:var(--n7);cursor:pointer';
+var SUST_LEG='font-size:12px;font-weight:600;color:var(--n8);margin-bottom:4px';
 var SUST_FS='border:0;padding:0;margin:0 0 10px';
 
 function sustRadio(name,value,label,id){
@@ -67,43 +67,43 @@ function sustRender(){
   var q1=sustQuestion('esg_relevance'),q2=sustQuestion('esg_characteristic'),q3=sustQuestion('exclusions'),q4=sustQuestion('preference_waived');
   var st=SUST.state||{};
   var html='<div class="chd"><span class="cht" id="sust-title" role="heading" aria-level="2">Nachhaltigkeitspräferenzen</span>'
-    +'<span style="font-size:9px;color:var(--n5)">nach dem Risikoprofil · verändert das Risikoprofil nicht</span></div>'
+    +'<span style="font-size:12px;color:var(--n5)">nach dem Risikoprofil · verändert das Risikoprofil nicht</span></div>'
     +'<div class="cbody">'
-    +'<div id="sust-state" role="status" aria-live="polite" style="margin-bottom:10px;font-size:11px;color:var(--n7)"></div>'
+    +'<div id="sust-state" role="status" aria-live="polite" style="margin-bottom:10px;font-size:12px;color:var(--n7)"></div>'
     +'<div id="sust-result" style="display:none;margin-bottom:12px;padding:10px 12px;border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg2,var(--bg))"></div>'
-    +'<p style="font-size:11px;line-height:1.55;color:var(--n6);margin:0 0 10px">'+sustEsc(def.intro_text)+'</p>'
-    +'<div id="sust-errors" role="alert" tabindex="-1" style="display:none;margin-bottom:8px;padding:8px 10px;border:1px solid var(--neg);border-radius:var(--r);font-size:11px;color:var(--neg)"></div>'
+    +'<p style="font-size:12px;line-height:1.55;color:var(--n6);margin:0 0 10px">'+sustEsc(def.intro_text)+'</p>'
+    +'<div id="sust-errors" role="alert" tabindex="-1" style="display:none;margin-bottom:8px;padding:8px 10px;border:1px solid var(--neg);border-radius:var(--r);font-size:12px;color:var(--neg)"></div>'
     +'<fieldset id="sust-q1" style="'+SUST_FS+'"><legend style="'+SUST_LEG+'">'+sustEsc(q1.text)+'</legend>';
   (q1.options||[]).forEach(function(o){html+=sustRadio('sust-q1',o.value,o.label,'sust-q1-'+o.value);});
   html+=sustRadio('sust-q1','declined',q1.declined_label||'Keine Angabe','sust-q1-declined')+'</fieldset>'
     +'<div id="sust-yes-block" hidden>'
-    +'<p id="sust-info-text" style="font-size:10.5px;line-height:1.5;color:var(--n6);margin:0 0 10px">'+sustEsc(def.information_text)+'</p>'
+    +'<p id="sust-info-text" style="font-size:12px;line-height:1.5;color:var(--n6);margin:0 0 10px">'+sustEsc(def.information_text)+'</p>'
     +'<fieldset id="sust-q2" style="'+SUST_FS+'"><legend style="'+SUST_LEG+'">'+sustEsc(q2.text)+'</legend>';
   (q2.options||[]).forEach(function(o){html+=sustRadio('sust-q2',o.value,o.label,'sust-q2-'+o.value);});
   html+='</fieldset><fieldset id="sust-q3" style="'+SUST_FS+'"><legend style="'+SUST_LEG+'">'+sustEsc(q3.text)+'</legend>';
   sustExclusionOptions().forEach(function(o){
     var id='sust-excl-'+o.key,why='sust-excl-why-'+o.key;
-    html+='<div style="margin:3px 0"><label for="'+id+'" style="font-size:11px;display:inline-flex;gap:6px;align-items:center">'
+    html+='<div style="margin:3px 0"><label for="'+id+'" style="font-size:12px;display:inline-flex;gap:6px;align-items:center">'
       +'<input type="checkbox" class="sust-excl" id="'+id+'" value="'+sustEsc(o.key)+'"> '+sustEsc(o.label)+'</label>'
-      +' <span id="'+why+'" style="font-size:10px;color:var(--n6)"></span></div>';
+      +' <span id="'+why+'" style="font-size:12px;color:var(--n6)"></span></div>';
   });
   html+='</fieldset>';
   if(st.waiver_allowed){
     html+='<fieldset id="sust-q4" style="'+SUST_FS+'"><legend style="'+SUST_LEG+'">'+sustEsc(q4.text)+'</legend>'
       +'<label style="'+SUST_LBL+'" for="sust-waiver"><input type="checkbox" id="sust-waiver"> <span>'+sustEsc(def.waiver_text)+'</span></label>'
-      +'<div id="sust-waiver-box" hidden><label for="sust-waiver-reason" style="font-size:10.5px;color:var(--n6)">Begründung des Verzichts (mind. 20 Zeichen)</label>'
+      +'<div id="sust-waiver-box" hidden><label for="sust-waiver-reason" style="font-size:12px;color:var(--n6)">Begründung des Verzichts (mind. 20 Zeichen)</label>'
       +'<textarea class="fi" id="sust-waiver-reason" maxlength="2000" rows="2" style="width:100%"></textarea></div></fieldset>';
   }
   html+='<label style="'+SUST_LBL+'" for="sust-info"><input type="checkbox" id="sust-info" aria-describedby="sust-info-text"> <span>Information zur Kenntnis genommen</span></label>'
     +'</div>'
     +'<div id="sust-finish" hidden>'
-    +'<div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap"><label for="sust-channel" style="font-size:11px;color:var(--n7)">Erhebungskanal</label>'
+    +'<div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap"><label for="sust-channel" style="font-size:12px;color:var(--n7)">Erhebungskanal</label>'
     +'<select class="fsel" id="sust-channel"><option value="">Bitte wählen</option>';
   Object.keys(def.capture_channels||{}).forEach(function(k){html+='<option value="'+sustEsc(k)+'">'+sustEsc(def.capture_channels[k])+'</option>';});
   html+='</select></div>'
     +'<label style="'+SUST_LBL+'" for="sust-confirm"><input type="checkbox" id="sust-confirm"> <span>Die Kundin bzw. der Kunde hat die Angaben bestätigt</span></label>'
     +'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap">'
-    +'<span id="sust-policy" style="font-size:10px;color:var(--n6)"></span>'
+    +'<span id="sust-policy" style="font-size:12px;color:var(--n6)"></span>'
     +'<button type="button" class="btn-g" id="btn-sust-save">Nachhaltigkeitspräferenzen speichern</button></div>'
     +'</div></div>';
   card.innerHTML=html;
@@ -188,11 +188,11 @@ function sustShowState(){
   if(!cur){result.style.display='none';result.innerHTML='';return;}
   var limits=(cur.limit_texts||[]).map(function(t){return '<li>'+sustEsc(t)+'</li>';}).join('');
   var ch=(SUST.definition&&SUST.definition.capture_channels)||{};
-  result.innerHTML='<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n5);margin-bottom:3px">Erfasste Nachhaltigkeitspräferenz</div>'
-    +'<div id="sust-result-text" style="font-size:11.5px;color:var(--n8);line-height:1.5">'+sustEsc(cur.profile_text)+'</div>'
-    +(cur.preference_waived?'<div style="font-size:10.5px;color:var(--n6);margin-top:4px">Verzicht dokumentiert (Anlageberatung).</div>':'')
-    +(limits?'<ul style="margin:6px 0 0 16px;padding:0;font-size:10.5px;color:var(--n6);line-height:1.45">'+limits+'</ul>':'')
-    +'<div style="font-size:9.5px;color:var(--n6);margin-top:6px">Version '+sustEsc(cur.sequence_no)+' · '+sustEsc(cur.questionnaire_version)
+  result.innerHTML='<div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n5);margin-bottom:3px">Erfasste Nachhaltigkeitspräferenz</div>'
+    +'<div id="sust-result-text" style="font-size:12px;color:var(--n8);line-height:1.5">'+sustEsc(cur.profile_text)+'</div>'
+    +(cur.preference_waived?'<div style="font-size:12px;color:var(--n6);margin-top:4px">Verzicht dokumentiert (Anlageberatung).</div>':'')
+    +(limits?'<ul style="margin:6px 0 0 16px;padding:0;font-size:12px;color:var(--n6);line-height:1.45">'+limits+'</ul>':'')
+    +'<div style="font-size:12px;color:var(--n6);margin-top:6px">Version '+sustEsc(cur.sequence_no)+' · '+sustEsc(cur.questionnaire_version)
     +' · erfasst '+sustEsc(String(cur.captured_at||'').slice(0,10))+' · '+sustEsc(ch[cur.capture_channel]||cur.capture_channel)
     +' · Überprüfung bis '+sustEsc(cur.review_due_on)+'</div>';
   result.style.display='';
@@ -332,7 +332,7 @@ function sustNote(anchor,id,text,inside){
   if(!text){if(el)el.remove();return null;}
   if(!el&&anchor&&(inside||anchor.parentNode)){
     el=document.createElement('span');el.id=id;
-    el.style.cssText='display:block;font-size:9.5px;color:var(--n6);margin:1px 0 3px';
+    el.style.cssText='display:block;font-size:12px;color:var(--n6);margin:1px 0 3px';
     if(inside)anchor.appendChild(el);else anchor.parentNode.insertBefore(el,anchor.nextSibling);
   }
   if(el){el.textContent=text;}

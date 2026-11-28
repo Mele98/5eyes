@@ -66,7 +66,7 @@
     if (typeof showAppNotice === 'function') return showAppNotice({level: level, message: message});
   }
   function val(id){ var el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; }
-  var L = '<label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">';
+  var L = '<label style="font-size:12px;color:var(--n4);display:block;margin-bottom:2px">';
 
   // -------------------------------------------------------------------------
   // Administration > Rechtliche Angaben (Kundeninformation FIDLEG)
@@ -83,13 +83,13 @@
     var labels = data.field_labels || {};
     var missing = data.missing_fields || [];
     var html = '<div class="admin-section-title">Rechtliche Angaben (Kundeninformation Art. 8 FIDLEG)</div>'
-      + '<div class="admin-risk-note" style="font-size:10px;line-height:1.6">Diese Angaben erscheinen in der Kundeninformation, die jeder Kunde vor Vertragsabschluss erhält. '
+      + '<div class="admin-risk-note" style="font-size:12px;line-height:1.6">Diese Angaben erscheinen in der Kundeninformation, die jeder Kunde vor Vertragsabschluss erhält. '
       + 'Ares belegt keinen Wert vor. Solange eine Pflichtangabe fehlt, sind Kundeninformation, Finalisierung und Vertragsunterzeichnung gesperrt. '
       + 'Jede Änderung wird im Audit-Log festgehalten.</div>';
     if (missing.length) {
-      html += '<div id="lp-missing" style="font-size:10px;color:var(--neg)">Es fehlen: ' + esc((data.missing_labels || missing).join(', ')) + '</div>';
+      html += '<div id="lp-missing" style="font-size:12px;color:var(--neg)">Es fehlen: ' + esc((data.missing_labels || missing).join(', ')) + '</div>';
     } else {
-      html += '<div id="lp-missing" style="font-size:10px;color:var(--pos)">Vollständig (Revision ' + esc(data.revision) + ').</div>';
+      html += '<div id="lp-missing" style="font-size:12px;color:var(--pos)">Vollständig (Revision ' + esc(data.revision) + ').</div>';
     }
     html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
     LEGAL_FIELDS.forEach(function(f){
@@ -98,22 +98,22 @@
       var current = data[name] == null ? '' : String(data[name]);
       var cell = '<div' + (kind === 'textarea' ? ' style="grid-column:1/-1"' : '') + '>' + L + esc(label) + '</label>';
       if (kind === 'select') {
-        cell += '<select class="fsel" id="lp-' + name + '" style="font-size:11px"><option value="">nicht erfasst</option>';
+        cell += '<select class="fsel" id="lp-' + name + '" style="font-size:12px"><option value="">nicht erfasst</option>';
         var opts = data.supervision_labels || {};
         Object.keys(opts).forEach(function(key){
           cell += '<option value="' + esc(key) + '"' + (current === key ? ' selected' : '') + '>' + esc(opts[key]) + '</option>';
         });
         cell += '</select>';
       } else if (kind === 'textarea') {
-        cell += '<textarea class="fi" id="lp-' + name + '" rows="2" style="font-size:11px">' + esc(current) + '</textarea>';
+        cell += '<textarea class="fi" id="lp-' + name + '" rows="2" style="font-size:12px">' + esc(current) + '</textarea>';
       } else {
-        cell += '<input class="fi" id="lp-' + name + '" value="' + esc(current) + '" style="font-size:11px">';
+        cell += '<input class="fi" id="lp-' + name + '" value="' + esc(current) + '" style="font-size:12px">';
       }
       html += cell + '</div>';
     });
     html += '</div><div style="display:flex;gap:8px;align-items:center">'
-      + '<button class="btn-p" id="btn-lp-save" onclick="saveAdminLegalProfile()" style="font-size:10px;padding:3px 10px">Speichern</button>'
-      + '<span style="font-size:9px;color:var(--n4)">Nur Firmen-Admins. Leeres Feld = Angabe entfernen.</span></div>';
+      + '<button class="btn-p" id="btn-lp-save" onclick="saveAdminLegalProfile()" style="font-size:12px;padding:3px 10px">Speichern</button>'
+      + '<span style="font-size:12px;color:var(--n4)">Nur Firmen-Admins. Leeres Feld = Angabe entfernen.</span></div>';
     host.innerHTML = html;
   }
 
@@ -124,7 +124,7 @@
     try {
       renderLegalProfile(host, await API.get('/compliance/legal-profile'));
     } catch(e) {
-      host.innerHTML = '<div style="color:var(--neg);font-size:10px">' + esc(errText(e, 'Rechtliche Angaben konnten nicht geladen werden.')) + '</div>';
+      host.innerHTML = '<div style="color:var(--neg);font-size:12px">' + esc(errText(e, 'Rechtliche Angaben konnten nicht geladen werden.')) + '</div>';
     }
   }
 
@@ -153,7 +153,7 @@
     if (!findings.length) {
       return '<div class="tag tn" style="display:inline-block">Kundeninformation und KYC: bereit für Vertragsabschluss</div>';
     }
-    var html = '<div style="font-size:10px;color:var(--neg);font-weight:600;margin-bottom:4px">Gesperrt für Finalisierung und Vertragsunterzeichnung</div><ul style="margin:0;padding-left:16px;font-size:10px;line-height:1.6">';
+    var html = '<div style="font-size:12px;color:var(--neg);font-weight:600;margin-bottom:4px">Gesperrt für Finalisierung und Vertragsunterzeichnung</div><ul style="margin:0;padding-left:16px;font-size:12px;line-height:1.6">';
     findings.forEach(function(f){
       html += '<li data-reason-code="' + esc(f.reason_code) + '">' + esc(f.message) + '<br><span style="color:var(--n5)">Zu tun: ' + esc(f.owner_action) + '</span></li>';
     });
@@ -162,25 +162,25 @@
 
   function deliveryHtml(status){
     var doc = status.latest_document;
-    var html = '<div style="font-weight:600;font-size:10px;margin-top:10px">Kundeninformation (Art. 8/9 FIDLEG)</div>';
+    var html = '<div style="font-weight:600;font-size:12px;margin-top:10px">Kundeninformation (Art. 8/9 FIDLEG)</div>';
     html += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0">'
       + '<button class="btn btn-sm" onclick="downloadClientInformationPdf()">PDF erstellen</button>';
     if (doc) {
-      html += '<span style="font-size:9px;color:var(--n5)">Fassung v' + esc(doc.version) + ' · SHA-256 ' + esc(String(doc.checksum_sha256 || '').slice(0, 12)) + '…'
+      html += '<span style="font-size:12px;color:var(--n5)">Fassung v' + esc(doc.version) + ' · SHA-256 ' + esc(String(doc.checksum_sha256 || '').slice(0, 12)) + '…'
         + (doc.current ? '' : ' · <span style="color:var(--neg)">veraltet, bitte neu erstellen</span>') + '</span>';
     }
     html += '</div>';
     (status.deliveries || []).forEach(function(d){
-      html += '<div style="font-size:9px;color:var(--n5)">Übergeben ' + esc(localTs(d.delivered_at)) + ' (' + esc(CHANNEL_LABELS[d.delivery_channel] || d.delivery_channel) + ') · erfasst ' + esc(localTs(d.recorded_at)) + ' · Fassung ' + esc(String(d.pdf_sha256 || '').slice(0, 12)) + '…'
+      html += '<div style="font-size:12px;color:var(--n5)">Übergeben ' + esc(localTs(d.delivered_at)) + ' (' + esc(CHANNEL_LABELS[d.delivery_channel] || d.delivery_channel) + ') · erfasst ' + esc(localTs(d.recorded_at)) + ' · Fassung ' + esc(String(d.pdf_sha256 || '').slice(0, 12)) + '…'
         + (d.delivery_timing === 'nachtraeglich' ? ' · <span style="color:var(--neg)">nachträglich übergeben (nach Vertragsabschluss)</span>' : '')
         + (d.archive_verified && d.seal_verified ? '' : ' · <span style="color:var(--neg)">Nachweis ungültig</span>') + '</div>';
     });
     if (doc && doc.current) {
       html += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-top:4px">'
-        + '<div>' + L + 'Übergeben am (Zeitpunkt)</label><input class="fi" type="datetime-local" id="ci-delivered-at" style="font-size:11px"></div>'
-        + '<div>' + L + 'Kanal</label><select class="fsel" id="ci-channel" style="font-size:11px"><option value="">bitte wählen</option>'
+        + '<div>' + L + 'Übergeben am (Zeitpunkt)</label><input class="fi" type="datetime-local" id="ci-delivered-at" style="font-size:12px"></div>'
+        + '<div>' + L + 'Kanal</label><select class="fsel" id="ci-channel" style="font-size:12px"><option value="">bitte wählen</option>'
         + '<option value="persoenlich_papier">persönlich (Papier)</option><option value="post">Post</option><option value="email">E-Mail</option><option value="kundenportal">Kundenportal</option></select></div>'
-        + '<div style="flex:1;min-width:220px">' + L + 'Begründung (Pflicht, wenn die Übergabe mehr als 24 h zurückliegt)</label><input class="fi" id="ci-backdating" style="font-size:11px"></div>'
+        + '<div style="flex:1;min-width:220px">' + L + 'Begründung (Pflicht, wenn die Übergabe mehr als 24 h zurückliegt)</label><input class="fi" id="ci-backdating" style="font-size:12px"></div>'
         + '<button class="btn btn-sm" onclick="recordClientInformationDelivery(\'' + esc(doc.id) + '\')">Übergabe erfassen</button></div>';
     }
     return html;
@@ -189,58 +189,58 @@
   function kycHtml(status, dd){
     var c = status.kyc_confirmation;
     var answered = !!(dd && dd.acting_for_own_account_answered);
-    var html = '<div style="font-weight:600;font-size:10px;margin-top:10px">GwG-Abklärung (im SRO-/Fremdprozess) – Bestätigung</div>'
-      + '<div style="font-size:9px;color:var(--n5);line-height:1.5">Ares führt die GwG-Abklärung nicht selbst. Erfasst wird, dass sie im Prozess der Selbstregulierungs- bzw. Aufsichtsorganisation oder im Fremdsystem erfolgt ist.</div>';
+    var html = '<div style="font-weight:600;font-size:12px;margin-top:10px">GwG-Abklärung (im SRO-/Fremdprozess) – Bestätigung</div>'
+      + '<div style="font-size:12px;color:var(--n5);line-height:1.5">Ares führt die GwG-Abklärung nicht selbst. Erfasst wird, dass sie im Prozess der Selbstregulierungs- bzw. Aufsichtsorganisation oder im Fremdsystem erfolgt ist.</div>';
     html += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin:4px 0">'
-      + '<div>' + L + 'Handelt der Kunde auf eigene Rechnung?</label><select class="fsel" id="kyc-own-account" style="font-size:11px">'
+      + '<div>' + L + 'Handelt der Kunde auf eigene Rechnung?</label><select class="fsel" id="kyc-own-account" style="font-size:12px">'
       + '<option value=""' + (answered ? '' : ' selected') + '>nicht beantwortet</option>'
       + '<option value="true"' + (answered && dd.acting_for_own_account === true ? ' selected' : '') + '>ja</option>'
       + '<option value="false"' + (answered && dd.acting_for_own_account === false ? ' selected' : '') + '>nein (Dritter wirtschaftlich berechtigt)</option></select></div>'
-      + '<div>' + L + 'Wirtschaftlich berechtigte Person (bei nein)</label><input class="fi" id="kyc-bo-name" value="' + esc(dd && dd.beneficial_owner_name || '') + '" style="font-size:11px"></div>'
+      + '<div>' + L + 'Wirtschaftlich berechtigte Person (bei nein)</label><input class="fi" id="kyc-bo-name" value="' + esc(dd && dd.beneficial_owner_name || '') + '" style="font-size:12px"></div>'
       + '<button class="btn btn-sm" onclick="saveOwnAccountAnswer()">Antwort speichern</button></div>';
     // C-890-01: Wiedervorlage-Policy der Firma (Server berechnet die Obergrenze).
     var rp = status.kyc_review_policy || {}, rpp = rp.policy;
-    html += '<div style="font-size:9px;color:var(--n5)" data-kyc-review-status="' + esc(rp.status || '') + '">Wiedervorlage: '
+    html += '<div style="font-size:12px;color:var(--n5)" data-kyc-review-status="' + esc(rp.status || '') + '">Wiedervorlage: '
       + (rpp && rp.policy_status === 'effective' ? 'Policy ' + esc(rpp.policy_id) + ' v' + esc(rpp.version) + ', nächste Aktualisierung höchstens ' + esc(rpp.normal_max_months) + ' Monate (PEP/erhöht ' + esc(rpp.elevated_max_months == null ? rpp.normal_max_months : rpp.elevated_max_months) + ') nach dem Formulardatum'
         : '<span style="color:var(--neg)">keine wirksame, freigegebene Policy der Firma – Erfassung gesperrt</span>') + '</div>';
     if (c) {
       var needs = status.kyc_requires_second_approval;
-      html += '<div style="font-size:9px;color:var(--n5)">Letzte Bestätigung: Formular ' + esc(c.form_type) + ' vom ' + esc(c.form_completed_on)
+      html += '<div style="font-size:12px;color:var(--n5)">Letzte Bestätigung: Formular ' + esc(c.form_type) + ' vom ' + esc(c.form_completed_on)
         + ', Referenz ' + esc(c.external_reference) + ', Risiko ' + esc(c.risk_category) + ', PEP ' + (Number(c.is_pep) ? 'ja' : 'nein')
         + ', nächste Aktualisierung ' + esc(c.next_review_due)
         + (needs ? (c.approval_by ? ' · freigegeben' : ' · <span style="color:var(--neg)">Freigabe durch zweite Person fehlt</span> <button class="btn btn-sm" onclick="approveKycConfirmation(\'' + esc(c.id) + '\')">Freigeben (Admin)</button>') : '')
         + '</div>';
     }
     html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:4px">'
-      + '<div>' + L + 'Formular</label><select class="fsel" id="kyc-form" style="font-size:11px"><option value="">bitte wählen</option><option value="A">A (wirtschaftlich Berechtigter)</option><option value="K">K (Kontrollinhaber)</option><option value="S">S (Stiftungen/ähnliche)</option><option value="T">T (Trusts)</option></select></div>'
-      + '<div>' + L + 'Formular erstellt am</label><input class="fi" type="date" id="kyc-date" style="font-size:11px"></div>'
-      + '<div>' + L + 'Referenz (SRO-/Fremdsystem, keine Kundennamen)</label><input class="fi" id="kyc-ref" maxlength="120" style="font-size:11px"></div>'
-      + '<div>' + L + 'Risikokategorie</label><select class="fsel" id="kyc-risk" style="font-size:11px"><option value="">bitte wählen</option><option value="normal">normal</option><option value="erhoeht">erhöht</option></select></div>'
-      + '<div>' + L + 'PEP</label><select class="fsel" id="kyc-pep" style="font-size:11px"><option value="">bitte wählen</option><option value="false">nein</option><option value="true">ja</option></select></div>'
-      + '<div>' + L + 'Nächste Aktualisierung (Pflicht)</label><input class="fi" type="date" id="kyc-review" style="font-size:11px"></div>'
-      + '<div>' + L + 'Identifizierung der Vertragspartei am (GwG Art. 3)</label><input class="fi" type="date" id="kyc-ident-date" style="font-size:11px"></div>'
-      + '<div style="grid-column:span 2;font-size:10px;padding-top:12px"><label><input type="checkbox" id="kyc-ident-ok"> Identifizierung der Vertragspartei ist erfolgt (GwG Art. 3)</label></div>'
+      + '<div>' + L + 'Formular</label><select class="fsel" id="kyc-form" style="font-size:12px"><option value="">bitte wählen</option><option value="A">A (wirtschaftlich Berechtigter)</option><option value="K">K (Kontrollinhaber)</option><option value="S">S (Stiftungen/ähnliche)</option><option value="T">T (Trusts)</option></select></div>'
+      + '<div>' + L + 'Formular erstellt am</label><input class="fi" type="date" id="kyc-date" style="font-size:12px"></div>'
+      + '<div>' + L + 'Referenz (SRO-/Fremdsystem, keine Kundennamen)</label><input class="fi" id="kyc-ref" maxlength="120" style="font-size:12px"></div>'
+      + '<div>' + L + 'Risikokategorie</label><select class="fsel" id="kyc-risk" style="font-size:12px"><option value="">bitte wählen</option><option value="normal">normal</option><option value="erhoeht">erhöht</option></select></div>'
+      + '<div>' + L + 'PEP</label><select class="fsel" id="kyc-pep" style="font-size:12px"><option value="">bitte wählen</option><option value="false">nein</option><option value="true">ja</option></select></div>'
+      + '<div>' + L + 'Nächste Aktualisierung (Pflicht)</label><input class="fi" type="date" id="kyc-review" style="font-size:12px"></div>'
+      + '<div>' + L + 'Identifizierung der Vertragspartei am (GwG Art. 3)</label><input class="fi" type="date" id="kyc-ident-date" style="font-size:12px"></div>'
+      + '<div style="grid-column:span 2;font-size:12px;padding-top:12px"><label><input type="checkbox" id="kyc-ident-ok"> Identifizierung der Vertragspartei ist erfolgt (GwG Art. 3)</label></div>'
       + '</div><button class="btn btn-sm" style="margin-top:4px" onclick="createKycConfirmation()">KYC-Bestätigung erfassen</button>';
     return html;
   }
 
   function representationsHtml(reps){
-    var html = '<div style="font-weight:600;font-size:10px;margin-top:10px">Vertretung und Verfügungsberechtigung (ZGB)</div>';
+    var html = '<div style="font-weight:600;font-size:12px;margin-top:10px">Vertretung und Verfügungsberechtigung (ZGB)</div>';
     (reps || []).forEach(function(r){
-      html += '<div style="font-size:9px;color:var(--n5)">' + esc(REP_LABELS[r.representation_type] || r.representation_type) + ': ' + esc(r.representative_name)
+      html += '<div style="font-size:12px;color:var(--n5)">' + esc(REP_LABELS[r.representation_type] || r.representation_type) + ': ' + esc(r.representative_name)
         + ' · Umfang ' + esc(r.scope) + ' · Beleg ' + esc(r.evidence_reference)
         + (r.effective_from ? ' · wirksam ab ' + esc(r.effective_from) : '') + (r.disposal_rule ? ' · Verfügung ' + esc(r.disposal_rule) : '')
         + (r.revoked_at ? ' · <em>widerrufen ' + esc(r.revoked_at.slice(0, 10)) + '</em>' : ' <button class="btn btn-sm" onclick="revokeRepresentation(\'' + esc(r.id) + '\')">Widerrufen</button>')
         + '</div>';
     });
     html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:4px">'
-      + '<div>' + L + 'Art</label><select class="fsel" id="rep-type" style="font-size:11px"><option value="">bitte wählen</option><option value="vollmacht">Vollmacht</option><option value="vorsorgeauftrag">Vorsorgeauftrag</option><option value="beistandschaft">Beistandschaft</option><option value="gemeinschaftsdepot">Gemeinschaftsdepot</option></select></div>'
-      + '<div>' + L + 'Person (bevollmächtigt / Beistand / Mitinhaber)</label><input class="fi" id="rep-name" style="font-size:11px"></div>'
-      + '<div>' + L + 'Umfang</label><input class="fi" id="rep-scope" style="font-size:11px"></div>'
-      + '<div>' + L + 'Beleg</label><input class="fi" id="rep-evidence" style="font-size:11px"></div>'
-      + '<div>' + L + 'Wirksam ab (Pflicht bei Vorsorgeauftrag/Beistandschaft)</label><input class="fi" type="date" id="rep-from" style="font-size:11px"></div>'
-      + '<div>' + L + 'Verfügung (nur Gemeinschaftsdepot)</label><select class="fsel" id="rep-disposal" style="font-size:11px"><option value="">—</option><option value="einzeln">einzeln</option><option value="gemeinsam">gemeinsam</option></select></div>'
-      + '<div style="grid-column:1/-1">' + L + 'Widerrufsgrund (für «Widerrufen», mind. 5 Zeichen)</label><input class="fi" id="rep-revoke-reason" style="font-size:11px"></div>'
+      + '<div>' + L + 'Art</label><select class="fsel" id="rep-type" style="font-size:12px"><option value="">bitte wählen</option><option value="vollmacht">Vollmacht</option><option value="vorsorgeauftrag">Vorsorgeauftrag</option><option value="beistandschaft">Beistandschaft</option><option value="gemeinschaftsdepot">Gemeinschaftsdepot</option></select></div>'
+      + '<div>' + L + 'Person (bevollmächtigt / Beistand / Mitinhaber)</label><input class="fi" id="rep-name" style="font-size:12px"></div>'
+      + '<div>' + L + 'Umfang</label><input class="fi" id="rep-scope" style="font-size:12px"></div>'
+      + '<div>' + L + 'Beleg</label><input class="fi" id="rep-evidence" style="font-size:12px"></div>'
+      + '<div>' + L + 'Wirksam ab (Pflicht bei Vorsorgeauftrag/Beistandschaft)</label><input class="fi" type="date" id="rep-from" style="font-size:12px"></div>'
+      + '<div>' + L + 'Verfügung (nur Gemeinschaftsdepot)</label><select class="fsel" id="rep-disposal" style="font-size:12px"><option value="">—</option><option value="einzeln">einzeln</option><option value="gemeinsam">gemeinsam</option></select></div>'
+      + '<div style="grid-column:1/-1">' + L + 'Widerrufsgrund (für «Widerrufen», mind. 5 Zeichen)</label><input class="fi" id="rep-revoke-reason" style="font-size:12px"></div>'
       + '</div><button class="btn btn-sm" style="margin-top:4px" onclick="createRepresentation()">Vertretung erfassen</button>';
     return html;
   }
@@ -250,7 +250,7 @@
     var mid = (typeof currentMandateId !== 'undefined') ? currentMandateId : null;
     var cid = (typeof currentClientId !== 'undefined') ? currentClientId : null;
     if (!host) return;
-    if (!mid || !cid) { host.innerHTML = '<div style="font-size:10px;color:var(--n4)">Kein Mandat geöffnet.</div>'; return; }
+    if (!mid || !cid) { host.innerHTML = '<div style="font-size:12px;color:var(--n4)">Kein Mandat geöffnet.</div>'; return; }
     try {
       var status = await API.get('/mandates/' + encodeURIComponent(mid) + '/client-onboarding/status');
       var dd = status.due_diligence || null;
@@ -258,7 +258,7 @@
       host.innerHTML = findingsHtml(status) + deliveryHtml(status) + kycHtml(status, dd) + representationsHtml(reps);
       host.setAttribute('data-release-ready', status.release_ready ? '1' : '0');
     } catch(e) {
-      host.innerHTML = '<div style="color:var(--neg);font-size:10px">' + esc(errText(e, 'Kundeninformation/KYC-Status konnte nicht geladen werden.')) + '</div>';
+      host.innerHTML = '<div style="color:var(--neg);font-size:12px">' + esc(errText(e, 'Kundeninformation/KYC-Status konnte nicht geladen werden.')) + '</div>';
     }
   }
 
@@ -399,8 +399,8 @@
     card.className = 'card';
     card.style.marginTop = '14px';
     card.innerHTML = '<div class="chd"><span class="cht">Kundeninformation, KYC &amp; Vertretung</span>'
-      + '<span style="font-size:9px;color:var(--n4);margin-left:8px">Art. 8/9 FIDLEG &middot; GwG &middot; ZGB &middot; Voraussetzung f&uuml;r Vertragsabschluss</span></div>'
-      + '<div class="cbody"><div id="sd-client-compliance"><div style="font-size:10px;color:var(--n4)">Kein Mandat ge&ouml;ffnet.</div></div></div>';
+      + '<span style="font-size:12px;color:var(--n4);margin-left:8px">Art. 8/9 FIDLEG &middot; GwG &middot; ZGB &middot; Voraussetzung f&uuml;r Vertragsabschluss</span></div>'
+      + '<div class="cbody"><div id="sd-client-compliance"><div style="font-size:12px;color:var(--n4)">Kein Mandat ge&ouml;ffnet.</div></div></div>';
     docsCard.parentNode.insertBefore(card, docsCard);
     if (typeof MutationObserver === 'function') {
       new MutationObserver(schedulePanelRefresh).observe(hub, {childList: true});
@@ -437,7 +437,7 @@ function renderAuditLogTable(entries, container) {
     container.textContent = 'Keine Einträge.';
     return;
   }
-  var html = '<table style="width:100%;border-collapse:collapse;font-size:10px">'
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:12px">'
     + '<thead><tr style="border-bottom:1px solid var(--b2);color:var(--n4)">'
     + '<th style="text-align:left;padding:3px 6px;font-weight:500">Zeitpunkt</th>'
     + '<th style="text-align:left;padding:3px 6px;font-weight:500">Benutzer</th>'

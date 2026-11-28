@@ -35,7 +35,7 @@
     depotbank: 'Zuwendungen der Depotbank',
     protokoll: 'Beratungsprotokoll (Art. 15 FIDLEG)'
   };
-  var L = '<label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">';
+  var L = '<label style="font-size:12px;color:var(--n4);display:block;margin-bottom:2px">';
   var state = { items: [], mandate: null };
 
   function esc(v){
@@ -61,23 +61,23 @@
     var u = me();
     var id = esc(item.draft_row_id);
     if (u && item.draft_created_by === u.id) {
-      return '<div class="oc-self" style="font-size:9px;color:var(--warn)">Von Ihnen erfasst – freigeben muss eine zweite Person.</div>';
+      return '<div class="oc-self" style="font-size:12px;color:var(--warn)">Von Ihnen erfasst – freigeben muss eine zweite Person.</div>';
     }
-    return '<div style="font-size:9px;color:var(--n5)">Prüfwert: <code id="oc-hash-' + id + '" style="font-size:9px;word-break:break-all">' + esc(item.draft_content_hash) + '</code></div>'
-      + '<input class="fi" id="oc-ref-' + id + '" placeholder="Freigabereferenz" style="font-size:10px;width:60%"> '
-      + '<label style="font-size:9px"><input type="checkbox" id="oc-ok-' + id + '"> Inhalt und Prüfwert geprüft</label> '
-      + '<button class="btn-p" id="oc-approve-' + id + '" style="font-size:10px;padding:2px 8px" onclick="approveOwnerContent(\'' + id + '\')">Freigeben</button>';
+    return '<div style="font-size:12px;color:var(--n5)">Prüfwert: <code id="oc-hash-' + id + '" style="font-size:12px;word-break:break-all">' + esc(item.draft_content_hash) + '</code></div>'
+      + '<input class="fi" id="oc-ref-' + id + '" placeholder="Freigabereferenz" style="font-size:12px;width:60%"> '
+      + '<label style="font-size:12px"><input type="checkbox" id="oc-ok-' + id + '"> Inhalt und Prüfwert geprüft</label> '
+      + '<button class="btn-p" id="oc-approve-' + id + '" style="font-size:12px;padding:2px 8px" onclick="approveOwnerContent(\'' + id + '\')">Freigeben</button>';
   }
 
   function itemHtml(item){
     var effective = item.effective_body_text || item.effective_value_json;
     var draft = item.draft_body_text || item.draft_value_json;
     return '<tr data-owner-key="' + esc(item.key) + '" data-owner-status="' + esc(item.status) + '" style="border-top:1px solid var(--b1);vertical-align:top">'
-      + '<td>' + esc(item.label) + '<div style="font-size:9px;color:var(--n5)">' + esc(item.key) + ' · ' + esc(item.placeholder) + '</div>'
-      + '<div class="oc-where" style="font-size:9px;color:var(--n5)">Erscheint in: ' + esc(item.visible_in) + '</div></td>'
+      + '<td>' + esc(item.label) + '<div style="font-size:12px;color:var(--n5)">' + esc(item.key) + ' · ' + esc(item.placeholder) + '</div>'
+      + '<div class="oc-where" style="font-size:12px;color:var(--n5)">Erscheint in: ' + esc(item.visible_in) + '</div></td>'
       + '<td>' + esc(STATUS_LABELS[item.status] || item.status)
-      + (effective ? '<div style="font-size:9px">Version ' + esc(item.effective_version) + ': ' + esc(short(effective)) + '</div>' : '')
-      + (item.draft_row_id ? '<div style="font-size:9px;margin-top:4px">Entwurf Version ' + esc(item.draft_version) + ': ' + esc(short(draft)) + '</div>' + approvalHtml(item) : '')
+      + (effective ? '<div style="font-size:12px">Version ' + esc(item.effective_version) + ': ' + esc(short(effective)) + '</div>' : '')
+      + (item.draft_row_id ? '<div style="font-size:12px;margin-top:4px">Entwurf Version ' + esc(item.draft_version) + ': ' + esc(short(draft)) + '</div>' + approvalHtml(item) : '')
       + '</td></tr>';
   }
 
@@ -88,12 +88,12 @@
     Object.keys(GROUP_LABELS).forEach(function(g){
       var rows = groups[g] || [];
       if (!rows.length && g !== 'depotbank') return;
-      html += '<div style="font-weight:600;font-size:10px;margin-top:10px">' + esc(GROUP_LABELS[g]) + '</div>';
+      html += '<div style="font-weight:600;font-size:12px;margin-top:10px">' + esc(GROUP_LABELS[g]) + '</div>';
       if (g === 'vertrag') {
-        html += '<div style="font-size:9px;color:var(--n5)">Je Klausel genügt ein gemeinsamer Text für alle Mandatstypen; ein Text für einen bestimmten Mandatstyp hat Vorrang.</div>';
+        html += '<div style="font-size:12px;color:var(--n5)">Je Klausel genügt ein gemeinsamer Text für alle Mandatstypen; ein Text für einen bestimmten Mandatstyp hat Vorrang.</div>';
       }
-      if (!rows.length) { html += '<div style="font-size:10px;color:var(--n5)">Noch keine Depotbank erfasst.</div>'; return; }
-      html += '<table style="width:100%;border-collapse:collapse;font-size:10px"><tbody>' + rows.map(itemHtml).join('') + '</tbody></table>';
+      if (!rows.length) { html += '<div style="font-size:12px;color:var(--n5)">Noch keine Depotbank erfasst.</div>'; return; }
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px"><tbody>' + rows.map(itemHtml).join('') + '</tbody></table>';
     });
     return html;
   }
@@ -112,32 +112,32 @@
     var options = (data.items || []).filter(function(i){ return i.group !== 'depotbank'; }).map(function(i){
       return '<option value="' + esc(i.key) + '" data-kind="' + esc(i.kind) + '">' + esc(i.label) + '</option>';
     }).join('');
-    return '<div style="font-weight:600;font-size:10px;margin-top:12px">Neue Version erfassen</div>'
-      + '<div style="font-size:9px;color:var(--n5);line-height:1.5">Erfassen Sie den von Geschäftsleitung bzw. Compliance freigegebenen Text der Firma. Ares schlägt keinen Text vor. '
+    return '<div style="font-weight:600;font-size:12px;margin-top:12px">Neue Version erfassen</div>'
+      + '<div style="font-size:12px;color:var(--n5);line-height:1.5">Erfassen Sie den von Geschäftsleitung bzw. Compliance freigegebenen Text der Firma. Ares schlägt keinen Text vor. '
       + 'Erst nach der Freigabe durch eine zweite Person ist die Version wirksam.</div>'
       + '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:4px">'
-      + '<div>' + L + 'Inhalt</label><select class="fi" id="oc-key" style="font-size:11px" onchange="ownerContentKeyHint()">' + options + '</select></div>'
-      + '<div>' + L + 'Quelle (Dokument-ID, Freigabe der Geschäftsleitung)</label><input class="fi" id="oc-source" style="font-size:11px"></div>'
-      + '<div id="oc-key-hint" style="grid-column:1/-1;font-size:9px;color:var(--n5);line-height:1.5">' + keyHintHtml(firstKey(data)) + '</div>'
-      + '<div style="grid-column:1/-1">' + L + 'Text der Firma bzw. ganze Zahl (Mindesthorizont in Jahren)</label><textarea class="fi" id="oc-text" rows="4" style="font-size:11px"></textarea></div>'
-      + '</div><button class="btn-p" id="btn-oc-create" style="margin-top:4px;font-size:10px;padding:3px 10px" onclick="createOwnerContent()">Version erfassen</button>'
-      + '<div style="font-weight:600;font-size:10px;margin-top:12px">Zuwendungen einer Depotbank erfassen</div>'
+      + '<div>' + L + 'Inhalt</label><select class="fi" id="oc-key" style="font-size:12px" onchange="ownerContentKeyHint()">' + options + '</select></div>'
+      + '<div>' + L + 'Quelle (Dokument-ID, Freigabe der Geschäftsleitung)</label><input class="fi" id="oc-source" style="font-size:12px"></div>'
+      + '<div id="oc-key-hint" style="grid-column:1/-1;font-size:12px;color:var(--n5);line-height:1.5">' + keyHintHtml(firstKey(data)) + '</div>'
+      + '<div style="grid-column:1/-1">' + L + 'Text der Firma bzw. ganze Zahl (Mindesthorizont in Jahren)</label><textarea class="fi" id="oc-text" rows="4" style="font-size:12px"></textarea></div>'
+      + '</div><button class="btn-p" id="btn-oc-create" style="margin-top:4px;font-size:12px;padding:3px 10px" onclick="createOwnerContent()">Version erfassen</button>'
+      + '<div style="font-weight:600;font-size:12px;margin-top:12px">Zuwendungen einer Depotbank erfassen</div>'
       + '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:4px">'
-      + '<div>' + L + 'Depotbank (wie im Mandat)</label><input class="fi" id="oc-bank" style="font-size:11px"></div>'
-      + '<div>' + L + 'Angabe</label><select class="fi" id="oc-bank-status" style="font-size:11px"><option value="keine">keine Zuwendungen</option><option value="satz">Satz und Basis</option><option value="verzicht">Verzicht mit Bandbreite</option></select></div>'
-      + '<div>' + L + 'Satz (Basispunkte)</label><input class="fi" type="number" min="0" id="oc-bank-rate" style="font-size:11px"></div>'
-      + '<div>' + L + 'Bemessungsbasis</label><input class="fi" id="oc-bank-basis" style="font-size:11px"></div>'
-      + '<div>' + L + 'Bandbreite min (bp)</label><input class="fi" type="number" min="0" id="oc-bank-min" style="font-size:11px"></div>'
-      + '<div>' + L + 'Bandbreite max (bp)</label><input class="fi" type="number" min="0" id="oc-bank-max" style="font-size:11px"></div>'
-      + '<div>' + L + 'Gültig ab</label><input class="fi" type="date" id="oc-bank-from" style="font-size:11px"></div>'
-      + '<div>' + L + 'Gültig bis (optional)</label><input class="fi" type="date" id="oc-bank-until" style="font-size:11px"></div>'
-      + '<div style="grid-column:1/-1">' + L + 'Beleg (Dokument-Referenz)</label><input class="fi" id="oc-bank-evidence" style="font-size:11px"></div>'
+      + '<div>' + L + 'Depotbank (wie im Mandat)</label><input class="fi" id="oc-bank" style="font-size:12px"></div>'
+      + '<div>' + L + 'Angabe</label><select class="fi" id="oc-bank-status" style="font-size:12px"><option value="keine">keine Zuwendungen</option><option value="satz">Satz und Basis</option><option value="verzicht">Verzicht mit Bandbreite</option></select></div>'
+      + '<div>' + L + 'Satz (Basispunkte)</label><input class="fi" type="number" min="0" id="oc-bank-rate" style="font-size:12px"></div>'
+      + '<div>' + L + 'Bemessungsbasis</label><input class="fi" id="oc-bank-basis" style="font-size:12px"></div>'
+      + '<div>' + L + 'Bandbreite min (bp)</label><input class="fi" type="number" min="0" id="oc-bank-min" style="font-size:12px"></div>'
+      + '<div>' + L + 'Bandbreite max (bp)</label><input class="fi" type="number" min="0" id="oc-bank-max" style="font-size:12px"></div>'
+      + '<div>' + L + 'Gültig ab</label><input class="fi" type="date" id="oc-bank-from" style="font-size:12px"></div>'
+      + '<div>' + L + 'Gültig bis (optional)</label><input class="fi" type="date" id="oc-bank-until" style="font-size:12px"></div>'
+      + '<div style="grid-column:1/-1">' + L + 'Beleg (Dokument-Referenz)</label><input class="fi" id="oc-bank-evidence" style="font-size:12px"></div>'
       + '</div><button class="btn btn-sm" id="btn-oc-bank" style="margin-top:4px" onclick="createDepotBankInducement()">Angabe erfassen</button>';
   }
 
   function mandateHtml(){
-    return '<div class="admin-section-title" style="font-size:11px;margin-top:14px">Mandat prüfen</div>'
-      + '<div style="display:flex;gap:6px"><input class="fi" id="oc-mandate-id" placeholder="Mandats-ID" style="font-size:11px">'
+    return '<div class="admin-section-title" style="font-size:12px;margin-top:14px">Mandat prüfen</div>'
+      + '<div style="display:flex;gap:6px"><input class="fi" id="oc-mandate-id" placeholder="Mandats-ID" style="font-size:12px">'
       + '<button class="btn btn-sm" id="btn-oc-mandate" onclick="loadContractLayerStatus()">Status laden</button></div>'
       + '<div id="oc-mandate-body" style="margin-top:6px"></div>';
   }
@@ -145,32 +145,32 @@
   function mandateBodyHtml(s){
     var findings = s.findings || [];
     var html = findings.length
-      ? '<div id="oc-mandate-blocked" style="font-size:10px;font-weight:700;color:var(--neg)">Vertragsabschluss und Finalisierung gesperrt:</div>'
-        + findings.map(function(f){ return '<div style="font-size:10px">• ' + esc(f.message) + '<div style="font-size:9px;color:var(--n5)">' + esc(f.owner_action) + '</div></div>'; }).join('')
-      : '<div id="oc-mandate-ready" style="font-size:10px;font-weight:600;color:var(--pos)">Vertragsschicht vollständig.</div>';
+      ? '<div id="oc-mandate-blocked" style="font-size:12px;font-weight:700;color:var(--neg)">Vertragsabschluss und Finalisierung gesperrt:</div>'
+        + findings.map(function(f){ return '<div style="font-size:12px">• ' + esc(f.message) + '<div style="font-size:12px;color:var(--n5)">' + esc(f.owner_action) + '</div></div>'; }).join('')
+      : '<div id="oc-mandate-ready" style="font-size:12px;font-weight:600;color:var(--pos)">Vertragsschicht vollständig.</div>';
     var tpl = s.contract_template || {};
-    html += '<div style="font-size:9px;color:var(--n5);margin-top:4px">Vertragsvorlage ' + esc(tpl.mandate_type) + ': '
+    html += '<div style="font-size:12px;color:var(--n5);margin-top:4px">Vertragsvorlage ' + esc(tpl.mandate_type) + ': '
       + (tpl.template_hash ? 'Prüfwert ' + esc(String(tpl.template_hash).slice(0, 12)) : 'nicht freigegeben') + '</div>';
     if (s.latest_run_id) {
-      html += '<div style="font-weight:600;font-size:10px;margin-top:8px">Gründe der Empfehlung (Art. 15 FIDLEG)</div>'
-        + '<div>' + L + 'Bedürfnisse des Kunden</label><textarea class="fi" id="oc-needs" rows="2" style="font-size:11px"></textarea></div>'
-        + '<div>' + L + 'Gründe der Empfehlung</label><textarea class="fi" id="oc-reasons" rows="3" style="font-size:11px"></textarea></div>'
+      html += '<div style="font-weight:600;font-size:12px;margin-top:8px">Gründe der Empfehlung (Art. 15 FIDLEG)</div>'
+        + '<div>' + L + 'Bedürfnisse des Kunden</label><textarea class="fi" id="oc-needs" rows="2" style="font-size:12px"></textarea></div>'
+        + '<div>' + L + 'Gründe der Empfehlung</label><textarea class="fi" id="oc-reasons" rows="3" style="font-size:12px"></textarea></div>'
         + '<button class="btn btn-sm" id="btn-oc-rationale" onclick="saveAdviceRationale(\'' + esc(s.latest_run_id) + '\')">Gründe speichern</button>';
     }
     var w = s.w033 || {};
     if (w.assessment_id) {
-      html += '<div style="font-weight:600;font-size:10px;margin-top:8px">Bestätigungen des Kunden zum Risikoprofil (W033)</div>';
+      html += '<div style="font-weight:600;font-size:12px;margin-top:8px">Bestätigungen des Kunden zum Risikoprofil (W033)</div>';
       if (w.declaration_text) {
-        html += '<div style="font-size:10px">' + esc(w.declaration_text) + '</div>'
-          + (w.declaration_confirmed ? '<div style="font-size:9px;color:var(--pos)">bestätigt</div>'
+        html += '<div style="font-size:12px">' + esc(w.declaration_text) + '</div>'
+          + (w.declaration_confirmed ? '<div style="font-size:12px;color:var(--pos)">bestätigt</div>'
             : '<button class="btn btn-sm" id="btn-oc-w033-decl" onclick="recordW033Declaration(\'angaben_wahr_meldepflicht\')">Bestätigung des Kunden erfassen</button>');
       }
       if (w.advice_required && w.advice_text) {
-        html += '<div style="font-size:10px;margin-top:4px">' + esc(w.advice_text) + '</div>'
-          + (w.advice_confirmed ? '<div style="font-size:9px;color:var(--pos)">bestätigt</div>'
+        html += '<div style="font-size:12px;margin-top:4px">' + esc(w.advice_text) + '</div>'
+          + (w.advice_confirmed ? '<div style="font-size:12px;color:var(--pos)">bestätigt</div>'
             : '<button class="btn btn-sm" id="btn-oc-w033-advice" onclick="recordW033Declaration(\'horizont_abraten\')">Bestätigung des Kunden erfassen</button>');
       }
-      html += '<div>' + L + 'Kanal der Bestätigung</label><select class="fi" id="oc-w033-channel" style="font-size:11px"><option value="persoenlich_papier">persönlich (Papier)</option><option value="vor_ort">vor Ort</option><option value="kundenportal">Kundenportal</option></select></div>';
+      html += '<div>' + L + 'Kanal der Bestätigung</label><select class="fi" id="oc-w033-channel" style="font-size:12px"><option value="persoenlich_papier">persönlich (Papier)</option><option value="vor_ort">vor Ort</option><option value="kundenportal">Kundenportal</option></select></div>';
     }
     return html;
   }
@@ -182,10 +182,10 @@
       var data = await API.get('/compliance/owner-content');
       state.items = data.items || [];
       host.innerHTML = '<div class="admin-section-title">Vertragsschicht (Texte und Werte der Firma)</div>'
-        + '<div style="font-size:9px;color:var(--n5)">Ohne freigegebene Inhalte sperrt Ares Vertragsabschluss, Signatur, Finalisierung und die Kundeninformation. Katalog ' + esc(data.catalog_version) + '.</div>'
+        + '<div style="font-size:12px;color:var(--n5)">Ohne freigegebene Inhalte sperrt Ares Vertragsabschluss, Signatur, Finalisierung und die Kundeninformation. Katalog ' + esc(data.catalog_version) + '.</div>'
         + catalogHtml(data) + (isReviewer() ? '' : createFormHtml(data) + mandateHtml());
     } catch(e) {
-      host.innerHTML = '<div style="color:var(--neg);font-size:10px">' + esc(errText(e, 'Vertragsschicht konnte nicht geladen werden.')) + '</div>';
+      host.innerHTML = '<div style="color:var(--neg);font-size:12px">' + esc(errText(e, 'Vertragsschicht konnte nicht geladen werden.')) + '</div>';
     }
   }
 
@@ -248,7 +248,7 @@
       state.mandate = await API.get('/mandates/' + encodeURIComponent(id) + '/contract-layer');
       box.innerHTML = mandateBodyHtml(state.mandate);
     } catch(e) {
-      box.innerHTML = '<div style="color:var(--neg);font-size:10px">' + esc(errText(e, 'Status konnte nicht geladen werden.')) + '</div>';
+      box.innerHTML = '<div style="color:var(--neg);font-size:12px">' + esc(errText(e, 'Status konnte nicht geladen werden.')) + '</div>';
     }
   }
 
