@@ -11,6 +11,7 @@ weiterreichen bzw. ``depleted`` immer False -> die Tests mit Verzehr werden rot.
 """
 from __future__ import annotations
 
+import re
 from datetime import date
 from io import BytesIO
 
@@ -125,7 +126,9 @@ def test_rendered_strategy_pdf_on_depletion():
     pdf = ReportLabRenderer().render_anlagestrategie(CTX, data)
     flat = " ".join(" ".join((pg.extract_text() or "") for pg in PdfReader(BytesIO(pdf)).pages).split())
     assert "-100.00" not in flat and "−100.00" not in flat
-    assert "-28" not in flat
+    # Gesucht ist die sinnlose Kennzahl "Sharpe -28.24" -- nicht das Erzeugungsdatum
+    # ("Erzeugt: 2026-11-28"), das sonst an jedem 28. eines Monats faelschlich traf.
+    assert not re.search(r"(?<![\d-])[-−]28[.,]\d", flat), flat
     assert "RISIKOINDIKATOREN" in flat and "INDIKTATOREN" not in flat
     assert "Vermögen aufgebraucht ab 2044" in flat
 

@@ -180,7 +180,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "source": "+'<div style=\"font-size:9px;color:#64748b\">'+escapeHtml(formatRappen(subtotal))+' / '+escapeHtml(formatBpsPercent(totalPortfolioRappen>0?Math.round(subtotal/totalPortfolioRappen*10000):0))+'</div>'",
+   "source": "+'<div style=\"font-size:12px;color:#64748b\">'+escapeHtml(formatRappen(subtotal))+' / '+escapeHtml(formatBpsPercent(totalPortfolioRappen>0?Math.round(subtotal/totalPortfolioRappen*10000):0))+'</div>'",
    "class": "COMPUTATION_KEEP",
    "status": "",
    "reason": "renderPortfolioSections (Gruppenkopf): Math.round(subtotal/total*10000) ist die Umrechnung Betrag -> ganzzahlige bps; angezeigt wird ueber formatBpsPercent (gemeinsamer Formatter)."
