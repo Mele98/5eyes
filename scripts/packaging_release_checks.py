@@ -282,6 +282,44 @@ def check_product_hygiene(exe: Path, unpacked_dir: Path, fail, log) -> None:
                 fail(f'Altname gefunden in Backend-EXE:{name} (Marken-ID {sorted(hits)}).')
     log(f'OK EXE-02 Backend-EXE: {len(names)} Eintragsnamen und {text_entries} Text-Dateneintraege ohne Altnamen')
 
+    # Zero-Trace: Python-Bytecode im PYZ (String-Konstanten, Namen, Quellpfade).
+    modules = 0
+    for pyz_name in (n for n in names if n.lower().endswith('.pyz')):
+        pyz = archive.open_embedded_archive(pyz_name)
+        for module in pyz.toc:
+            try:
+                code = pyz.extract(module)
+            except Exception as exc:  # noqa: BLE001 -- jeder unlesbare Eintrag ist ein Befund
+                fail(f'PYZ-Eintrag der Backend-EXE nicht lesbar: {module} ({type(exc).__name__}).')
+            if code is None:
+                continue
+            modules += 1
+            hits = brand_ids('\n'.join([module, *_code_strings(code)]))
+            if hits:
+                fail(f'Altname gefunden im Bytecode der Backend-EXE: {module} (Marken-ID {sorted(hits)}).')
+    if not modules:
+        fail('Backend-EXE: kein Python-Modul im PYZ gefunden (Zero-Trace-Pruefung nicht moeglich).')
+    log(f'OK EXE-02 Backend-EXE: {modules} Python-Module (Bytecode-Konstanten, Namen, Quellpfade) ohne Altnamen')
+
+
+def _code_strings(code) -> list[str]:
+    """Alle Texte eines Code-Objekts samt verschachtelter Code-Objekte."""
+    out: list[str] = []
+    stack = [code]
+    while stack:
+        current = stack.pop()
+        out += [current.co_filename, current.co_name, *current.co_names, *current.co_varnames]
+        for const in current.co_consts:
+            if isinstance(const, str):
+                out.append(const)
+            elif isinstance(const, bytes):
+                out.append(const.decode('utf-8', errors='replace'))
+            elif isinstance(const, (tuple, frozenset)):
+                out += [c for c in const if isinstance(c, str)]
+            elif hasattr(const, 'co_consts'):
+                stack.append(const)
+    return out
+
 
 # ---------------------------------------------------------------------------
 # EXE-05 Electron-Shell-Start im isolierten Profil
