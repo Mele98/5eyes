@@ -233,3 +233,51 @@ def test_chain_guard_rejects_rows_outside_the_chain_and_downgrades(pg_schema):
     command.upgrade(cfg, "head")
     with pytest.raises(Exception, match="ck_audit_log_chain_fields_required"):
         _insert_probe(engine, with_chain_fields=False)
+
+
+# Codex CH-final §4: Bestands-DB, deren Funktion noch einen frueheren Namen traegt.
+# Neutraler synthetischer Name (kein Klartext einer Altmarke).
+EARLIER_NAME = "fn_vorgaenger_audit_log_immutable"
+
+
+def test_existing_function_with_earlier_name_up_down_up(pg_schema):
+    cfg, engine, schema = pg_schema
+    creating = _creating_name()
+    command.upgrade(cfg, PREVIOUS_REVISION)
+    oid = next(iter(_bindings(engine, schema).values()))[1]
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER FUNCTION {_qi(creating)}() RENAME TO {_qi(EARLIER_NAME)}"))
+    assert _bindings(engine, schema) == {trg: (EARLIER_NAME, oid) for trg in TRIGGERS}
+    _assert_immutable(engine)
+
+    command.upgrade(cfg, RENAME_REVISION)
+    assert _bindings(engine, schema) == {trg: (TARGET, oid) for trg in TRIGGERS}
+    _assert_immutable(engine)
+
+    command.downgrade(cfg, PREVIOUS_REVISION)
+    # Downgrade fuehrt auf den Namen der anlegenden Revision, gleiche OID/Bindung.
+    assert _bindings(engine, schema) == {trg: (creating, oid) for trg in TRIGGERS}
+    _assert_immutable(engine)
+
+    command.upgrade(cfg, "head")
+    assert _bindings(engine, schema) == {trg: (TARGET, oid) for trg in TRIGGERS}
+    _assert_immutable(engine)
+
+
+def test_rename_refuses_when_triggers_use_different_functions(pg_schema):
+    cfg, engine, schema = pg_schema
+    command.upgrade(cfg, PREVIOUS_REVISION)
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE FUNCTION fn_zweite_audit_sperre() RETURNS trigger LANGUAGE plpgsql AS"
+            " $f$ BEGIN RAISE EXCEPTION 'audit_log is immutable'; END $f$"
+        ))
+        conn.execute(text("DROP TRIGGER trg_audit_log_no_delete ON audit_log"))
+        conn.execute(text(
+            "CREATE TRIGGER trg_audit_log_no_delete BEFORE DELETE ON audit_log"
+            " FOR EACH ROW EXECUTE FUNCTION fn_zweite_audit_sperre()"
+        ))
+    with pytest.raises(Exception, match="triggers use different functions"):
+        command.upgrade(cfg, RENAME_REVISION)
+    assert _head(engine) == PREVIOUS_REVISION
+    _assert_immutable(engine)

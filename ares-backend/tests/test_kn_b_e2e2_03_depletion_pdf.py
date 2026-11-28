@@ -113,6 +113,25 @@ CTX = PDFContext(mandate_name="Muster", advisor_name="Berater", advisor_org="Mus
                  report_date=date(2026, 11, 19), audit_hash="abc123def456789012345678", locale="de-CH")
 
 
+def _metric_cells_not_meaningful(flat: str, target_year: str, current_year: str) -> bool:
+    cells = (f" nicht aussagekräftig – Vermögen aufgebraucht ab {target_year}"
+             f" nicht aussagekräftig – Vermögen aufgebraucht ab {current_year} ")
+    labels = (r"Rendite p\.a\. \(Median\)", r"Rendite/Risiko \(Sharpe[^)]*\)")
+    return all(re.search(label + re.escape(cells), flat) for label in labels)
+
+
+def test_metric_cell_check_controls():
+    ok = ("Erzeugt: 2026-11-28 Rendite p.a. (Median) nicht aussagekräftig – Vermögen aufgebraucht ab 2044"
+          " nicht aussagekräftig – Vermögen aufgebraucht ab 2041 Volatilität 1 Jahr 3.57 %"
+          " Rendite/Risiko (Sharpe, risikofrei 0.8 %) nicht aussagekräftig – Vermögen aufgebraucht ab 2044"
+          " nicht aussagekräftig – Vermögen aufgebraucht ab 2041 Ende")
+    assert _metric_cells_not_meaningful(ok, "2044", "2041")  # Tag 28 im Datum stoert nicht
+    for bad in ("-28.24", "-3.10", "0.42", "−100.00 %"):
+        mutated = ok.replace("(Sharpe, risikofrei 0.8 %) nicht aussagekräftig – Vermögen aufgebraucht ab 2044",
+                             f"(Sharpe, risikofrei 0.8 %) {bad}")
+        assert not _metric_cells_not_meaningful(mutated, "2044", "2041"), bad
+
+
 def test_rendered_strategy_pdf_on_depletion():
     data = AnlagestrategieData(
         target_allocation_bps={"equities": 0, "bonds": 9360, "real_estate": 0, "alternatives": 370, "liquidity": 270},
@@ -126,9 +145,11 @@ def test_rendered_strategy_pdf_on_depletion():
     pdf = ReportLabRenderer().render_anlagestrategie(CTX, data)
     flat = " ".join(" ".join((pg.extract_text() or "") for pg in PdfReader(BytesIO(pdf)).pages).split())
     assert "-100.00" not in flat and "−100.00" not in flat
-    # Gesucht ist die sinnlose Kennzahl "Sharpe -28.24" -- nicht das Erzeugungsdatum
-    # ("Erzeugt: 2026-11-28"), das sonst an jedem 28. eines Monats faelschlich traf.
-    assert not re.search(r"(?<![\d-])[-−]28[.,]\d", flat), flat
+    # Semantisch je Kennzahlenzeile (Codex CH-final §8): bei Verzehr steht in den
+    # Zellen von Median-Rendite und Sharpe ausschliesslich der Ersatztext -- jeder
+    # Zahlenwert (z. B. "Sharpe -28.24") bricht den Treffer. Daten wie
+    # "Erzeugt: 2026-11-28" spielen dafuer keine Rolle.
+    assert _metric_cells_not_meaningful(flat, "2044", "2041"), flat
     assert "RISIKOINDIKATOREN" in flat and "INDIKTATOREN" not in flat
     assert "Vermögen aufgebraucht ab 2044" in flat
 
