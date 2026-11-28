@@ -319,3 +319,21 @@ def test_existing_legacy_dir_is_discovered_and_guarded(alt_digest, tmp_path, mon
     except OSError as exc:
         pytest.skip(f"keine Hardlinks: {exc}")
     assert loc.is_owner_db_path(alias)  # Identitaet (Hardlink) der vorhandenen Alt-DB
+
+
+def test_unlistable_home_makes_hardlink_identity_fail_closed(tmp_path, monkeypatch):
+    """Home nicht auflistbar (Traverse ja, Auflisten nein): eine Alt-Live-DB waere
+    unsichtbar -> ein Kandidat mit mehreren Namen gilt als nicht verifizierbar."""
+    real = tmp_path / "x.db"
+    real.write_bytes(b"x")
+    alias = tmp_path / "alias.db"
+    try:
+        os.link(real, alias)
+    except OSError as exc:
+        pytest.skip(f"keine Hardlinks: {exc}")
+    monkeypatch.setattr(loc, "_legacy_owner_scan", lambda home=None: ((), True))
+    state, _ = loc.fs_identity_check(alias)
+    assert state == "error"
+    single = tmp_path / "einzeln.db"
+    single.write_bytes(b"y")
+    assert loc.fs_identity_check(single)[0] is None  # ein Name: kein Hardlink moeglich

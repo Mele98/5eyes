@@ -93,7 +93,8 @@ if not os.environ.get("TENANT_MASTER_KEK", "").strip():
 # Test (nur Controller bzw. serieller Lauf), Vergleich am Session-Ende.
 import _owner_profile_guard  # noqa: E402
 
-_OWNER_PROFILE_ROOTS = _owner_profile_guard.owner_profile_roots()
+_OWNER_HOME = Path.home()  # am Session-Ende gegen dasselbe Home neu ermitteln
+_OWNER_PROFILE_ROOTS = _owner_profile_guard.owner_profile_roots(_OWNER_HOME)
 _OWNER_PROFILE_BEFORE = None if _XDIST_WORKER else _owner_profile_guard.snapshot(_OWNER_PROFILE_ROOTS)
 
 
@@ -192,7 +193,7 @@ def pytest_sessionfinish(session, exitstatus):  # noqa: D103
     if _OWNER_PROFILE_BEFORE is not None:
         touched = _owner_profile_guard.changes(
             _OWNER_PROFILE_BEFORE, _owner_profile_guard.snapshot(
-                (*_OWNER_PROFILE_ROOTS, *_owner_profile_guard.owner_profile_roots())))
+                (*_OWNER_PROFILE_ROOTS, *_owner_profile_guard.owner_profile_roots(_OWNER_HOME))))
         if touched:
             sys.stderr.write("\nOWNER-PROFIL VERAENDERT (H11 N1) -- Lauf rot:\n  " + "\n  ".join(touched) + "\n")
             session.exitstatus = _pytest.ExitCode.TESTS_FAILED

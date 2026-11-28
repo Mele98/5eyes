@@ -216,14 +216,23 @@ def _is_legacy_owner_name(name: str) -> bool:
     return hashlib.sha256(name.casefold().encode('utf-8')).hexdigest() in LEGACY_OWNER_DIR_DIGESTS
 
 
-def legacy_owner_dirs(home: Path | None = None) -> tuple[Path, ...]:
-    """Vorhandene Alt-Profilordner direkt unter ``home`` (nur lesend aufgelistet)."""
+def _legacy_owner_scan(home: Path | None = None) -> tuple[tuple[Path, ...], bool]:
+    """(vorhandene Alt-Profilordner, Liste_nicht_lesbar). Ein fehlendes Home ist
+    kein Befund; jeder andere Listing-Fehler macht die Identitaetspruefung
+    fail-closed (siehe ``fs_identity_check``)."""
     base = Path.home() if home is None else home
     try:
         children = sorted(base.iterdir())
+    except FileNotFoundError:
+        return (), False
     except OSError:
-        return ()
-    return tuple(child for child in children if _is_legacy_owner_name(child.name))
+        return (), True
+    return tuple(child for child in children if _is_legacy_owner_name(child.name)), False
+
+
+def legacy_owner_dirs(home: Path | None = None) -> tuple[Path, ...]:
+    """Vorhandene Alt-Profilordner direkt unter ``home`` (nur lesend aufgelistet)."""
+    return _legacy_owner_scan(home)[0]
 
 
 def owner_db_paths() -> tuple[Path, ...]:
@@ -428,6 +437,10 @@ def fs_identity_check(candidate) -> tuple[str | None, tuple[Path, ...]]:
         return 'error', ()
     owners = set()
     unverifiable: list[Path] = []
+    if _legacy_owner_scan()[1]:
+        # Home nicht auflistbar: eine vorhandene Alt-Live-DB waere unsichtbar ->
+        # Identitaet unbekannt (gleiche Regel wie ein nicht lesbares Ziel).
+        unverifiable.append(Path.home())
     for target in _owner_targets():
         try:
             st = os.stat(target)
