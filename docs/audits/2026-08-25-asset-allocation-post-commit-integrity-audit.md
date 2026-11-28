@@ -216,7 +216,7 @@ Jeder FastAPI-Lifespan ruft `init_db()` auf. Die dokumentierte systemd-Unit
 startet zwei Gunicorn-Worker. Ein One-shot-Migrationsschritt oder PostgreSQL-
 Advisory-Lock fehlt. Zusätzlich starten beide Worker Tax-Seeding, Price-/Market-
 Data-Scheduler und SQLite-Backup-Scheduler (`main.py:82,109-110`,
-`docs/deploy/5eyes.service:15`).
+`docs/deploy/LB-B.service:15`).
 
 **Abnahmekriterium:** Genau ein gelockter Migrator läuft vor den App-Workern.
 Ein Zwei-Worker-Starttest beweist, dass keine zweite Migration und keine
@@ -507,8 +507,8 @@ Zuerst zu synchronisieren:
 2. `docs/BERATER_ONBOARDING.md`
 3. `docs/GLOSSAR.md`
 4. `docs/engine-spec.md`
-5. `docs/methodology/5eyes-engine-whitepaper.md`
-6. `docs/whitepaper/2026-07-19-5eyes-methodik-whitepaper.md`
+5. `docs/methodology/LB-B-engine-whitepaper.md`
+6. `docs/whitepaper/2026-07-19-LB-B-methodik-whitepaper.md`
 7. `docs/SCHEMA_MIGRATIONS.md`
 8. `docs/deploy/postgres-migrations.md`
 
@@ -535,8 +535,8 @@ erzwingen.
 Konkretisierter Implementierungsvertrag:
 
 1. **Rollen und Startup**
-   - `fiveeyes_migrator`: Schema-/Tabellen-Owner, nur für den Deployment-Job;
-   - `fiveeyes_app`: `NOSUPERUSER`, `NOBYPASSRLS`, kein Owner, nur notwendige
+   - `LB-B_migrator`: Schema-/Tabellen-Owner, nur für den Deployment-Job;
+   - `LB-B_app`: `NOSUPERUSER`, `NOBYPASSRLS`, kein Owner, nur notwendige
      DML-Rechte;
    - separate Operator-/Reference-Writer-Rolle, nie in normalen Requests;
    - Runtime führt weder Alembic noch RLS-DDL aus, sondern prüft nur Head,

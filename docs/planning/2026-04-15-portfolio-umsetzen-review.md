@@ -11,7 +11,7 @@
 
 ## Warum dieses Feature existiert — Fachlicher Kontext
 
-5eyes ist ein **Beratungs-Tool, kein Vermögensverwaltungs-System**.
+LB-B ist ein **Beratungs-Tool, kein Vermögensverwaltungs-System**.
 Der Berater trifft den Kunden 1–2x pro Jahr. Er hat **keine Echtzeit-Depotdaten**.
 
 Das bedeutet:

@@ -1,7 +1,7 @@
 # DSG Art. 32 — Löschungsanspruch / Erasure-Workflow
 
 Status: Engineering-Mechanismus implementiert, **braucht juristische Freigabe vor Produktivsetzung**.
-Branch: `feat/dsg-art32-erasure-workflow` (Worktree `C:\tmp\5eyes-dsg-erasure`, lokal committet, nicht gepusht).
+Branch: `feat/dsg-art32-erasure-workflow` (Worktree `C:\tmp\LB-B-dsg-erasure`, lokal committet, nicht gepusht).
 
 ## Auftrag und Ausgangslage
 

@@ -3,7 +3,7 @@ handoff_schema: "ares.optimizer-handoff/v1"
 document_role: "b2b-claims-dark-patterns-commercial-surfaces-audit"
 status_as_of: "2026-10-05"
 language: "de"
-repository: "5eyes-b2b-04"
+repository: "LB-B-b2b-04"
 branch: "codex/b2b-claims-dark-patterns-audit"
 audited_repository_head: "8dfd6cc13a7869e1996331e5d226551fc441a6ee"
 audit_mode: "read_only_claim_inventory_dark_pattern_and_commercial_surface_review"
@@ -412,9 +412,9 @@ eigenstaendig bestaetigt.
 
 **Repository-Beleg:** `ares-backend/services/mailer.py` definiert genau zwei
 Versandfunktionen:
-- `send_invite_email` (Zeile 102-111) — Betreff „Ihr Zugang zu 5eyes — Konto
+- `send_invite_email` (Zeile 102-111) — Betreff „Ihr Zugang zu LB-B — Konto
   aktivieren“ (Zeile 83), Text mit Aktivierungslink, 7 Tage gueltig.
-- `send_password_reset_email` (Zeile 134-143) — Betreff „5eyes — Passwort
+- `send_password_reset_email` (Zeile 134-143) — Betreff „LB-B — Passwort
   zuruecksetzen“ (Zeile 116), Text mit Reset-Link, 2 Stunden gueltig.
 
 Beide Funktionen liefern `False` zurueck, wenn SMTP nicht konfiguriert ist

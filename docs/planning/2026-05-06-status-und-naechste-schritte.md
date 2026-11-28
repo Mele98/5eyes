@@ -48,7 +48,7 @@ hergestellt.
 
 ### 3. B3/B5/B6 FE-Wiring
 **Wer:** Codex.
-**Was:** 3 unabhaengige FE-Tasks (siehe `project_5eyes_audit.md` Memory):
+**Was:** 3 unabhaengige FE-Tasks (siehe `project_LB-B_audit.md` Memory):
 - B3: 422-Fehler bei Hypothek-Tilgung menschenlesbar im Cashflow-Save-Handler
 - B5: α-Hardness-Werte (0.8/0.5/0.2) als Tooltip in Goal-Anzeige
 - B6: weighted_score + weakest_hard_score in Mandats-Uebersicht rendern

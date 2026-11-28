@@ -7,9 +7,9 @@ repository: "asset-allocation-stochastic-core"
 backend_root: "ares-backend"
 branch: "codex/b2b-incident-resilience-audit"
 audited_repository_head: "8dfd6cc13a7869e1996331e5d226551fc441a6ee"
-prior_coverage_audit_path: "C:/Users/Emanuele/Documents/ChatGPT/5eyes wird zu Ares/asset-allocation-stochastic-core/docs/audits/2026-10-05-b2b-trust-compliance-pre-implementation-coverage-audit.md"
+prior_coverage_audit_path: "C:/Users/Emanuele/Documents/ChatGPT/LB-B wird zu Ares/asset-allocation-stochastic-core/docs/audits/2026-10-05-b2b-trust-compliance-pre-implementation-coverage-audit.md"
 prior_coverage_audit_finding: "B2B-COVERAGE-006"
-readiness_plan_path: "C:/Users/Emanuele/Documents/ChatGPT/5eyes wird zu Ares/asset-allocation-stochastic-core/docs/compliance/2026-10-05-trust-compliance-accessibility-readiness-plan.md"
+readiness_plan_path: "C:/Users/Emanuele/Documents/ChatGPT/LB-B wird zu Ares/asset-allocation-stochastic-core/docs/compliance/2026-10-05-trust-compliance-accessibility-readiness-plan.md"
 audit_mode: "read_only_audit_inventory_static_code_document_and_test_evidence_review"
 audit_mutated_product_code: false
 scope: "disaster recovery plan, backup/restore implementation, restore-drill evidence, breach/incident process, resilience scenarios (ransomware, vendor outage, credential compromise, tenant data leak), monitoring/alerting, external penetration test status"
@@ -25,7 +25,7 @@ Coverage-Audit (separates Repository, siehe `prior_coverage_audit_path` im
 Frontmatter dieses Dokuments) festgelegten Reihenfolge und schliesst
 `B2B-COVERAGE-006`
 ("Incident Response und Resilienz sind geplant, nicht geübt"). Er ist ein
-read-only Evidenz-Audit auf dem realen 5eyes-Repository (nicht dem
+read-only Evidenz-Audit auf dem realen LB-B-Repository (nicht dem
 Audit-Quelldokument-Repository). Bei Widersprüchen gelten aktueller
 Produktcode und reproduzierte Tests zuerst, danach dieses Dokument, danach der
 Coverage-Audit und der Readiness-Plan. Dieses Dokument erteilt keine Rechts-,
@@ -335,7 +335,7 @@ nach Abschluss Bericht + Re-Test-Nachweis im Repository referenzieren.
 
 ## Verifikation dieser Runde
 
-- `git rev-parse HEAD` im Worktree `C:\tmp\5eyes-b2b-05` →
+- `git rev-parse HEAD` im Worktree `C:\tmp\LB-B-b2b-05` →
   `8dfd6cc13a7869e1996331e5d226551fc441a6ee` (Branch
   `codex/b2b-incident-resilience-audit`, Arbeitsverzeichnis vor Beginn
   unverändert/clean).

@@ -2,7 +2,7 @@
 
 **Datum:** 2026-05-06
 **Owner:** Emanuele
-**Workspace:** `C:\5eyes\5eyes_stage9_release_ready` (NICHT der Audit-Workspace)
+**Workspace:** `C:\LB-B\LB-B_stage9_release_ready` (NICHT der Audit-Workspace)
 **Branch-Vorschlag:** `codex/fe-optimizer-panel` from `codex/rp-ueberarbeitung`
 **Master-Spec:** `2026-05-05-fe-optimizer-panel-spec.md`
 **Backend-Status:** FERTIG — siehe Spec, alle Endpoints/Felder live.
@@ -342,7 +342,7 @@ So wird das Panel jedes Mal neu gerendert, wenn eine Allocation geladen oder neu
 ## Branch-Befehl (Codex)
 
 ```powershell
-cd C:\5eyes\5eyes_stage9_release_ready
+cd C:\LB-B\LB-B_stage9_release_ready
 .\scripts\start_codex_branch.ps1 -Slug "fe-optimizer-panel" -FromCurrent
 ```
 

@@ -1,6 +1,7 @@
 """H11 Nachtrag 1 (Vorfall 2026-11-14): Session-Waechter fuer das Owner-Profil.
 
-Eine Test-Session darf unter ``~/ares`` und ``~/5eyes`` (Owner-Datenbanken,
+Eine Test-Session darf unter ``~/ares`` und im Alt-Profilordner (LB-B, nur per
+Digest erkannt; Owner-Datenbanken,
 Backups, Logs) nichts anlegen oder veraendern. ``conftest`` nimmt beim Start
 (Controller, vor jedem Test) einen Schnappschuss (Existenz, Groesse,
 mtime_ns je Datei) und vergleicht ihn am Session-Ende; jede neue, geaenderte
@@ -17,8 +18,13 @@ Snapshot = dict[str, tuple[int, int]]
 
 
 def owner_profile_roots(home: Path | None = None) -> tuple[Path, ...]:
+    """``~/ares`` und jeder vorhandene Alt-Profilordner (Digest-Erkennung in
+    core.db_location). conftest ermittelt die Wurzeln am Session-Ende neu, damit
+    auch ein waehrend des Laufs angelegter Alt-Ordner auffaellt."""
+    from core.db_location import legacy_owner_dirs
+
     base = Path.home() if home is None else home
-    return (base / "ares", base / "5eyes")
+    return (base / "ares", *legacy_owner_dirs(base))
 
 
 def snapshot(roots) -> Snapshot:

@@ -88,7 +88,7 @@ Für den hier beschriebenen Optimizer-Stand ist dieses Dokument aktueller als ä
 
 - `docs/CLAUDE_HANDOFF.md`, soweit dort noch House Matrix als Produktions-Default beschrieben wird;
 - `docs/engine-spec.md`, soweit dort noch die alte nicht normalisierte Objective oder erledigte Integrationspunkte als offen stehen;
-- `docs/whitepaper/2026-07-19-5eyes-methodik-whitepaper.md`, soweit dort ein Korrelations-/Identity-Fallback oder House Matrix als Default beschrieben wird;
+- `docs/whitepaper/2026-07-19-LB-B-methodik-whitepaper.md`, soweit dort ein Korrelations-/Identity-Fallback oder House Matrix als Default beschrieben wird;
 - älteren Planning- und Stage-Notizen.
 
 Der Code bleibt die technische Quelle der Wahrheit. Dieses Dokument dient als Navigations-, Prüf- und Entscheidungsprotokoll.
@@ -721,7 +721,7 @@ Die folgende Inventur ist Bestandteil der Übergabe. Sie beschreibt die 69 Pfade
 - `docs/decisions/SHADOW_STOCHASTIC_DEFAULT.md`
 - `docs/engine-spec.md`
 - `docs/gpt_stage_notes_archive/README.md`
-- `docs/whitepaper/2026-07-19-5eyes-methodik-whitepaper.md`
+- `docs/whitepaper/2026-07-19-LB-B-methodik-whitepaper.md`
 - `docs/ASSET_ALLOCATION_OPTIMIZER_HANDOFF.md` *(neu, stabiler Einstiegspunkt)*
 - `docs/audits/2026-08-20-asset-allocation-stochastic-core-handoff.md` *(neu, dieses Dokument)*
 
@@ -734,7 +734,7 @@ Die zentralen Einstiegspunkte enthalten jetzt einen deutlichen Verweis auf diese
 | Dokument | Verbleibender Bedarf |
 |---|---|
 | `docs/engine-spec.md` | alte Objective-, Default- und „offen“-Abschnitte vollständig auf den versionierten stochastischen Vertrag bringen; Warnhinweis ist bereits gesetzt |
-| `docs/whitepaper/2026-07-19-5eyes-methodik-whitepaper.md` | House-/Shadow-Default und Korrelationsfallback fachlich neu schreiben; aktueller Nicht-Produktionshinweis ist gesetzt |
+| `docs/whitepaper/2026-07-19-LB-B-methodik-whitepaper.md` | House-/Shadow-Default und Korrelationsfallback fachlich neu schreiben; aktueller Nicht-Produktionshinweis ist gesetzt |
 | `docs/CLAUDE_HANDOFF.md` | historische Bereiche weiter bereinigen; aktueller Optimizer-Hinweis und korrigierter Goal-Spec-Link sind gesetzt |
 | `docs/BERATER_README.md` | sichtbare Begriffe für Optimizer-P und Pfaderfolg sowie House-Fallback-Status synchronisieren |
 | `docs/BERATER_ONBOARDING.md` | produktiven Stochastikpfad, Fail-closed-Reaktionen und nötige Datenkorrekturen aufnehmen |

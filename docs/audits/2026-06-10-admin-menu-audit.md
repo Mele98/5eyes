@@ -1,4 +1,4 @@
-# System-Administration-Menue der 5eyes-App — Konsolidierter Audit-Report
+# System-Administration-Menue der LB-B-App — Konsolidierter Audit-Report
 
 **Datum:** 2026-06-10 | **Erstellt von:** Multi-Agent-Audit (5 Auditoren + Synthese) | **Adressat:** Product-Owner
 **Audit-Umfang:** 17 Sektionen, 6 Navigations-Gruppen | **Codebasis:** `frontend/ares.html` + FastAPI-Router
@@ -51,7 +51,7 @@ Es gibt **keine PLACEHOLDER- oder BROKEN-Sektionen**. Folgendes ist konkret zu b
 - **Doppelte/redundante Buttons fuer dieselbe Funktion:**
   - „Auf Updates pruefen" `btn-check-updates` / `adminCheckUpdates` (`:3619`) **vs.** „Nach Updates suchen" `btn-admin-update-check` / `adminCheckForUpdates` (`:11022`)
   - „Update installieren" `btn-install-update` / `adminInstallUpdate` (`:3634`, startet `display:none` `:20415`) **vs.** „Heruntergeladenes Update installieren" `btn-admin-update-install` / `adminInstallDownloadedUpdate` (`:11039`)
-- **No-Op ausserhalb gepackter Releases:** Im Browser/Dev fehlt `window.FiveEyesAPI` → Else-Zweige „Auto-Update ist in diesem Modus nicht verfuegbar." (`:11030`, `:11049`). Das ist **by design** (Electron-updater statt FastAPI), aber die klickbaren No-Op-Buttons sind irrefuehrend. `currentVersion` bleibt „n/a".
+- **No-Op ausserhalb gepackter Releases:** Im Browser/Dev fehlt `window.LB-B` → Else-Zweige „Auto-Update ist in diesem Modus nicht verfuegbar." (`:11030`, `:11049`). Das ist **by design** (Electron-updater statt FastAPI), aber die klickbaren No-Op-Buttons sind irrefuehrend. `currentVersion` bleibt „n/a".
 
 ### 3.2 Datenintegritaets-Risiken (WORKS, aber gefaehrlich)
 - **Aktive Policy ueberschreibbar ohne Versionierung** (`sec-policy`): `adminPolicyOpen` zeigt „Baender speichern" auch fuer die `is_current`-Policy (`:8913`), `PUT .../house-matrix` (`allocation.py:988`) ueberschreibt Rows in-place. **Widerspricht dem UI-Versprechen „Jeder Edit erzeugt eine neue Version"** (`:20335`). Versionierung passiert nur via Klonen.

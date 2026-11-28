@@ -9,16 +9,17 @@ importiert (z. B. Reproducer in einem anderen Verzeichnis), umgeht sie.
 Schutz (fail-closed):
 1. ``config`` (Regel aus ``core.db_location.owner_db_refusal``) prueft VOR
    jedem SQLite-Connect, im App-Start und im Schema-Bootstrap: Owner-Pfade (``~/ares/ares.db``,
-   ``~/5eyes/5eyes.db``) unter pytest/CI/Testmodus nie, sonst nur mit
+   ``<Alt-Profilordner>/<Alt-Profilordner>.db``, nur per Digest erkannt) unter pytest/CI/Testmodus nie, sonst nur mit
    ``ARES_OWNER_DB_OPT_IN=1`` (Desktop-Shell, Umstieg). ``alembic/env.py``
    prueft die URL zusaetzlich.
-2. ``conftest``: Session-Waechter auf ``~/ares`` und ``~/5eyes``.
+2. ``conftest``: Session-Waechter auf ``~/ares`` und den Alt-Profilordner.
 3. AST-Waechter: jede Test-Fixture, die einen Backend-Prozess startet, setzt
    HOME/APPDATA/LOCALAPPDATA/DB_PATH auf eigene Werte.
 """
 from __future__ import annotations
 
 import ast
+import hashlib
 import os
 import subprocess
 import sys
@@ -28,6 +29,16 @@ import pytest
 
 import core.db_location as loc
 
+# Kunstname fuer den Alt-Profilordner: Tests setzen nur seinen Digest ein; die
+# echte Altmarke steht nirgends im Repo (Zero-Trace).
+ALT = "altprodukt"
+
+
+@pytest.fixture()
+def alt_digest(monkeypatch):
+    monkeypatch.setattr(loc, "LEGACY_OWNER_DIR_DIGESTS",
+                        frozenset({hashlib.sha256(ALT.encode("utf-8")).hexdigest()}))
+
 BACKEND = Path(__file__).resolve().parents[1]
 REPO = BACKEND.parent
 REQUIRED_ENV = {"HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "DB_PATH"}  # N-907-08: USERPROFILE
@@ -35,10 +46,14 @@ REQUIRED_ENV = {"HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "DB_PATH"}  # 
 
 # --- 1. Owner-DB-Waechter -------------------------------------------------------
 
-def test_owner_paths_are_ares_and_legacy_live_db():
+def test_owner_paths_are_ares_and_legacy_live_db(alt_digest):
     home = Path.home()
-    assert loc.owner_db_paths() == (home / "ares" / "ares.db", home / "5eyes" / "5eyes.db")
-    assert loc.is_owner_db_path(home / "5eyes" / "5eyes.db")
+    assert loc.owner_db_paths()[0] == home / "ares" / "ares.db"
+    legacy = home / ALT / f"{ALT}.db"
+    assert loc.is_owner_db_path(legacy)  # Textregel: auch ohne vorhandenen Ordner
+    assert loc.is_owner_db_path(str(legacy) + "-wal")
+    assert not loc.is_owner_db_path(home / ALT / "anders.db")
+    assert not loc.is_owner_db_path(home / "sub" / ALT / f"{ALT}.db")
     assert not loc.is_owner_db_path(home / "elsewhere.db")
 
 
@@ -132,10 +147,11 @@ def test_desktop_shell_and_alembic_wire_the_guard():
 
 # --- 2. Session-Waechter Owner-Profil ------------------------------------------
 
-def test_profile_guard_reports_new_changed_and_deleted_files(tmp_path):
+def test_profile_guard_reports_new_changed_and_deleted_files(tmp_path, alt_digest):
     import _owner_profile_guard as guard
 
     roots = guard.owner_profile_roots(tmp_path)
+    assert roots == (tmp_path / "ares",)
     (roots[0]).mkdir()
     (roots[0] / "keep.db").write_bytes(b"a")
     (roots[0] / "gone.db").write_bytes(b"b")
@@ -143,10 +159,11 @@ def test_profile_guard_reports_new_changed_and_deleted_files(tmp_path):
     assert guard.changes(before, guard.snapshot(roots)) == []
     (roots[0] / "keep.db").write_bytes(b"aa")
     (roots[0] / "gone.db").unlink()
-    (roots[1]).mkdir()
-    (roots[1] / "5eyes.db").write_bytes(b"x")
+    (tmp_path / ALT).mkdir()
+    (tmp_path / ALT / f"{ALT}.db").write_bytes(b"x")
+    roots = (*roots, *guard.owner_profile_roots(tmp_path))
     assert guard.changes(before, guard.snapshot(roots)) == [
-        f"neu: {roots[1] / '5eyes.db'}", f"veraendert: {roots[0] / 'keep.db'}", f"geloescht: {roots[0] / 'gone.db'}"]
+        f"neu: {tmp_path / ALT / (ALT + '.db')}", f"veraendert: {roots[0] / 'keep.db'}", f"geloescht: {roots[0] / 'gone.db'}"]
 
 
 def test_conftest_compares_the_profile_at_session_end():
@@ -238,13 +255,13 @@ def _clean_env(home: Path) -> dict[str, str]:
 
 
 def _owner_files(home: Path) -> list[str]:
-    return sorted(str(p) for root in (home / "ares", home / "5eyes") if root.exists() for p in root.rglob("*"))
+    return sorted(str(p) for root in (home / "ares", *loc.legacy_owner_dirs(home)) if root.exists() for p in root.rglob("*"))
 
 
 def test_pytest_from_repo_root_with_app_lifespan_leaves_owner_profile_empty(tmp_path):
     """Wie der Codex-Lauf (Start im Repo-Root, Pfade ares-backend/tests/...):
     die conftest-Isolation greift (rootdir ueber ares-backend/pyproject.toml),
-    ein TestClient-Lifespan schreibt nichts unter ~/ares oder ~/5eyes."""
+    ein TestClient-Lifespan schreibt nichts unter ~/ares oder im Alt-Profilordner."""
     home = tmp_path / "home"
     home.mkdir()
     node = "ares-backend/tests/test_h11_reference_data_get_read_only.py::test_bootstrap_admin_seeds_ch_reference_data"
@@ -279,3 +296,26 @@ def test_foreign_directory_test_without_product_conftest_is_refused(tmp_path):
         capture_output=True, text=True, timeout=600)
     assert out.returncode != 0 and "OwnerDatabaseRefused" in out.stdout, out.stdout[-3000:]
     assert _owner_files(home) == []
+
+
+def test_legacy_owner_digest_matches_brand_digest_list():
+    from brand_digest_support import LEGACY_BRAND_STEM_DIGESTS
+
+    assert loc.LEGACY_OWNER_DIR_DIGESTS == {
+        digest for brand, length, digest in LEGACY_BRAND_STEM_DIGESTS if brand == "LB-B" and length == 5}
+
+
+def test_existing_legacy_dir_is_discovered_and_guarded(alt_digest, tmp_path, monkeypatch):
+    (tmp_path / ALT).mkdir()
+    (tmp_path / "andere").mkdir()
+    assert loc.legacy_owner_dirs(tmp_path) == (tmp_path / ALT,)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    assert loc.owner_db_paths() == (tmp_path / "ares" / "ares.db", tmp_path / ALT / f"{ALT}.db")
+    db = tmp_path / ALT / f"{ALT}.db"
+    db.write_bytes(b"x")
+    alias = tmp_path / "andere" / "harmlos.db"
+    try:
+        os.link(db, alias)
+    except OSError as exc:
+        pytest.skip(f"keine Hardlinks: {exc}")
+    assert loc.is_owner_db_path(alias)  # Identitaet (Hardlink) der vorhandenen Alt-DB

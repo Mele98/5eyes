@@ -1,52 +1,52 @@
-# 5eyes WealthArchitekten — CTO-Standortbericht
+# LB-B LB-C — CTO-Standortbericht
 
 > ⚠️ **ERSETZT** durch [2026-08-04-mega-audit-standortbericht.md](./2026-08-04-mega-audit-standortbericht.md) — dieses Dokument bleibt als historisches Archiv erhalten, ist aber nicht mehr die aktuelle Wahrheitsquelle. Mehrere hier genannte Status-Angaben wurden im Mega-Audit als überholt/falsch identifiziert.
 
 **Stand:** 18. Juli 2026 · Branch `develop` @ `45d810c`
-**Basis:** 668 Backend-Module, 398 Test-Dateien, 5 verifizierte Prüfstränge (Architektur, Fachengine, Compliance/Reporting, Qualität/Tests, Backlog). Alle Befunde per Code-Lektüre (Read/Grep) an `develop` belegt, ergänzt um Master-Roadmap, 3eyes-Parity-Plan und Commit-Historie (172 Commits seit dem letzten Standortaudit).
+**Basis:** 668 Backend-Module, 398 Test-Dateien, 5 verifizierte Prüfstränge (Architektur, Fachengine, Compliance/Reporting, Qualität/Tests, Backlog). Alle Befunde per Code-Lektüre (Read/Grep) an `develop` belegt, ergänzt um Master-Roadmap, LB-A-Parity-Plan und Commit-Historie (172 Commits seit dem letzten Standortaudit).
 **Web-Version:** https://claude.ai/code/artifact/64106171-9612-46d2-bf12-237cfdd1c66a
 
 ---
 
 ## Kernaussage
 
-Die **Engine-Mathematik von 5eyes ist der 3eyes-Methodik ebenbürtig bis überlegen**. Der verbleibende Abstand liegt nicht mehr in der Modell-Tiefe, sondern in **Produkt-Defaults, Beratungs-Workflow und Betriebsreife**.
+Die **Engine-Mathematik von LB-B ist der LB-A-Methodik ebenbürtig bis überlegen**. Der verbleibende Abstand liegt nicht mehr in der Modell-Tiefe, sondern in **Produkt-Defaults, Beratungs-Workflow und Betriebsreife**.
 
 Der Weg zum **ersten echten Mandanten (Tier-1, self-hosted)** ist praktisch frei: es fehlt fast kein Code, sondern zwei QA-Durchläufe. Der schwergewichtige Backlog (Postgres-Hosting, Auth-Härtung, Monolith-Migration) betrifft **Skalierung und Mehrbenutzer-Hosting**, nicht den lokalen Erstkunden.
 
 Reifegrad gesamt: **Beta, produktionsnah**. Kernlogik gut getestet und gehärtet; die Reifelücke liegt in Frontend-Testbarkeit, Modul-Architektur und Betriebs-Härtung — Themen, die die *Wartbarkeit* stärker belasten als die *Korrektheit*.
 
-**Kennzahlen:** Engine vs 3eyes ≥ Parität · Erster Mandant ~1 Woche (nur QA) · 398 Backend-Test-Dateien · 4 TODO / 0 FIXME / 0 HACK auf ~69k LOC · 112 Commits in 30 Tagen.
+**Kennzahlen:** Engine vs LB-A ≥ Parität · Erster Mandant ~1 Woche (nur QA) · 398 Backend-Test-Dateien · 4 TODO / 0 FIXME / 0 HACK auf ~69k LOC · 112 Commits in 30 Tagen.
 
 ---
 
-## 01 — Gleich oder besser als 3eyes
+## 01 — Gleich oder besser als LB-A
 
-Gemessen am 3eyes-/iSAA-Q&A (Markowitz-Start → Simulation → Zielerreichung im schlechtesten Quartil → Constraints).
+Gemessen am LB-A-/iSAA-Q&A (Markowitz-Start → Simulation → Zielerreichung im schlechtesten Quartil → Constraints).
 
-### Wo 5eyes bereits überlegen ist
+### Wo LB-B bereits überlegen ist
 - **Chance-constrained Solver mit DE/GA-Fallback** — Erfolgswahrscheinlichkeits-Schranken je Ziel (P-Ampel); garantierter House-Matrix-Fallback bei Solver-Divergenz.
 - **Importance-Sampling der Tail-Szenarien** — 5–10× Varianzreduktion im Verlustbereich; präzisere VaR/CVaR bei gleicher Simulationszahl.
 - **Cornish-Fisher-Fat-Tails** — Schiefe + Exzess-Kurtosis je Anlageklasse statt reiner Normalverteilung.
 - **Deterministische Hash-Seeds** — jeder Lauf bit-genau reproduzierbar. Echter Audit-Vorteil für FINMA-Nachvollziehbarkeit.
-- **Sequence-of-Returns / Vermögensverzehr** — Anteil erschöpfter Pfade + Median-Erschöpfungsjahr. Geht über die typische 3eyes-Darstellung hinaus.
+- **Sequence-of-Returns / Vermögensverzehr** — Anteil erschöpfter Pfade + Median-Erschöpfungsjahr. Geht über die typische LB-A-Darstellung hinaus.
 - **Hypothek-Amortisation in der Projektion** — direkt/indirekt, Refinanzierung nach Ablauf; schlägt auf SOLL/IST-Kurven, MC und Reserve durch.
 - **SOLL-vs-IST-Vergleich + Beratungs-Mehrwert-Delta** — zweispaltig mit Besser/Schlechter-Färbung, PNG-Export.
 - **CHF-0-Datenstack** — yfinance + stooq + FRED/ECB/SNB mit Provider-Fallback-Chain. Keine Lizenzkosten für Marktdaten.
 - **Offene Tax-Plugin-SDK** — Strategy+Registry, jedes Land andockbar (real bestückt: CH/DE).
 - **Shadow-Methodenvergleich + Reasoning-Trace** — zwei Optimizer-Verfahren parallel für belegbaren Methodenvergleich.
 
-### Wo 5eyes zu 3eyes aufgeschlossen hat (ehemalige Lücken geschlossen)
+### Wo LB-B zu LB-A aufgeschlossen hat (ehemalige Lücken geschlossen)
 - **CMA-Tiefe** — Nelson-Siegel-Zinskurve, KGV-Mean-Reversion, Sub-Asset-Klassen mit Korrelationsmatrix und Skew/Kurtosis.
 - **Zielerreichung ordinal + CHF-Fehlbetrag** (PAR-3) — Median-Erreichung und pessimistischer Fehlbetrag (P25) je Ziel, SOLL und IST.
 - **Gesamtvermögens-/Reinvermögens-Sicht** — Immobilie als fixes Fundament, Allokation nur auf dem Finanzteil (Etappen 1–3).
 - **BFS-Mortalität, Steuer-/Dividenden-Split** — per-Pfad-Steuer in den Solver-Kontext verdrahtet.
 
-### Wo 3eyes (noch) führt
+### Wo LB-A (noch) führt
 
 | Parity-Lücke | Status | Bedeutung |
 |---|---|---|
-| Stochastik-Optimizer als Default (PAR-1) | **Offen** | Default ist `house_matrix`+Tilt; goal-based Solver nur opt-in. 3eyes optimiert *immer* auf Zielerreichung. |
+| Stochastik-Optimizer als Default (PAR-1) | **Offen** | Default ist `house_matrix`+Tilt; goal-based Solver nur opt-in. LB-A optimiert *immer* auf Zielerreichung. |
 | Downside-robuste Zielfunktion (PAR-2) | **Offen** | Solver optimiert Erwartungswert des Shortfalls; das schlechteste Quartil erscheint nur in der Anzeige. |
 | ISIN-/Produkt-Endschritt | **Fehlt** | Kein automatischer SAA→ETF-Mapper. |
 | Echtzeit-Reaktivität (Auto-Recompute) | **Fehlt** | Manueller „Strategie berechnen"-Klick. |

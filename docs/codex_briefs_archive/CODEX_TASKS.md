@@ -1,6 +1,6 @@
-# 5eyes — Offene Tasks für Codex
+# LB-B — Offene Tasks für Codex
 **Stand:** 2026-04-10 | **Analysiert von:** Claude
-**Workspace:** `C:\5eyes\5eyes_stage9_release_ready`
+**Workspace:** `C:\LB-B\LB-B_stage9_release_ready`
 **Aktiver Branch:** `codex/mc-fan-chart`
 
 Lies zuerst `CODEX_GUIDE.md`. Dann diese Datei von oben nach unten abarbeiten.
@@ -324,7 +324,7 @@ Empfohlene Abarbeitungsreihenfolge nach Prio und Abhängigkeit:
 
 **Nach jedem Task:**
 ```bash
-cd C:\5eyes\5eyes_stage9_release_ready\ares-backend
+cd C:\LB-B\LB-B_stage9_release_ready\ares-backend
 python -m pytest tests/ -v
 git add <exakte Dateipfade>
 git commit -m "<type>: <beschreibung>"

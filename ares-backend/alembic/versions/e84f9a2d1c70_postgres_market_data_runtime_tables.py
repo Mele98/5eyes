@@ -25,7 +25,9 @@ depends_on: Union[str, Sequence[str], None] = None
 # Name, unter dem diese Revision die Immutability-Funktion von audit_log
 # anlegt. Die Folgerevision f6a2c8e4b1d7 benennt sie per ALTER FUNCTION ...
 # RENAME um und liest diese Konstante fuer ihren Downgrade.
-AUDIT_LOG_IMMUTABLE_FUNCTION = "fn_5eyes_audit_log_immutable"
+# Zero-Trace: der Anlagename enthaelt keine Altmarke; f6a2c8e4b1d7 findet die
+# Funktion ueber die Trigger (OID), nicht ueber diesen Namen.
+AUDIT_LOG_IMMUTABLE_FUNCTION = "fn_audit_log_immutable_initial"
 
 
 AUDIT_ACTIONS: tuple[str, ...] = (

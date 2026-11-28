@@ -11,7 +11,7 @@
 
 ## Warum diese Spec existiert — Fachlicher Kontext
 
-5eyes ist in Phase 1 bewusst schlank gehalten. Das System empfiehlt Anlageklassen-Allokationen,
+LB-B ist in Phase 1 bewusst schlank gehalten. Das System empfiehlt Anlageklassen-Allokationen,
 der Berater ordnet dann konkrete Produkte zu.
 
 **In Phase 1 gilt:** Nur ETFs und Fonds (kollektive Kapitalanlagen). Keine Einzeltitel

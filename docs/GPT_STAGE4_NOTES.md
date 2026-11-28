@@ -7,7 +7,7 @@ Zusätzlich umgesetzt:
    - Fallback bleibt `localStorage`, wenn nur die HTML-Datei im Browser geöffnet wird.
 
 2. Persistente Logfiles
-   - Logs laufen nun zusätzlich in `<DB-Verzeichnis>/logs/5eyes-app.log`.
+   - Logs laufen nun zusätzlich in `<DB-Verzeichnis>/logs/LB-B-app.log`.
 
 3. Lokale System-/DB-Wartungsendpunkte
    - `GET /admin/system/paths`

@@ -313,11 +313,13 @@ def test_restore_refuses_owner_target_and_leaves_it_untouched(owner, tmp_path, s
     assert _owner_state(owner) == before
 
 
-def test_restore_refuses_missing_owner_target_without_creating_folder(home, tmp_path):
+def test_restore_refuses_missing_owner_target_without_creating_folder(home, tmp_path, monkeypatch):
     from services import backup
 
     src = _backup_source(tmp_path)
-    legacy = home / "5eyes" / "5eyes.db"
+    ALT = "altprodukt"  # Kunstname; nur sein Digest ersetzt den der Altmarke
+    monkeypatch.setattr(loc, "LEGACY_OWNER_DIR_DIGESTS", frozenset({hashlib.sha256(ALT.encode()).hexdigest()}))
+    legacy = home / ALT / f"{ALT}.db"
     with pytest.raises(loc.OwnerDatabaseRefused):
         backup.restore_database(src, target_db_path=legacy, verify_hash=False, verify_hmac=False)
     assert not legacy.parent.exists()

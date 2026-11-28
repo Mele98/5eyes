@@ -14,7 +14,7 @@
 git status --short
 ```
 
-**Arbeitsverzeichnis:** `C:\5eyes\5eyes_stage9_release_ready\`
+**Arbeitsverzeichnis:** `C:\LB-B\LB-B_stage9_release_ready\`
 **Alle Pfade in diesem Dokument sind relativ zu diesem Verzeichnis.**
 
 ---

@@ -48,7 +48,7 @@ begonnen, am 4. September 2026 konsolidiert und verändert weder Produktcode
 noch Tests.
 
 Geprüft wurde nicht, ob eine bestimmte Empfehlung rechtlich oder wirtschaftlich
-geeignet ist. Geprüft wurde der technische Vertrag, mit dem 5eyes seine eigenen
+geeignet ist. Geprüft wurde der technische Vertrag, mit dem LB-B seine eigenen
 Produktfreigaben, Kenntnisse-/Erfahrungsdaten, Angemessenheits- und Override-
 Felder in Empfehlung, Finalisierung, Publikation und Handoff durchsetzt.
 
@@ -939,7 +939,7 @@ Ausgeführt aus `ares-backend` mit externem Basetemp:
 
 ```powershell
 python -m pytest -q -p no:cacheprovider `
-  --basetemp C:\tmp\5eyes-round25-gate-20260904 `
+  --basetemp C:\tmp\LB-B-round25-gate-20260904 `
   tests/test_suitability_optin_gate.py `
   tests/test_suitability_gate_all_paths.py `
   tests/test_suitability_fidleg_audit.py `
@@ -995,7 +995,7 @@ nicht zum Manifest.
 
 ## Schlussentscheidung
 
-Kontrollrunde 25 bestätigt neue release-blockierende P1. 5eyes besitzt
+Kontrollrunde 25 bestätigt neue release-blockierende P1. LB-B besitzt
 `ProductSuitability` als Datenmodell, aber noch keinen durchgängigen
 Product-Eligibility-Vertrag. Vier gespeicherte Pflichtfelder sind operativ
 wirkungslos; fehlende Regeln erlauben; eine abgelehnte Regel kann über den

@@ -158,7 +158,7 @@ Erwartet: eine einzige Zeile, ~Zeile 2434. Der Block endet bei `cma.updated_at =
 
 **Alt — GESAMTER Block zu löschen (von elif bis einschliesslich cma.updated_at = now):**
 ```python
-    elif cma.assumption_set_name == DEFAULT_CMA_NAME or str(cma.source or "") == "5Eyes Default Runtime":
+    elif cma.assumption_set_name == DEFAULT_CMA_NAME or str(cma.source or "") == "LB-B Default Runtime":
         cma.assumption_set_name = DEFAULT_CMA_NAME
         cma.valid_from = today
         cma.is_current = 1
@@ -198,7 +198,7 @@ Erwartet: eine einzige Zeile, ~Zeile 2434. Der Block endet bei `cma.updated_at =
             "2040": 110,
         })
         cma.sub_asset_class_assumptions_json = json.dumps(_DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS)
-        cma.source = "5Eyes Default Runtime"
+        cma.source = "LB-B Default Runtime"
         cma.notes = "Automatisch erzeugte Default-CMA fuer V1-Engine"
         cma.updated_at = now
 ```

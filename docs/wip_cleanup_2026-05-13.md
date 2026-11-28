@@ -23,7 +23,7 @@ waehrend Frontend-Audits / Mojibake-Untersuchungen. Reine Artefakte.
 
 ```
 extracted_check.js
-tmp/5eyes_v2.before_ftfy_backup.html
+tmp/LB-B_v2.before_ftfy_backup.html
 tmp/aa_layout_check.js
 tmp/cashflow_block.txt
 tmp/frontend_check.js
@@ -46,7 +46,7 @@ tmp/mojibake_samples_latin1_utf8.txt
 ```powershell
 git clean -fd tmp/ extracted_check.js
 # oder selektiv:
-Remove-Item tmp/*_check.js, tmp/mojibake_samples_*.txt, tmp/cashflow_block.txt, tmp/5eyes_v2.before_ftfy_backup.html
+Remove-Item tmp/*_check.js, tmp/mojibake_samples_*.txt, tmp/cashflow_block.txt, tmp/LB-B_v2.before_ftfy_backup.html
 Remove-Item extracted_check.js
 ```
 

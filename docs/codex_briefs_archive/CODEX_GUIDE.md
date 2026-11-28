@@ -1,5 +1,5 @@
-# 5eyes WealthArchitekten — Codex Operating Guide
-**Version:** 2026-04-10 | **Workspace:** `C:\5eyes\5eyes_stage9_release_ready`
+# LB-B LB-C — Codex Operating Guide
+**Version:** 2026-04-10 | **Workspace:** `C:\LB-B\LB-B_stage9_release_ready`
 
 ---
 
@@ -226,7 +226,7 @@ el.textContent = value;         // kein HTML-Parsing
 
 ### Backend-Tests ausführen
 ```bash
-cd C:\5eyes\5eyes_stage9_release_ready\ares-backend
+cd C:\LB-B\LB-B_stage9_release_ready\ares-backend
 python -m pytest tests/ -v
 ```
 
@@ -243,14 +243,14 @@ python -m pytest tests/test_cashflow_timeline.py -v
 ### DB direkt abfragen (Debugging)
 ```bash
 # Windows PowerShell:
-sqlite3 $env:USERPROFILE\5eyes\5eyes.db "SELECT * FROM risk_assessments LIMIT 5;"
+sqlite3 $env:USERPROFILE\LB-B\LB-B.db "SELECT * FROM risk_assessments LIMIT 5;"
 ```
 
 ### Backend neu starten (nach Python-Änderungen)
 ```bash
 # Electron killen und neu starten — Backend startet automatisch
 # Oder manuell:
-cd C:\5eyes\5eyes_stage9_release_ready\ares-backend
+cd C:\LB-B\LB-B_stage9_release_ready\ares-backend
 uvicorn main:app --reload --port 8000
 ```
 

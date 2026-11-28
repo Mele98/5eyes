@@ -89,7 +89,7 @@ if not os.environ.get("TENANT_MASTER_KEK", "").strip():
     os.environ["TENANT_MASTER_KEK"] = Fernet.generate_key().decode("ascii")
 
 
-# H11 Nachtrag 1: Schnappschuss des Owner-Profils (~/ares, ~/5eyes) vor jedem
+# H11 Nachtrag 1: Schnappschuss des Owner-Profils (~/ares, Alt-Profilordner) vor jedem
 # Test (nur Controller bzw. serieller Lauf), Vergleich am Session-Ende.
 import _owner_profile_guard  # noqa: E402
 
@@ -191,7 +191,8 @@ def pytest_sessionfinish(session, exitstatus):  # noqa: D103
     worker_lines = session.config.stash.get(_WORKER_LEAK_LINES_KEY, [])
     if _OWNER_PROFILE_BEFORE is not None:
         touched = _owner_profile_guard.changes(
-            _OWNER_PROFILE_BEFORE, _owner_profile_guard.snapshot(_OWNER_PROFILE_ROOTS))
+            _OWNER_PROFILE_BEFORE, _owner_profile_guard.snapshot(
+                (*_OWNER_PROFILE_ROOTS, *_owner_profile_guard.owner_profile_roots())))
         if touched:
             sys.stderr.write("\nOWNER-PROFIL VERAENDERT (H11 N1) -- Lauf rot:\n  " + "\n  ".join(touched) + "\n")
             session.exitstatus = _pytest.ExitCode.TESTS_FAILED

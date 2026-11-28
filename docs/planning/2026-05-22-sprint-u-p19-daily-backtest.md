@@ -74,7 +74,7 @@ Annual bleibt als Modus erhalten und ist Fallback, wenn keine täglichen Daten g
 ## Fachlogik
 
 - Quelle: U-P17 `backtest_strategy.py` (Methodik), U-P11a `annual_returns_backfill.py`
-  (Aggregator + Proxy-Symbol-Map), `[[project_5eyes_data_pipeline]]`.
+  (Aggregator + Proxy-Symbol-Map), `[[project_LB-B_data_pipeline]]`.
 - Verbindliche Regeln:
   - Compounding-Frequenz (täglich) ist **entkoppelt** von der Rebalancing-Frequenz
     (jährlich, am ersten Handelstag des Folgejahres zurück auf Soll-Gewichte).

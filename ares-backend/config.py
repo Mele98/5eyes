@@ -26,7 +26,7 @@ OwnerDatabaseRefused = _db_location.OwnerDatabaseRefused
 
 
 def owner_db_refusal(path) -> str | None:
-    """H11 N1: Owner-DB (~/ares/ares.db, ~/5eyes/5eyes.db) unter Test/CI nie,
+    """H11 N1: Owner-DB (~/ares/ares.db und die Alt-Live-DB, siehe core/db_location) unter Test/CI nie,
     sonst nur mit ARES_OWNER_DB_OPT_IN=1 (Regel: core.db_location)."""
     return _db_location.owner_db_refusal(path, os.environ)
 

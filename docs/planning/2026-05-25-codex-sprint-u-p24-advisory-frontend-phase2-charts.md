@@ -1,6 +1,6 @@
 # Codex-Sprint U-P24 — Advisory-Report Frontend Phase 2 (Sektionen 6-10 + Charts)
 
-> **Adressat:** Codex (5eyes-Session).
+> **Adressat:** Codex (LB-B-Session).
 > **Erstellt durch:** Claude (Opus 4.7), 2026-05-25.
 > **Voraussetzung:** U-P23 fertig (alle 5 PRs A-E gemerged). Insbesondere
 > PR E (`BarChartIstSoll` + `chartTheme.ts`) ist die Foundation für diesen

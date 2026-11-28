@@ -16,7 +16,7 @@ verschiedene Dokumente abhaengig vom Pfad — verwirrend, unprofessionell.
 ## 1. Soll-Layout (exakt wie Frontend)
 
 **Format:** A4 LANDSCAPE, margin 0
-**Branding:** "WealthArchitekten" (dunkler Header #0f172a)
+**Branding:** "LB-C" (dunkler Header #0f172a)
 
 **8 Sektionen in dieser Reihenfolge:**
 
@@ -45,7 +45,7 @@ verschiedene Dokumente abhaengig vom Pfad — verwirrend, unprofessionell.
 
 ## 2. Wording (woertlich aus Frontend uebernehmen)
 
-- "WealthArchitekten" (Brand)
+- "LB-C" (Brand)
 - "Anlagestrategie" (Titel)
 - "Vertraulich · Erstellt am <DATUM>"
 - "Kundendossier", "Mandat", "Beratungsvermoegen"
@@ -104,7 +104,7 @@ Metric-Boxes: #f8fafc bg, #e2e8f0 border (default)
 ## 4. Implementation-Plan
 
 **Phase 1 (jetzt):** Styles + Layout + Header/Footer
-- styles.py: Landscape A4, WealthArchitekten-Farben, neue Konstanten
+- styles.py: Landscape A4, LB-C-Farben, neue Konstanten
 - components/header.py: dunkler Banner, 2-spaltiger Header
 - components/footer.py: FIDLEG-Disclaimer
 

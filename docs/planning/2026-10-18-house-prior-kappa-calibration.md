@@ -15,7 +15,7 @@ Produktparameter: `services/optimizer/house_prior.py` – `HOUSE_PRIOR_KAPPA = 3
 
 ## 2. Tuning (2026-10-18, Auswahl von κ_H = 300)
 
-* **Engine:** `saa_resampled_v5` (Worktree `C:/tmp/5eyes-shrink-design`, Branch `origin/fix/importance-sampling-ess`), Prior per Monkeypatch des Tiebreaks (`exp_common.run_prior`), Bag-Konfiguration Produktion (40 × 500), Signifikanztest aus. Die Skripte importieren diesen Worktree-Pfad – sie sind Provenienz, nicht mehr ausführbar gegen `develop` ohne Anpassung des `BACKEND`-Pfads.
+* **Engine:** `saa_resampled_v5` (Worktree `C:/tmp/LB-B-shrink-design`, Branch `origin/fix/importance-sampling-ess`), Prior per Monkeypatch des Tiebreaks (`exp_common.run_prior`), Bag-Konfiguration Produktion (40 × 500), Signifikanztest aus. Die Skripte importieren diesen Worktree-Pfad – sie sind Provenienz, nicht mehr ausführbar gegen `develop` ohne Anpassung des `BACKEND`-Pfads.
 * **Inputs:** CMA/Hausmatrizen 1:1 aus `tests/test_engine_reference_mandates.py`, fünf Referenzmandate A–E (`MANDATES`), Zielbetrag-Skalen 0.80–1.20.
 * **Seeds:** Inhalts-Seed der Engine bzw. `sha256("|".join(parts))` (`_seed_of`): Welten `(mandat, "misspec", k)`, OOS-Würfel `(mandat, "oos")`, Welt-Pfade `(mandat, "world-paths")`.
 * **Raster:** κ ∈ {10, 30, 100, 300, 1000, 3000}; Schätzfehler-Test (Engine sieht μ̂ = μ + Lz/√20, Bewertung unter wahrer CMA auf 20'000 Pfaden) für κ ∈ {30, 100, 300, 1000}, 15 Mandat/Skala-Zellen × 10 Welten = 150.

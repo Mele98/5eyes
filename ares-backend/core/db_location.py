@@ -20,7 +20,8 @@ H11 Nachtrag 1 (Vorfall 2026-11-14, ``~/ares/ares.db`` leer neu angelegt):
 ``owner_db_refusal`` ist die (reine) Regel; ``config`` wendet sie an: VOR
 jedem SQLite-Connect (``Engine.do_connect``), im App-Start vor Logging/KEK/DB,
 im Schema-Bootstrap (raw sqlite3) und in ``alembic/env.py``. Owner-Pfade sind
-``~/ares/ares.db`` und ``~/5eyes/5eyes.db``. Verweigert wird
+``~/ares/ares.db`` und die Alt-Live-DB des Vorgaengerprodukts (Ordner und
+Datei nach der Altmarke LB-B benannt, im Code nur als Digest). Verweigert wird
 * immer unter pytest/CI/Testmodus (auch mit Opt-in),
 * sonst ohne ausdrueckliche Freigabe ``ARES_OWNER_DB_OPT_IN=1``. Die setzen
   die Desktop-Shell beim Backend-Start und der Umstieg (Migrator/Runbook).
@@ -32,6 +33,7 @@ Kommandozeile (fuer PowerShell-Deploy-Skripte)::
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import sys
@@ -201,9 +203,53 @@ class OwnerDatabaseRefused(RuntimeError):
     """Start/Anlegen einer DB unter dem Owner-Pfad verweigert (fail-closed)."""
 
 
+# Alt-Live-DB des Vorgaengerprodukts: ``~/<LB-B>/<LB-B>.db``. Die Altmarke steht
+# nie im Klartext im Repo (Zero-Trace), nur als sha256 der casefold-Stammform
+# (identisch mit LB-B/5 in tests/brand_digest_support.py; ein Test erzwingt das).
+LEGACY_OWNER_DIR_DIGESTS: frozenset[str] = frozenset({
+    '681aab74af1a2a039ff95a500da3f289290163115a70a2af7ee07521e73793bc',
+})
+_DB_COMPANION_SUFFIXES = ('-wal', '-shm', '-journal')
+
+
+def _is_legacy_owner_name(name: str) -> bool:
+    return hashlib.sha256(name.casefold().encode('utf-8')).hexdigest() in LEGACY_OWNER_DIR_DIGESTS
+
+
+def legacy_owner_dirs(home: Path | None = None) -> tuple[Path, ...]:
+    """Vorhandene Alt-Profilordner direkt unter ``home`` (nur lesend aufgelistet)."""
+    base = Path.home() if home is None else home
+    try:
+        children = sorted(base.iterdir())
+    except OSError:
+        return ()
+    return tuple(child for child in children if _is_legacy_owner_name(child.name))
+
+
 def owner_db_paths() -> tuple[Path, ...]:
-    """Owner-Datenbanken: Ares-Produktivpfad und die Alt-Live-DB."""
-    return (default_db_path(), Path.home() / '5eyes' / '5eyes.db')
+    """Owner-Datenbanken: Ares-Produktivpfad und eine vorhandene Alt-Live-DB."""
+    return (default_db_path(), *(d / f'{d.name}.db' for d in legacy_owner_dirs()))
+
+
+def _is_legacy_owner_target(candidate: str | os.PathLike[str]) -> bool:
+    """Textregel fuer ``~/<LB-B>/<LB-B>.db`` (samt Begleitdateien), auch wenn der
+    Ordner (noch) nicht existiert -- dann gibt es keine Identitaet zum Vergleichen."""
+    try:
+        cand = normalize_db_target(candidate)
+        home = normalize_db_target(Path.home())
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return False
+    name = cand.name.casefold()
+    for sfx in _DB_COMPANION_SUFFIXES:
+        if name.endswith(sfx):
+            name = name[:-len(sfx)]
+            break
+    parent = cand.parent
+    return (
+        os.path.normcase(str(parent.parent)) == os.path.normcase(str(home))
+        and _is_legacy_owner_name(parent.name)
+        and name == f'{parent.name.casefold()}.db'
+    )
 
 
 def _owner_targets() -> tuple[Path, ...]:
@@ -214,7 +260,10 @@ def _owner_targets() -> tuple[Path, ...]:
 
 def is_owner_db_path(candidate: str | os.PathLike[str] | None) -> bool:
     """Owner-Pfad per Text/Identitaet -- inkl. ``-wal``/``-shm``/``-journal``."""
-    return any(is_live_db_path(candidate, live) for live in _owner_targets())
+    if candidate is None or not str(os.fspath(candidate)).strip():
+        return False
+    return (any(is_live_db_path(candidate, live) for live in _owner_targets())
+            or _is_legacy_owner_target(candidate))
 
 
 def test_or_ci_mode(environ) -> str | None:
