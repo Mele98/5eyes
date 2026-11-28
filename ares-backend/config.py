@@ -23,6 +23,8 @@ import core.db_location as _db_location
 from core.product_evidence import configure_synthetic_evidence
 
 OwnerDatabaseRefused = _db_location.OwnerDatabaseRefused
+# Ein Parser fuer SQLite-URLs inkl. file:-URI (Owner-Schutz und aktive DB, C-T1-02).
+sqlite_url_file = _db_location.sqlite_url_file
 
 
 def owner_db_refusal(path) -> str | None:

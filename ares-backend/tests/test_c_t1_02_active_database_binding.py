@@ -6,13 +6,17 @@ noch als aktive DB angezeigt werden. PostgreSQL sperrt die SQLite-Dateipfade
 typisiert; dabei bleiben alle Dateien digest-identisch.
 
 Gegenprobe: in maintenance/backup_scheduler/init_db wieder ``settings.db_path``
-verwenden -> die Decoy-/Sperrtests werden rot.
+verwenden -> die Decoy-/Sperrtests werden rot (Ausnahme:
+``test_postgres_init_db_skips_sqlite_bootstrap_and_quarantine`` sichert ein
+Verhalten ab, das schon vorher galt).
 """
 from __future__ import annotations
 
 import hashlib
 import sqlite3
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -72,8 +76,15 @@ def test_url_forms_without_file_are_refused_typed():
     assert sqlite_file_from_url("sqlite:///:memory:") is None
     with pytest.raises(ActiveDatabaseNotFileBacked):
         sqlite_file_from_url(PG_URL)
+    assert sqlite_file_from_url("sqlite:///file:x?mode=memory&uri=true") is None
     with pytest.raises(ActiveDatabaseNotFileBacked):
-        sqlite_file_from_url("sqlite:///file:x?mode=memory&uri=true")
+        sqlite_file_from_url("sqlite:///file://fremder-host/x.db?uri=true")
+
+
+def test_file_uri_resolves_like_owner_guard_parser(tmp_path):
+    target = (tmp_path / "uri.db").resolve()
+    assert sqlite_file_from_url(f"sqlite:///file:{target.as_posix()}?mode=rw&uri=true") == target
+    assert sqlite_file_from_url(f"sqlite:///{target.as_posix()}?uri=false") == target
 
 
 def test_real_manual_backup_snapshots_active_file_not_decoy(decoy_setup):
@@ -179,3 +190,41 @@ def test_init_db_quarantine_follows_active_url_not_decoy(decoy_setup, monkeypatc
         database.init_db()
     assert "quarant" in str(excinfo.value).lower()
     assert not quarantine_marker_path(decoy).exists()
+
+
+def test_backup_endpoint_maps_postgres_refusal_to_409(postgres_setup):
+    from fastapi import HTTPException
+
+    from routers import system
+
+    with pytest.raises(HTTPException) as excinfo:
+        system.backup_database(request=None, db=None, current_user=None)
+    assert excinfo.value.status_code == 409
+    assert "PostgreSQL" in excinfo.value.detail
+
+
+def test_backup_cli_refuses_postgres_readably(postgres_setup, monkeypatch, capsys):
+    from scripts import backup_now
+
+    decoy, backups, backup_file = postgres_setup
+    before = _state(decoy, backups, backup_file)
+    monkeypatch.setattr(sys, "argv", ["backup_now.py"])
+    assert backup_now.main() == 2
+    assert "GESPERRT" in capsys.readouterr().err
+    monkeypatch.setattr(sys, "argv", ["backup_now.py", "--restore", str(backup_file)])
+    assert backup_now.main() == 2
+    assert _state(decoy, backups, backup_file) == before
+
+
+def test_erasure_ledger_never_uses_postgres_database_name_as_path(postgres_setup):
+    from sqlalchemy.engine import make_url
+
+    from database import resolve_db_file
+    from services.client_erasure import ERASURE_LEDGER_FILENAME, _ledger_path
+
+    class FakeSession:
+        def get_bind(self):
+            return SimpleNamespace(url=make_url(PG_URL))
+
+    path = _ledger_path(FakeSession())
+    assert path == resolve_db_file(settings.db_path).parent / ERASURE_LEDGER_FILENAME

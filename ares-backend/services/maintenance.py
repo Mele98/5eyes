@@ -174,6 +174,9 @@ def database_paths() -> dict[str, str]:
         backend, file_text, dir_text = 'sqlite', str(db_file), str(db_file.parent)
     except ActiveDatabaseNotFileBacked as exc:
         backend, file_text, dir_text = exc.backend, '', ''
+    except RuntimeError:
+        # z. B. SQLCipher verlangt, aber nicht installiert: Anzeige statt 500.
+        backend, file_text, dir_text = 'nicht-verfuegbar', '', ''
     return {
         'db_backend': backend,
         'db_file': file_text,

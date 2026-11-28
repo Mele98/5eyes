@@ -71,7 +71,17 @@ def main() -> int:
 
     # Settings lazy laden, damit `--help` ohne .env funktioniert.
     from config import settings  # noqa: WPS433
-    from database import active_sqlite_file
+    from database import ActiveDatabaseNotFileBacked, active_sqlite_file
+
+    try:
+        return _run(args, settings, active_sqlite_file)
+    except ActiveDatabaseNotFileBacked as exc:
+        # C-T1-02: lesbare Sperre statt Traceback (fail-closed, Exit 2).
+        print(f"GESPERRT: {exc}", file=sys.stderr)
+        return 2
+
+
+def _run(args, settings, active_sqlite_file) -> int:
     from services.backup import backup_database
     from services.maintenance import restore_backup
 

@@ -22,6 +22,7 @@ from config import (
     packaged_plaintext_connection_refused,
     refuse_owner_db_file,
     settings,
+    sqlite_url_file,
 )
 from core import property_gate  # K1 Property-Gate (Stdlib-Blatt)
 # L2c: reines Modul ohne Projekt-Importe (Hash-Vertrag + Altbestand-Versiegelung).
@@ -232,9 +233,15 @@ def sqlite_file_from_url(database_url: str) -> Path | None:
     database = url.database or ''
     if database in ('', ':memory:'):
         return None
-    if database.startswith('file:') or url.query.get('uri'):
-        # SQLite-URI-Formen (mode=memory, vfs ...) nicht raten: fail-closed.
-        raise ActiveDatabaseNotFileBacked('sqlite-uri')
+    if database.lower().startswith('file:'):
+        # SQLite-URI (uri=true): derselbe Parser wie der Owner-DB-Schutz.
+        if str(url.query.get('mode', '')).lower() == 'memory' or database.lower().startswith('file::memory:'):
+            return None
+        target = sqlite_url_file(database_url)
+        if target is None or str(target).lower().startswith('file:'):
+            # nicht lokal aufloesbar (z. B. fremder Host): fail-closed statt raten.
+            raise ActiveDatabaseNotFileBacked('sqlite-uri')
+        return resolve_db_file(target)
     return resolve_db_file(database)
 
 

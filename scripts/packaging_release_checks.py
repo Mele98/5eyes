@@ -57,15 +57,34 @@ CARCHIVE_CODE_TYPES = frozenset('mMs')   # PYMODULE, PYPACKAGE, PYSOURCE
 CARCHIVE_PYZ_TYPES = frozenset('z')      # eingebettetes PYZ (eigener Scan)
 CARCHIVE_DATA_TYPES = frozenset('bxdln')  # BINARY, DATA, DEPENDENCY, SPLASH, SYMLINK
 CARCHIVE_OPTION_TYPES = frozenset('o')   # Laufzeitoption ohne Inhalt (nur Name)
-# C-EXEPYZ-02: Textabschnitte in Binaerdaten (wie ``strings``): ASCII-Wortzeichen,
-# Leerraum, ``_``, ``.``, ``-`` (alles, was die Markennormalisierung behaelt oder
-# entfernt), gueltige UTF-8-Mehrbytezeichen sowie UTF-16LE. Ein Marken-Fenster
-# liegt deshalb vollstaendig in einem Abschnitt. Einzelne Hochbytes ohne
-# UTF-8-Form gelten als Binaerrauschen (sonst waere fast jede Datei "Text").
-_TEXT_RUN_8 = re.compile(
-    rb'(?:[0-9A-Za-z\s_.\-]|[\xc2-\xdf][\x80-\xbf]|[\xe0-\xef][\x80-\xbf]{2}|[\xf0-\xf4][\x80-\xbf]{3}){5,}'
+# C-EXEPYZ-02: Textabschnitte in Binaerdaten (wie ``strings``). Die Zeichen-
+# klassen werden aus der Markennormalisierung abgeleitet (casefold, Entfernen
+# von [\s_.\-], tests/brand_digest_support.normalize_text): relevant ist jedes
+# BMP-Zeichen, das die Normalisierung entfernt oder das zu ASCII-Wortzeichen
+# faltet. Kodierungen: ASCII/Latin-1-Einzelbyte, gueltiges UTF-8, UTF-16LE.
+# Ein Marken-Fenster liegt deshalb vollstaendig in einem Abschnitt. Andere
+# Einzel-Hochbytes gelten als Binaerrauschen (sonst waere fast jede Binaer-
+# datei "Text"); die Stammformen selbst sind ASCII.
+_NORM_SEPARATORS = re.compile(r'[\s_.\-]+')
+
+
+def _normalization_relevant(ch: str) -> bool:
+    if _NORM_SEPARATORS.fullmatch(ch):
+        return True
+    return any(c.isascii() and c.isalnum() for c in ch.casefold())
+
+
+_RELEVANT_CHARS = tuple(
+    chr(c) for c in range(0x10000) if not 0xD800 <= c <= 0xDFFF and _normalization_relevant(chr(c))
 )
-_TEXT_RUN_16 = re.compile(rb'(?:[0-9A-Za-z\s_.\-\x80-\xff]\x00){5,}')
+_LATIN1_LONE = {chr(0xDC00 + ord(ch)): ch for ch in _RELEVANT_CHARS if 0x80 <= ord(ch) <= 0xFF}
+_TEXT_RUN_8 = re.compile(
+    b'(?:[' + b''.join(re.escape(bytes([ord(ch)])) for ch in _RELEVANT_CHARS if ord(ch) <= 0xFF) + b']'
+    + rb'|[\xc2-\xdf][\x80-\xbf]|[\xe0-\xef][\x80-\xbf]{2}|[\xf0-\xf4][\x80-\xbf]{3}){5,}'
+)
+_TEXT_RUN_16 = re.compile(
+    b'(?:' + b'|'.join(re.escape(ch.encode('utf-16-le')) for ch in _RELEVANT_CHARS) + b'){5,}'
+)
 
 
 def desktop_package() -> dict:
@@ -332,7 +351,8 @@ def check_product_hygiene(exe: Path, unpacked_dir: Path, fail, log) -> None:
             data_entries += 1
             if name.replace('\\', '/').lower().endswith(TEXT_ARCHIVE_SUFFIXES):
                 text_entries += 1
-                text = data.decode('utf-8', errors='replace')
+                # UTF-8 vollstaendig, UTF-16 ueber die Textabschnitte.
+                text = data.decode('utf-8', errors='replace') + '/' + _binary_text(data)
             else:
                 text = _binary_text(data, seen_runs)
             hits = brand_ids(text)
@@ -374,6 +394,14 @@ def _valid_text(text: str) -> str:
     return text.encode('utf-8', errors='replace').decode('utf-8')
 
 
+def _decode_run8(run: bytes) -> str:
+    """UTF-8 dekodieren; ein ungueltiges Einzelbyte, das in Latin-1 ein
+    normalisierungsrelevantes Zeichen ist (z. B. NBSP), behaelt diese Bedeutung;
+    jedes andere wird zum Ersatzzeichen (bricht das Fenster)."""
+    text = run.decode('utf-8', errors='surrogateescape')
+    return ''.join(_LATIN1_LONE.get(ch, '\ufffd') if '\udc80' <= ch <= '\udcff' else ch for ch in text)
+
+
 def _binary_text(data: bytes, seen: set[bytes] | None = None) -> str:
     """Alle Textabschnitte einer Binaerdatei (UTF-8 und UTF-16LE), dedupliziert.
 
@@ -387,7 +415,7 @@ def _binary_text(data: bytes, seen: set[bytes] | None = None) -> str:
         runs16 -= seen
         seen |= runs8
         seen |= runs16
-    parts = [run.decode('utf-8', errors='replace') for run in runs8]
+    parts = [_decode_run8(run) for run in runs8]
     parts += [run.decode('utf-16-le', errors='replace') for run in runs16]
     # ``/`` wird nicht normalisiert: kein Fenster ueberspannt zwei Abschnitte.
     return '/'.join(parts)

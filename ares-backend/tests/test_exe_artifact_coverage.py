@@ -196,3 +196,44 @@ def test_missing_entry_script_blocks(tmp_path, monkeypatch):
 def test_marker_in_pyz_module_still_blocks(tmp_path, monkeypatch):
     with pytest.raises(Blocked, match="Bytecode der Backend-EXE: ares_module"):
         _artifact(tmp_path, monkeypatch, pyz={"ares_module": "X = 'kunstmarke'"})()
+
+
+# --- Vollstaendigkeit der Textabschnitte (Review-Befund P2) -------------------
+from brand_digest_support import _SEPARATORS  # noqa: E402
+
+SEPARATOR_CHARS = [chr(c) for c in range(0x10000)
+                   if not 0xD800 <= c <= 0xDFFF and _SEPARATORS.fullmatch(chr(c))]
+
+
+def _hit(data: bytes, digests=DIGESTS) -> bool:
+    return bool(brand_ids_in_text(rc._binary_text(data), digests=digests))
+
+
+def test_scanner_uses_the_same_separator_rule_as_the_digest_check():
+    assert rc._NORM_SEPARATORS.pattern == _SEPARATORS.pattern
+
+
+def test_every_normalization_separator_keeps_the_window_together():
+    assert len(SEPARATOR_CHARS) > 25  # Positivkontrolle: Unicode-Leerraum dabei
+    missed = []
+    for sep in SEPARATOR_CHARS:
+        word = f"kunst{sep}marke"
+        encodings = [word.encode("utf-8"), word.encode("utf-16-le")]
+        if ord(sep) <= 0xFF:
+            encodings.append(word.encode("latin-1"))
+        for data in encodings:
+            if not _hit(b"\x00\x01" + data + b"\x00\x02"):
+                missed.append((hex(ord(sep)), data[:12]))
+    assert not missed, missed
+
+
+def test_latin1_sharp_s_folds_like_the_normalization():
+    digests = (("LB-Y", 6, hashlib.sha256(b"grosse").hexdigest()),)
+    assert _hit(b"\x00gro\xdfe\x00", digests)          # Latin-1-Einzelbyte
+    assert _hit("Große".encode("utf-8"), digests)
+    assert _hit("GROSSE".encode("utf-16-le"), digests)
+
+
+def test_non_separator_bytes_still_break_the_window():
+    for data in (b"kunst/marke", b"kunst\x01marke", b"kunst\xffmarke", "kunst/marke".encode("utf-16-le")):
+        assert not _hit(data), data

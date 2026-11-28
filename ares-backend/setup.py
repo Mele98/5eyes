@@ -34,7 +34,17 @@ def main():
 
     try:
         from config import settings
-        from database import SessionLocal, bootstrap_sqlite_schema, init_db, new_uuid
+        from sqlalchemy.engine import make_url
+
+        from database import (
+            SessionLocal,
+            active_database_url,
+            bootstrap_sqlite_schema,
+            init_db,
+            is_sqlite_database_url,
+            new_uuid,
+            sqlite_file_from_url,
+        )
         import models.allocation
         import models.clients
         import models.mandates
@@ -64,9 +74,14 @@ def main():
             print('✗ Passwort muss mindestens 5 Zeichen lang sein.')
             sys.exit(1)
 
-    print(f'\nDatenbank: {settings.db_path}')
+    # C-T1-02: dieselbe aktive Datenbank wie die App (DATABASE_URL vor DB_PATH);
+    # das Rohschema nur fuer eine SQLite-Datei, nie still in DB_PATH.
+    active_url = active_database_url()
+    sqlite_file = sqlite_file_from_url(active_url) if is_sqlite_database_url(active_url) else None
+    print(f'\nDatenbank: {sqlite_file or make_url(active_url).render_as_string(hide_password=True)}')
     try:
-        bootstrap_sqlite_schema(db_key=getattr(settings, 'db_key', None))
+        if sqlite_file is not None:
+            bootstrap_sqlite_schema(db_path=sqlite_file, db_key=getattr(settings, 'db_key', None))
         init_db()
         print('✓ Datenbank initialisiert')
     except Exception as e:
