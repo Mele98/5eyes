@@ -34,7 +34,7 @@ def main() -> int:
         "--source",
         type=str,
         default=None,
-        help="Pfad zur SQLite-DB (Default: settings.db_path)",
+        help="Pfad zur SQLite-DB (Default: aktive Datenbank, DATABASE_URL vor DB_PATH)",
     )
     parser.add_argument(
         "--target",
@@ -71,11 +71,13 @@ def main() -> int:
 
     # Settings lazy laden, damit `--help` ohne .env funktioniert.
     from config import settings  # noqa: WPS433
+    from database import active_sqlite_file
     from services.backup import backup_database
     from services.maintenance import restore_backup
 
     if args.restore:
-        target = args.target or settings.db_path
+        # C-T1-02: Default-Ziel ist die aktive Datenbank, nie still DB_PATH.
+        target = args.target or active_sqlite_file()
         # PRIV-005: restore_backup() (statt services.backup.restore_database
         # direkt) wendet nach dem Restore automatisch jede DSG-Art.-32-
         # Loeschung erneut an, die im wiederhergestellten Backup noch fehlt
@@ -99,7 +101,7 @@ def main() -> int:
             )
         return 0
 
-    source = args.source or settings.db_path
+    source = args.source or active_sqlite_file()
     target = args.target or settings.backup_dir
     retain = (
         args.retain_days

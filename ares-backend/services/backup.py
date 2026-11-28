@@ -47,6 +47,8 @@ from typing import Callable
 
 from config import guarded_sqlite_connect, refuse_owner_db_file, settings
 from database import SQLCIPHER_AVAILABLE, _sqlcipher_enabled, apply_sqlcipher_key, sqlcipher3
+# C-T1-02: aktive Quelle fuer den Scheduler (dort keine neue Import-Kante).
+from database import active_sqlite_file  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

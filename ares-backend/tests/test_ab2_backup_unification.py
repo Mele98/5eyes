@@ -72,7 +72,7 @@ def unified_env(tmp_path: Path, monkeypatch):
     backup_dir = tmp_path / "external-volume" / "backups"
 
     monkeypatch.setattr(
-        "services.maintenance.resolve_db_file",
+        "services.maintenance.active_sqlite_file",
         lambda *_a, **_k: db_file,
     )
     monkeypatch.setattr(maintenance.settings, "backup_dir", str(backup_dir))

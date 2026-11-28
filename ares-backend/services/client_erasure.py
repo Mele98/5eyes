@@ -253,15 +253,21 @@ def _ledger_path(db: Session) -> Path:
     unabhaengig davon, wie ``settings.db_path`` konfiguriert ist.
     """
     bind = db.get_bind()
-    db_file = getattr(getattr(bind, "url", None), "database", None) if bind is not None else None
-    if db_file:
+    url = getattr(bind, "url", None) if bind is not None else None
+    # Nur eine SQLite-Datei ist ein lokaler Pfad; ein PostgreSQL-Datenbankname nie.
+    is_sqlite = bool(url is not None and str(url.drivername).startswith("sqlite"))
+    db_file = url.database if is_sqlite else None
+    if db_file and db_file != ":memory:":
         return Path(db_file).expanduser().resolve().parent / ERASURE_LEDGER_FILENAME
-    # Fallback (z.B. In-Memory-DB ohne eigene Datei) -- Settings-Pfad als
-    # Referenz, analog zu services/maintenance.py::database_paths().
+    # Fallback (In-Memory-DB oder PostgreSQL): neben der aktiven SQLite-Datei,
+    # sonst im Datenverzeichnis (``DB_PATH``-Ordner, nur als Ablageort).
     from config import settings
-    from database import resolve_db_file
+    from database import ActiveDatabaseNotFileBacked, active_sqlite_file, resolve_db_file
 
-    return resolve_db_file(settings.db_path).parent / ERASURE_LEDGER_FILENAME
+    try:
+        return active_sqlite_file().parent / ERASURE_LEDGER_FILENAME
+    except ActiveDatabaseNotFileBacked:
+        return resolve_db_file(settings.db_path).parent / ERASURE_LEDGER_FILENAME
 
 
 def _append_ledger_entry(path: Path, entry: dict[str, Any]) -> None:

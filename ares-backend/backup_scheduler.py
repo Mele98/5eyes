@@ -66,11 +66,13 @@ def _run_backup_job() -> None:
     """APScheduler-Wrapper: lazy-import + Exceptions schlucken, damit ein
     Backup-Fehler den Scheduler nicht killt."""
     try:
-        from services.backup import backup_database, replicate_offsite
+        from services.backup import active_sqlite_file, backup_database, replicate_offsite
 
+        # C-T1-02: Quelle ist die aktive Datenbank (DATABASE_URL vor DB_PATH);
+        # PostgreSQL sperrt typisiert und landet im Fehlerpfad unten.
         result = backup_database(
             target_dir=settings.backup_dir,
-            source_db_path=settings.db_path,
+            source_db_path=active_sqlite_file(),
             retain_days=settings.backup_retain_days,
             keep_minimum=settings.backup_keep_minimum,
             snapshot_anchor=_snapshot_anchor,

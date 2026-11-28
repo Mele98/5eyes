@@ -17,7 +17,9 @@ from config import DEFAULT_SECRET_KEY, settings
 from core.logging_setup import resolve_log_file
 from database import (
     SQLCIPHER_AVAILABLE,
+    ActiveDatabaseNotFileBacked,
     TenantDeploymentError,
+    active_sqlite_file,
     assert_single_company_database,
     create_app_engine,
     resolve_db_file,
@@ -165,10 +167,17 @@ def _sha256(path: Path) -> str:
 
 
 def database_paths() -> dict[str, str]:
-    db_file = resolve_db_file(settings.db_path)
+    # C-T1-02: nur die AKTIVE Datenbank ausweisen (DATABASE_URL vor DB_PATH);
+    # bei PostgreSQL gibt es keine Datei -- nie DB_PATH als aktive DB zeigen.
+    try:
+        db_file = active_sqlite_file()
+        backend, file_text, dir_text = 'sqlite', str(db_file), str(db_file.parent)
+    except ActiveDatabaseNotFileBacked as exc:
+        backend, file_text, dir_text = exc.backend, '', ''
     return {
-        'db_file': str(db_file),
-        'db_dir': str(db_file.parent),
+        'db_backend': backend,
+        'db_file': file_text,
+        'db_dir': dir_text,
         'backup_dir': str(ensure_backup_dir()),
         'support_bundle_dir': str(ensure_support_bundle_dir()),
         'log_file': str(resolve_log_file()),
@@ -177,8 +186,11 @@ def database_paths() -> dict[str, str]:
 
 def create_backup(snapshot_anchor=None) -> dict[str, Any]:
     """Manuelles Backup. ``snapshot_anchor`` (F4): Anker-Funktion fuer das
-    Manifest (services.audit.backup_snapshot_anchor, vom Endpoint uebergeben)."""
-    db_file = resolve_db_file(settings.db_path)
+    Manifest (services.audit.backup_snapshot_anchor, vom Endpoint uebergeben).
+
+    C-T1-02: Quelle ist die aktive Datenbank; PostgreSQL sperrt typisiert
+    (``ActiveDatabaseNotFileBacked``), bevor irgendeine Datei gelesen wird."""
+    db_file = active_sqlite_file()
     if not db_file.exists():
         raise FileNotFoundError(f'Datenbankdatei nicht gefunden: {db_file}')
 
@@ -241,7 +253,9 @@ def restore_backup(
     existiert nicht bzw. ist leer -> ``erasure_reapply`` ist ein reines
     No-Op, das Restore-Verhalten ist 1:1 wie vorher.
     """
-    target = resolve_db_file(target_db_path) if target_db_path else resolve_db_file(settings.db_path)
+    # C-T1-02: ohne ausdruecklich uebergebenes Ziel die AKTIVE Datenbank;
+    # PostgreSQL sperrt typisiert, bevor das Backup ueberhaupt geoeffnet wird.
+    target = resolve_db_file(target_db_path) if target_db_path else active_sqlite_file()
     # Tier-1-Einzelfirmen-Gate: die Sicherung wird VOR dem Ueberschreiben an
     # einer Arbeitskopie geprueft (single_company -> genau eine Firma), damit
     # eine fremde Mehrfirmen-Sicherung die laufende Datenbank nie ersetzt.
@@ -449,7 +463,7 @@ def _backups_colocated_with_db() -> bool:
     Docstring-Warnung). Best-effort-Vergleich, defensiv gegen jeden Pfad-
     Fehler (Compliance-Status darf dadurch nie crashen)."""
     try:
-        db_dir = resolve_db_file(settings.db_path).parent.resolve()
+        db_dir = active_sqlite_file().parent.resolve()
         backup_dir = Path(settings.backup_dir).expanduser().resolve()
         return db_dir == backup_dir
     except Exception:

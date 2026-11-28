@@ -9,7 +9,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from config import settings
-from database import get_db
+from database import ActiveDatabaseNotFileBacked, get_db
 from models.review import AuditLog
 from models.snapshots import AssetClassAnnualReturn, AssetClassPriceHistory
 from models.users import User
@@ -377,7 +377,11 @@ def backup_database(
     current_user: User = Depends(require_admin),
 ):
     # F4: Manifest mit Kettenkopf + Bestandssiegel des Snapshots.
-    result = create_backup(snapshot_anchor=backup_snapshot_anchor)
+    try:
+        result = create_backup(snapshot_anchor=backup_snapshot_anchor)
+    except ActiveDatabaseNotFileBacked as exc:
+        # C-T1-02: PostgreSQL nie still ueber eine lokale SQLite-Datei sichern.
+        raise HTTPException(status_code=409, detail=str(exc)) from None
     # N-880-05: im Audit nur der Dateiname, kein absoluter Pfad/Benutzerprofil.
     backup_ref = result.get("backup_file") or result.get("backup_path") or result.get("filename")
     audit_log(

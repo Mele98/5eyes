@@ -195,6 +195,62 @@ def sqlite_file_database_url(db_file: str | Path) -> str:
     return f'sqlite:///{resolve_db_file(db_file)}'
 
 
+class ActiveDatabaseNotFileBacked(RuntimeError):
+    """C-T1-02: die aktive Datenbank ist keine lokale SQLite-Datei.
+
+    Typisierte Sperre fuer Dateipfade (Backup, Restore, Quarantaene, Rohschema):
+    PostgreSQL wird ueber das freigegebene PostgreSQL-Backupverfahren gesichert,
+    nie still ueber eine lokale SQLite-Datei (``DB_PATH``).
+    """
+
+    def __init__(self, backend: str):
+        self.backend = backend
+        super().__init__(
+            f'Aktive Datenbank ({backend}) ist keine lokale SQLite-Datei; '
+            'Datei-Backup/-Restore ist gesperrt. Fuer PostgreSQL das freigegebene '
+            'PostgreSQL-Backupverfahren verwenden.'
+        )
+
+
+def active_database_url() -> str:
+    """C-T1-02/03: die EINE Aufloesung der aktiven Datenbank.
+
+    Gleiche Regel wie beim Bau der App-Engine (``create_app_engine``):
+    ``settings.database_url`` vor ``settings.db_path``, zur Aufrufzeit.
+    """
+    return build_database_url(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
+
+
+def sqlite_file_from_url(database_url: str) -> Path | None:
+    """SQLite-Datei einer URL; ``None`` fuer In-Memory. Andere Backends und
+    nicht eindeutig aufloesbare SQLite-URI-Formen sperren typisiert."""
+    from sqlalchemy.engine import make_url
+
+    url = make_url(database_url)
+    if not url.drivername.startswith('sqlite'):
+        raise ActiveDatabaseNotFileBacked(url.get_backend_name())
+    database = url.database or ''
+    if database in ('', ':memory:'):
+        return None
+    if database.startswith('file:') or url.query.get('uri'):
+        # SQLite-URI-Formen (mode=memory, vfs ...) nicht raten: fail-closed.
+        raise ActiveDatabaseNotFileBacked('sqlite-uri')
+    return resolve_db_file(database)
+
+
+def active_sqlite_file() -> Path:
+    """Kanonischer Dateipfad der aktiven SQLite-Datenbank.
+
+    Sperrt typisiert (``ActiveDatabaseNotFileBacked``) bei PostgreSQL oder
+    In-Memory: dort gibt es keine Datei, die gesichert oder ueberschrieben
+    werden duerfte -- und ``DB_PATH`` ist dann gerade NICHT die aktive DB.
+    """
+    db_file = sqlite_file_from_url(active_database_url())
+    if db_file is None:
+        raise ActiveDatabaseNotFileBacked('sqlite-memory')
+    return db_file
+
+
 def create_app_engine(
     db_path: str | Path | None = None,
     db_key: str | None = None,
@@ -4245,16 +4301,18 @@ def init_db(target_engine: Engine | None = None) -> None:
     """Schema anlegen/migrieren und Stammdaten sicherstellen.
 
     DB-ENGINE-DEFAULT-BINDING-001: ``target_engine`` (Default: Modul-Engine zur
-    Aufrufzeit) wird an JEDEN Schritt durchgereicht. Ohne Argument bleibt das
-    Verhalten unveraendert (``settings.db_path``/Modul-Engine). Mit expliziter
+    Aufrufzeit) wird an JEDEN Schritt durchgereicht. Ohne Argument gelten
+    Quarantaene und Rohschema der aktiven URL (``active_database_url``, C-T1-03). Mit expliziter
     SQLite-Engine gelten Quarantaene-Pruefung und Rohschema-Bootstrap deren
     Datei; eine SQLite-Engine ohne Datei (In-Memory) faellt dafuer NIE auf
     ``settings.db_path`` zurueck, sondern ueberspringt beide Schritte.
     """
     eng = _resolve_engine(target_engine)
     if target_engine is None:
-        active_url = build_database_url(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
-        db_file = settings.db_path
+        # C-T1-03: Quarantaene und Rohschema folgen derselben aktiven URL wie
+        # das Schema (nie ``DB_PATH``, wenn ``DATABASE_URL`` gesetzt ist).
+        active_url = active_database_url()
+        db_file = sqlite_file_from_url(active_url) if is_sqlite_database_url(active_url) else None
     else:
         active_url = target_engine.url.render_as_string(hide_password=False)
         db_file = target_engine.url.database if target_engine.dialect.name == "sqlite" else None
