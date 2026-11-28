@@ -25,7 +25,9 @@ Fail-closed wie der Smoke: jede Abweichung -> ``SmokeError``.
 from __future__ import annotations
 
 import json
+import marshal
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -48,6 +50,22 @@ SELF_TEST_MARKER = 'ARES_SELF_TEST_IMPORTS '
 DEGRADED_LOG_MARKERS = ('not importable', 'Stochastic optimizer crashed', 'House-Matrix-Default bleibt aktiv')
 MIN_OWN_MODULES = 300
 TEXT_ARCHIVE_SUFFIXES = ('.json', '.yaml', '.yml', '.sql', '.html', '.txt', '.md', '.css', '.js')
+# C-EXEPYZ-01: CArchive-Typcodes (PyInstaller). Ausfuehrbarer Python-Code
+# ausserhalb des PYZ (Bootstrap, Runtime-Hooks, Entry-Script) liegt als
+# marshal-Code-Objekt vor; jeder andere oder unbekannte Typ sperrt.
+CARCHIVE_CODE_TYPES = frozenset('mMs')   # PYMODULE, PYPACKAGE, PYSOURCE
+CARCHIVE_PYZ_TYPES = frozenset('z')      # eingebettetes PYZ (eigener Scan)
+CARCHIVE_DATA_TYPES = frozenset('bxdln')  # BINARY, DATA, DEPENDENCY, SPLASH, SYMLINK
+CARCHIVE_OPTION_TYPES = frozenset('o')   # Laufzeitoption ohne Inhalt (nur Name)
+# C-EXEPYZ-02: Textabschnitte in Binaerdaten (wie ``strings``): ASCII-Wortzeichen,
+# Leerraum, ``_``, ``.``, ``-`` (alles, was die Markennormalisierung behaelt oder
+# entfernt), gueltige UTF-8-Mehrbytezeichen sowie UTF-16LE. Ein Marken-Fenster
+# liegt deshalb vollstaendig in einem Abschnitt. Einzelne Hochbytes ohne
+# UTF-8-Form gelten als Binaerrauschen (sonst waere fast jede Datei "Text").
+_TEXT_RUN_8 = re.compile(
+    rb'(?:[0-9A-Za-z\s_.\-]|[\xc2-\xdf][\x80-\xbf]|[\xe0-\xef][\x80-\xbf]{2}|[\xf0-\xf4][\x80-\xbf]{3}){5,}'
+)
+_TEXT_RUN_16 = re.compile(rb'(?:[0-9A-Za-z\s_.\-\x80-\xff]\x00){5,}')
 
 
 def desktop_package() -> dict:
@@ -237,11 +255,25 @@ def check_product_hygiene(exe: Path, unpacked_dir: Path, fail, log) -> None:
         log(f'OK EXE-02 Dateieigenschaften {label}-EXE: ProductName={info.get("ProductName")}, '
             f'FileVersion={info.get("FileVersion")}, FileDescription={info.get("FileDescription")!r}')
 
-    # Dateinamen unter resources und im Shell-Verzeichnis.
+    # C-EXEPYZ-02: jede Datei des finalen Electron-Pakets mit Name UND Inhalt
+    # (Zusatzressourcen, Shell, Framework); Binaerdaten ueber ihre Textabschnitte.
+    files = 0
+    seen_runs: set[bytes] = set()
     for path in unpacked_dir.rglob('*'):
         rel = str(path.relative_to(unpacked_dir))
         if brand_ids(rel):
             fail(f'Altname gefunden im Dateinamen <win-unpacked>/{"/".join(path.relative_to(unpacked_dir).parts[:-1])}/…')
+        if path.is_symlink():
+            fail(f'Symlink im Electron-Paket nicht pruefbar: <win-unpacked>/{rel} (fail-closed).')
+        if not path.is_file():
+            continue
+        files += 1
+        hits = brand_ids(_binary_text(path.read_bytes(), seen_runs))
+        if hits:
+            fail(f'Altname gefunden im Inhalt von <win-unpacked>/{rel} (Marken-ID {sorted(hits)}).')
+    if not files:
+        fail('Electron-Paket ohne Dateien (Zero-Trace-Pruefung nicht moeglich).')
+    log(f'OK EXE-02 Electron-Paket: {files} Dateien (Name und Inhalt) ohne Altnamen')
 
     # app.asar: jede Datei (Inhalt und Pfad).
     asar = unpacked_dir / 'resources' / 'app.asar'
@@ -270,21 +302,54 @@ def check_product_hygiene(exe: Path, unpacked_dir: Path, fail, log) -> None:
     joined = '\n'.join(names)
     if brand_ids(joined):
         fail(f'Altname gefunden in Eintragsnamen der Backend-EXE (Marken-ID {sorted(brand_ids(joined))}).')
-    text_entries = 0
-    for name in names:
-        if name.replace('\\', '/').lower().endswith(TEXT_ARCHIVE_SUFFIXES):
-            data = archive.extract(name)
-            if data is None:
+    # C-EXEPYZ-01: jeder Eintrag nach Typcode. Code ausserhalb des PYZ wird
+    # entpackt und rekursiv geprueft; Daten ueber Inhalt; Unbekanntes sperrt.
+    text_entries = code_entries = data_entries = 0
+    pyz_names: list[str] = []
+    for name, entry in archive.toc.items():
+        typecode = entry[-1]
+        if typecode in CARCHIVE_CODE_TYPES:
+            try:
+                code = marshal.loads(archive.extract(name))
+            except Exception as exc:  # noqa: BLE001 -- unlesbarer Code ist ein Befund
+                fail(f'Ausfuehrbarer CArchive-Eintrag nicht lesbar: {name} (Typ {typecode!r}, {type(exc).__name__}).')
                 continue
-            text_entries += 1
-            hits = brand_ids(data.decode('utf-8', errors='replace'))
+            if not hasattr(code, 'co_consts'):
+                fail(f'Ausfuehrbarer CArchive-Eintrag ist kein Code-Objekt: {name} (Typ {typecode!r}).')
+                continue
+            code_entries += 1
+            hits = brand_ids(_valid_text('\n'.join([name, *_code_strings(code)])))
+            if hits:
+                fail(f'Altname gefunden im Code-Eintrag der Backend-EXE: {name} (Marken-ID {sorted(hits)}).')
+        elif typecode in CARCHIVE_PYZ_TYPES:
+            pyz_names.append(name)
+        elif typecode in CARCHIVE_DATA_TYPES:
+            try:
+                data = archive.extract(name) or b''
+            except Exception as exc:  # noqa: BLE001 -- unlesbare Daten sind ein Befund
+                fail(f'CArchive-Dateneintrag nicht lesbar: {name} (Typ {typecode!r}, {type(exc).__name__}).')
+                continue
+            data_entries += 1
+            if name.replace('\\', '/').lower().endswith(TEXT_ARCHIVE_SUFFIXES):
+                text_entries += 1
+                text = data.decode('utf-8', errors='replace')
+            else:
+                text = _binary_text(data, seen_runs)
+            hits = brand_ids(text)
             if hits:
                 fail(f'Altname gefunden in Backend-EXE:{name} (Marken-ID {sorted(hits)}).')
-    log(f'OK EXE-02 Backend-EXE: {len(names)} Eintragsnamen und {text_entries} Text-Dateneintraege ohne Altnamen')
+        elif typecode in CARCHIVE_OPTION_TYPES:
+            continue
+        else:
+            fail(f'Unbekannter CArchive-Eintragstyp {typecode!r} in der Backend-EXE: {name} (fail-closed).')
+    if not code_entries:
+        fail('Backend-EXE: kein ausfuehrbarer Start-Eintrag ausserhalb des PYZ gefunden (Pruefung nicht moeglich).')
+    log(f'OK EXE-02 Backend-EXE: {len(names)} Eintragsnamen, {code_entries} Code-Eintraege ausserhalb PYZ, '
+        f'{data_entries} Dateneintraege ({text_entries} Text) ohne Altnamen')
 
     # Zero-Trace: Python-Bytecode im PYZ (String-Konstanten, Namen, Quellpfade).
     modules = 0
-    for pyz_name in (n for n in names if n.lower().endswith('.pyz')):
+    for pyz_name in pyz_names:
         pyz = archive.open_embedded_archive(pyz_name)
         for module in pyz.toc:
             try:
@@ -295,15 +360,37 @@ def check_product_hygiene(exe: Path, unpacked_dir: Path, fail, log) -> None:
             if code is None:
                 continue
             modules += 1
-            # Konstanten koennen einzelne Surrogate enthalten (z. B. Emoji-Haelften
-            # in Bibliotheken): vor dem Hashen in gueltiges UTF-8 bringen.
-            joined_text = '\n'.join([module, *_code_strings(code)])
-            hits = brand_ids(joined_text.encode('utf-8', errors='replace').decode('utf-8'))
+            hits = brand_ids(_valid_text('\n'.join([module, *_code_strings(code)])))
             if hits:
                 fail(f'Altname gefunden im Bytecode der Backend-EXE: {module} (Marken-ID {sorted(hits)}).')
     if not modules:
         fail('Backend-EXE: kein Python-Modul im PYZ gefunden (Zero-Trace-Pruefung nicht moeglich).')
     log(f'OK EXE-02 Backend-EXE: {modules} Python-Module (Bytecode-Konstanten, Namen, Quellpfade) ohne Altnamen')
+
+
+def _valid_text(text: str) -> str:
+    """Konstanten koennen einzelne Surrogate enthalten (z. B. Emoji-Haelften in
+    Bibliotheken): vor dem Hashen in gueltiges UTF-8 bringen."""
+    return text.encode('utf-8', errors='replace').decode('utf-8')
+
+
+def _binary_text(data: bytes, seen: set[bytes] | None = None) -> str:
+    """Alle Textabschnitte einer Binaerdatei (UTF-8 und UTF-16LE), dedupliziert.
+
+    ``seen`` (optional, ueber mehrere Dateien geteilt) ueberspringt Abschnitte,
+    die bereits geprueft wurden: gleicher Text, gleiches Ergebnis.
+    """
+    runs8 = set(_TEXT_RUN_8.findall(data))
+    runs16 = set(_TEXT_RUN_16.findall(data))
+    if seen is not None:
+        runs8 -= seen
+        runs16 -= seen
+        seen |= runs8
+        seen |= runs16
+    parts = [run.decode('utf-8', errors='replace') for run in runs8]
+    parts += [run.decode('utf-16-le', errors='replace') for run in runs16]
+    # ``/`` wird nicht normalisiert: kein Fenster ueberspannt zwei Abschnitte.
+    return '/'.join(parts)
 
 
 def _code_strings(code) -> list[str]:
