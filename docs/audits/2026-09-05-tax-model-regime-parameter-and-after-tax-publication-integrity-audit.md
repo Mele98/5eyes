@@ -48,7 +48,7 @@ Kontrollrunde. Die Prüfung begann am 4. September 2026, wurde am 5. September
 
 Geprüft wurde nicht, ob ein konkreter Schweizer, deutscher oder anderer
 Steuertarif rechtlich oder wirtschaftlich vollständig ist. Geprüft wurde der
-technische Vertrag, den 5eyes selbst behauptet:
+technische Vertrag, den LB-B selbst behauptet:
 
 1. welches Steuerregime ein Mandat auswählt,
 2. welche Steuerkomponenten im produktiven Optimizer tatsächlich wirken,
@@ -139,7 +139,7 @@ Bestätigt sind insbesondere:
    beliebiger nichtleerer Partialbestand verhindert den vollständigen
    Fallback. DB-Version und Quelle werden nicht an den Pluginoutput gebunden.
 8. Beim Boot wird jedes installierte Entry-Point-Paket der Gruppe
-   `5eyes.tax_regime` geladen. Registry-Doppelbelegung ist ausdrücklich
+   `LB-B.tax_regime` geladen. Registry-Doppelbelegung ist ausdrücklich
    last-wins; es gibt im produktiven Startpfad weder Allowlist noch
    Signatur-/Paketpinning noch ausgeführten `ConformanceContract`.
 9. Mandatsschemas akzeptieren freie Steuerjurisdiktionsstrings. Persistenz
@@ -607,7 +607,7 @@ wirtschaftlich unplausibler Wert sichtbar werden.
 
 Beim Application-Start ruft `main.py` `discover_external_regimes()` ohne
 Allowlist oder Skip-Konfiguration auf. Die Discovery lädt jedes installierte
-Entry Point der Gruppe `5eyes.tax_regime` und führt damit Paketcode aus.
+Entry Point der Gruppe `LB-B.tax_regime` und führt damit Paketcode aus.
 
 Die Registry dokumentiert doppelte Patterns als last-wins und überschreibt
 `REGIME_REGISTRY[id_pattern]` direkt. Ein externes Paket kann damit nicht nur
@@ -746,7 +746,7 @@ Immutable TaxModelSnapshot
   },
   "provider": {
     "regime_id": "CH-ZH",
-    "package": "5eyes-core",
+    "package": "LB-B-core",
     "version": "...",
     "package_hash": "...",
     "conformance_version": "1.0.0"

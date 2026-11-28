@@ -80,7 +80,7 @@ keine Reste mehr gebraucht sind.
 Squash-Merge ggf.). Löschen verliert nichts.
 
 Die 3 `ahead>0` Branches haben unique Codex-Code der ggf. noch
-gebraucht wird. Memory `project_5eyes.md` markiert sie als "parked".
+gebraucht wird. Memory `project_LB-B.md` markiert sie als "parked".
 
 ---
 

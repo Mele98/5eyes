@@ -77,23 +77,23 @@ function eligOverrideItemHtml(item,i,data){
   var pendingIndex=-1;
   rows.forEach(function(r,j){if(pendingIndex<0&&r.state==='pending')pendingIndex=j;});
   var html='<div style="border-top:1px solid var(--b1);padding:6px 0">'
-    +'<div style="font-size:11px;font-weight:600;color:var(--n8)">'+escapeHtml(item.product_name||item.product_id||'')+'</div>';
+    +'<div style="font-size:12px;font-weight:600;color:var(--n8)">'+escapeHtml(item.product_name||item.product_id||'')+'</div>';
   if(valid){
-    return html+'<div style="font-size:10px;color:var(--pos)">'+escapeHtml(eligOverrideRowLabel(valid))+'</div></div>';
+    return html+'<div style="font-size:12px;color:var(--pos)">'+escapeHtml(eligOverrideRowLabel(valid))+'</div></div>';
   }
   if(pendingIndex>=0){
     var pending=rows[pendingIndex];
-    html+='<div style="font-size:10px;color:var(--n6)">'+escapeHtml(eligOverrideRowLabel(pending))+'</div>';
+    html+='<div style="font-size:12px;color:var(--n6)">'+escapeHtml(eligOverrideRowLabel(pending))+'</div>';
     if(String(pending.requested_by)!==String(data.current_user_id)){
       html+='<button class="btn" style="margin-top:4px" onclick="eligOverrideApprove('+i+','+pendingIndex+')">Override freigeben</button>';
     }else if(data.current_user_is_sole_approver===true){
       html+='<button class="btn" style="margin-top:4px" onclick="eligOverrideAttest('+i+','+pendingIndex+')">Allein attestieren</button>';
     }else{
-      html+='<div style="font-size:10px;color:var(--n5)">Die Freigabe muss eine andere freigabeberechtigte Person erteilen (Vier-Augen-Prinzip).</div>';
+      html+='<div style="font-size:12px;color:var(--n5)">Die Freigabe muss eine andere freigabeberechtigte Person erteilen (Vier-Augen-Prinzip).</div>';
     }
     return html+'</div>';
   }
-  return html+'<div style="font-size:10px;color:var(--n6)">Die Eignungsregel verlangt einen dokumentierten Override.</div>'
+  return html+'<div style="font-size:12px;color:var(--n6)">Die Eignungsregel verlangt einen dokumentierten Override.</div>'
     +'<button class="btn" style="margin-top:4px" onclick="eligOverrideRequest('+i+')">Override beantragen</button></div>';
 }
 
@@ -104,17 +104,17 @@ async function eligOverrideRender(){
   try{
     data=await API.get(eligOverrideBase());
   }catch(e){
-    panel.innerHTML='<div style="font-size:10px;color:var(--neg)">'+escapeHtml(eligOverrideErrorText(e,'Override-Status konnte nicht geladen werden.'))+'</div>';
+    panel.innerHTML='<div style="font-size:12px;color:var(--neg)">'+escapeHtml(eligOverrideErrorText(e,'Override-Status konnte nicht geladen werden.'))+'</div>';
     return;
   }
   eligOverrideState.data=data;
   var items=Array.isArray(data&&data.items)?data.items:[];
   if(!items.length){panel.innerHTML='';return;}
   panel.innerHTML='<div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px">'
-    +'<div style="font-size:11px;font-weight:600;color:var(--n8);margin-bottom:2px">Produkt-Override erforderlich</div>'
-    +'<div style="font-size:10px;color:var(--n5);margin-bottom:4px">Danach das Rezept erneut finalisieren.</div>'
+    +'<div style="font-size:12px;font-weight:600;color:var(--n8);margin-bottom:2px">Produkt-Override erforderlich</div>'
+    +'<div style="font-size:12px;color:var(--n5);margin-bottom:4px">Danach das Rezept erneut finalisieren.</div>'
     +items.map(function(item,i){return eligOverrideItemHtml(item,i,data);}).join('')
-    +'<div id="elig-override-error" role="alert" style="display:none;font-size:10px;color:var(--neg);margin-top:6px"></div>'
+    +'<div id="elig-override-error" role="alert" style="display:none;font-size:12px;color:var(--neg);margin-top:6px"></div>'
     +'</div>';
 }
 

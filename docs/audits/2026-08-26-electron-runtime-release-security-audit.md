@@ -70,7 +70,7 @@ nicht ab.
    eines sicheren Secret Stores. Electron kann den schwachen Backendmodus
    `basic_text` wählen; der aktuelle Code erkennt und sperrt ihn nicht.
 4. Die Scripts werben mit macOS- und Linux-Artefakten, bauen und starten aber auf
-   jeder Plattform ausschließlich `5eyes-api.exe`. Die grünen Tests kontrollieren
+   jeder Plattform ausschließlich `LB-B-api.exe`. Die grünen Tests kontrollieren
    nur Konfigurationsstrings, nicht ein natives Paket oder dessen Startfähigkeit.
 
 ## Stabiles Findings-Register
@@ -95,7 +95,7 @@ allein schließt keinen dieser Verträge.
 | Token-Datenfluss | statischer Callgraph vom IPC-Store bis zum ersten Browserrequest | gespeicherter Bearer wird beim Start automatisch an `/auth/me` des übernommenen Dienstes gesendet |
 | Installer-Inhalt | direkte Build-/electron-builder-Datenflussprüfung | vorhandene `ares-backend/.env` wird nach `bundle/backend/.env` kopiert und vollständig als `extraResources` ausgeliefert |
 | Linux Secret Store | Codeaudit plus offizielle Electron-API-Dokumentation | Code prüft nur Verfügbarkeit; `basic_text`/`unknown` werden nicht unterschieden |
-| Native Artefakte | Package-/Build-/Runtime-Callgraph | macOS-/Linux-Scripts erwarten, kopieren und starten denselben Windows-Dateinamen `5eyes-api.exe` |
+| Native Artefakte | Package-/Build-/Runtime-Callgraph | macOS-/Linux-Scripts erwarten, kopieren und starten denselben Windows-Dateinamen `LB-B-api.exe` |
 | Electron-Smoke | `node tests/main.smoke.test.js` | 13 von 13 Checks grün; keine Backend-Identitäts- oder `basic_text`-Abdeckung |
 | Plattform-/Update-/CSP-/Signing-Ring | vier fokussierte Pytest-Dateien | 42 von 42 Tests grün; keine native Build-/Boot-Abnahme |
 
@@ -222,12 +222,12 @@ separat geprüft.
 
 `ares-desktop/package.json:17-18,77-102` bewirbt DMG- und AppImage-Builds.
 `ares-desktop/scripts/build-backend.js:8,191-200` erwartet und kopiert jedoch
-immer `dist/5eyes-api.exe`. `ares-desktop/main.js:269-270,404-416` löst und
+immer `dist/LB-B-api.exe`. `ares-desktop/main.js:269-270,404-416` löst und
 startet im paketierten Betrieb ebenfalls auf jeder Plattform ausschließlich
-`5eyes-api.exe` auf.
+`LB-B-api.exe` auf.
 
 Ein nativer PyInstaller-Onefile-Build heißt unter macOS/Linux normalerweise
-`5eyes-api` ohne `.exe`. Ein sauberer Build scheitert deshalb entweder bereits
+`LB-B-api` ohne `.exe`. Ein sauberer Build scheitert deshalb entweder bereits
 an der Dateiprüfung oder ein erzeugtes Paket erwartet zur Laufzeit ein
 Windows-Binary. `tests/test_multi_platform_build.py` prüft nur, ob Scripts,
 Targets und Dokumentbegriffe vorhanden sind; es baut und startet kein natives

@@ -27,6 +27,32 @@ def _render_text(payload: dict) -> str:
     return _extract_text(render_advisory_report_pdf_from_payload(payload))
 
 
+def _advisor_text(payload: dict) -> str:
+    """KN5 / N-917R4-01: Berater-/Audit-Fassung des Abschnitts (advisor_annex)."""
+    from reportlab.platypus import Paragraph
+
+    from services.pdf.components.advisory_palette import make_advisory_styles
+    from services.pdf.components.compliance_audit import render_compliance_audit_section
+
+    story: list = []
+    render_compliance_audit_section(payload, story, make_advisory_styles(), advisor_annex=True)
+    out: list[str] = []
+
+    def walk(obj):
+        if isinstance(obj, Paragraph):
+            out.append(obj.getPlainText())
+        for attr in ("_cellvalues", "_content"):
+            for item in getattr(obj, attr, None) or []:
+                for sub in (item if isinstance(item, (list, tuple)) else [item]):
+                    walk(sub)
+        if isinstance(obj, (list, tuple)):
+            for item in obj:
+                walk(item)
+
+    walk(story)
+    return "\n".join(out)
+
+
 def test_compliance_audit_minimal_payload_renders_degraded_defaults():
     payload = _make_minimal_payload()
     for key in (
@@ -41,9 +67,12 @@ def test_compliance_audit_minimal_payload_renders_degraded_defaults():
     text = _render_text(payload)
 
     assert "Compliance-Audit" in text
-    assert "Geeignetheitspruefung" in text
-    assert "Methodology-Modelle" in text
+    assert "Geeignetheitsprüfung" in text
+    assert "Methodik der Produktempfehlung" in text
     assert "Daten ausstehend" in text
+    # KN5: Modell-Statuszeilen nur in der Berater-/Audit-Fassung.
+    assert "Methodology-Modelle" not in text
+    assert "Methodology-Modelle" in _advisor_text(payload)
 
 
 def test_compliance_audit_suitability_violation_is_visible():
@@ -65,10 +94,15 @@ def test_compliance_audit_suitability_violation_is_visible():
 
     text = _render_text(payload)
 
-    assert "Geeignetheitspruefung" in text
+    assert "Geeignetheitsprüfung" in text
     assert "rot" in text
-    assert "log-missing-1" in text
-    assert "no_suitability_check_linked" in text
+    assert "fehlt eine gültige Geeignetheitsprüfung" in text
+    # KN5: Log-Referenzen/Reason-Codes und Zaehler nur fuer Berater/Audit.
+    assert "log-missing-1" not in text and "no_suitability_check_linked" not in text
+    assert "TOTAL-LOGS" not in text
+    advisor = _advisor_text(payload)
+    assert "log-missing-1" in advisor
+    assert "no_suitability_check_linked" in advisor
 
 
 def test_compliance_audit_methodology_models_show_model_names():
@@ -95,10 +129,12 @@ def test_compliance_audit_methodology_models_show_model_names():
     }
 
     text = _render_text(payload)
+    assert "Methodology-Modelle" not in text and "Nelson-Siegel" not in text
 
-    assert "Methodology-Modelle" in text
-    assert "Nelson-Siegel" in text
-    assert "KGV-Mean-Reversion" in text
+    advisor = _advisor_text(payload)
+    assert "Methodology-Modelle" in advisor
+    assert "Nelson-Siegel" in advisor
+    assert "KGV-Mean-Reversion" in advisor
 
 
 def test_compliance_audit_mandate_lock_reasons_are_visible():
@@ -116,31 +152,65 @@ def test_compliance_audit_mandate_lock_reasons_are_visible():
 
     text = _render_text(payload)
 
-    assert "Mandate-Lock-Status" in text
-    assert "Read-only" in text
-    assert "Risky-Allokation verletzt" in text
+    assert "Bearbeitungsstand des Mandats" in text
+    assert "für Änderungen gesperrt" in text
+    for raw in ("Mandate-Lock-Status", "Read-only", "Risky-Allokation", "diverged_infeasible"):
+        assert raw not in text, raw
+
+    advisor = _advisor_text(payload)
+    assert "Mandate-Lock-Status" in advisor
+    assert "Read-only" in advisor
+    assert "Risky-Allokation verletzt" in advisor
 
 
 def test_compliance_audit_liquidity_emergency_warning_is_highlighted():
     payload = _make_minimal_payload()
     payload["liquidity_cascade"] = {
         "stage": "emergency",
-        "stage_label": "Liquiditaet ueber dem Soll-Hard-Cap im Emergency-Bereich.",
+        "stage_label": "Liquidität über dem Soll-Hard-Cap im Emergency-Bereich.",
         "liquidity_bps": 900,
         "hard_cap_bps": 300,
         "emergency_cap_bps": 1000,
         "over_hard_cap_by_bps": 600,
         "warning_required": True,
-        "beratungsgespraech_pruefen": True,
+        "beratungsgespraech_prüfen": True,
         "fidleg_basis": "Art. 11 / Art. 13 FIDLEG",
     }
 
-    text = _render_text(payload)
+    text = " ".join(_render_text(payload).split())
 
-    assert "Liquidity-Cascade" in text
-    assert "emergency" in text
-    assert "Liquidity-Cascade-Warnung" in text
-    assert "Emergency-Stage" in text
+    assert "Liquiditätsquote der Strategie: 9.00 % (übliche Obergrenze 3.00 %)" in text
+    assert "über dem üblichen Rahmen" in text
+    for raw in ("Liquidity-Cascade", "emergency", "Hard-Cap", "Emergency-Stage"):
+        assert raw not in text, raw
+
+    advisor = _advisor_text(payload)
+    assert "Liquidity-Cascade" in advisor
+    assert "emergency" in advisor
+    assert "Liquidity-Cascade-Warnung" in advisor
+    assert "Emergency-Stage" in advisor
+
+
+def test_customer_compliance_audit_never_prints_seed_or_optimizer_status():
+    """KN5 / N-917R4-01 (Befund d1dc, A_advisory-report.txt:1017-1024)."""
+    payload = _make_minimal_payload()
+    payload["recommendation_methodology"] = {
+        "is_compliant": True,
+        "latest_run": {"method": "stochastic", "is_acceptable": True,
+                       "seed": 5948716738976139969, "n_paths": 2000},
+    }
+    payload["mandate_lock_status"] = {
+        "is_editable": True, "lock_reasons": [], "lock_reason_labels": {},
+        "mandate_status": "Aktiv", "latest_optimizer_status": "converged",
+    }
+    text = " ".join(_render_text(payload).split())
+    for raw in ("Seed", "5948716738976139969", "2000 Pfade", "converged", "Optimizer", "Payload", "Reasons"):
+        assert raw not in text, raw
+    assert "Berechnungsmethode: stochastische Optimierung (Monte-Carlo)" in text
+    assert "Die Berechnung ist abgeschlossen" in text
+    assert "Das Mandat kann bei Bedarf angepasst werden." in text
+    advisor = _advisor_text(payload)
+    assert "Seed 5948716738976139969" in advisor and "converged" in advisor
 
 
 def test_compliance_audit_changes_pdf_bytes_against_without_section(monkeypatch):
@@ -181,7 +251,7 @@ def test_suitability_builder_fails_closed_on_audit_exception(monkeypatch):
     monkeypatch.setattr(sa, "audit_mandate_suitability", _boom)
     result = _build_suitability_compliance(db=None, mandate=None)
 
-    assert result["is_compliant"] is None, "Fail-open: behauptet faelschlich Konformitaet"
+    assert result["is_compliant"] is None, "Fail-open: behauptet faelschlich Konformität"
     assert result["audit_degraded"] is True
 
 
@@ -215,11 +285,11 @@ def test_degraded_suitability_renders_pruefung_nicht_moeglich():
         "fidleg_basis": "Art. 11/13/16 FIDLEG",
     }
     text = _render_text(payload)
-    assert "Pruefung nicht moeglich" in text
+    assert "Prüfung nicht möglich" in text
 
 
 def test_mandate_lock_builder_fails_closed_on_audit_exception(monkeypatch):
-    """Mega-Audit (2026-08-04): analog Commit 23585cf, jetzt auch fuer
+    """Mega-Audit (2026-08-04): analog Commit 23585cf, jetzt auch für
     Mandate-Lock-Status. Vorher: is_editable=True bei jedem Audit-Fehler."""
     import services.mandate_lock_audit as mla
     from services.advisory_report import _build_mandate_lock_status
@@ -260,7 +330,7 @@ def test_degraded_mandate_lock_renders_pruefung_nicht_moeglich():
         "fidleg_basis": "Art. 16 / Art. 11 FIDLEG",
     }
     text = _render_text(payload)
-    assert "Pruefung nicht moeglich" in text
+    assert "Prüfung nicht möglich" in text
 
 
 def test_editable_mandate_lock_does_not_show_degraded_hint():
@@ -276,7 +346,7 @@ def test_editable_mandate_lock_does_not_show_degraded_hint():
         "fidleg_basis": "Art. 16 / Art. 11 FIDLEG",
     }
     text = _render_text(payload)
-    assert "Pruefung nicht moeglich" not in text
+    assert "Prüfung nicht möglich" not in text
 
 
 def test_degraded_liquidity_cascade_renders_pruefung_nicht_moeglich():
@@ -289,12 +359,12 @@ def test_degraded_liquidity_cascade_renders_pruefung_nicht_moeglich():
         "emergency_cap_bps": 1000,
         "over_hard_cap_by_bps": None,
         "warning_required": False,
-        "beratungsgespraech_pruefen": False,
+        "beratungsgespraech_prüfen": False,
         "audit_degraded": True,
         "fidleg_basis": "Art. 11 / Art. 13 FIDLEG",
     }
     text = _render_text(payload)
-    assert "Pruefung nicht moeglich" in text
+    assert "Prüfung nicht möglich" in text
 
 
 def test_normal_liquidity_cascade_does_not_show_degraded_hint():
@@ -309,16 +379,16 @@ def test_normal_liquidity_cascade_does_not_show_degraded_hint():
         "emergency_cap_bps": 1000,
         "over_hard_cap_by_bps": None,
         "warning_required": False,
-        "beratungsgespraech_pruefen": False,
+        "beratungsgespraech_prüfen": False,
         "fidleg_basis": "Art. 11 / Art. 13 FIDLEG",
     }
     text = _render_text(payload)
-    assert "Pruefung nicht moeglich" not in text
+    assert "Prüfung nicht möglich" not in text
 
 
 def test_compliant_suitability_does_not_show_degraded_hint():
     """Gegenprobe: ein sauberes, konformes Payload zeigt den Fail-closed-
-    Hinweis NICHT (sonst wuerde der Test oben nichts beweisen)."""
+    Hinweis NICHT (sonst würde der Test oben nichts beweisen)."""
     payload = _make_minimal_payload()
     payload["suitability_compliance"] = {
         "total_advisory_logs": 2,
@@ -331,4 +401,4 @@ def test_compliant_suitability_does_not_show_degraded_hint():
         "fidleg_basis": "Art. 11/13/16 FIDLEG",
     }
     text = _render_text(payload)
-    assert "Pruefung nicht moeglich" not in text
+    assert "Prüfung nicht möglich" not in text

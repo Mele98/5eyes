@@ -12,6 +12,7 @@ from urllib.parse import quote
 from urllib.request import urlopen
 
 import csv
+import re
 
 from sqlalchemy.orm import Session
 
@@ -26,7 +27,11 @@ from services.product_market_data import (
     resolve_market_profile,
 )
 from services.twelvedata_client import fetch_twelvedata_latest_prices
-from services.market_data.legacy_compat import fetch_latest_prices_via_aggregator
+from services.market_data.legacy_compat import (
+    AGGREGATOR_CONFIGURATION_INVALID,
+    AUTHORITATIVE_FAILURE_MARKER,
+    fetch_latest_prices_via_aggregator,
+)
 
 try:
     import yfinance as yf
@@ -54,6 +59,42 @@ class PricePoint:
     price_rappen: int
     currency: str
     source: str = PRICE_SOURCE
+    # BBG-1 / Audit P2: gesetzt, wenn der Kurs NICHT vom Primaerprovider kommt,
+    # sondern vom (erlaubten) Fallback. ``source`` nennt dann die tatsaechliche
+    # Quelle, ``fallback_reason`` den Grund. None = Primaerquelle.
+    fallback_reason: str | None = None
+
+
+# BBG-1 / Audit 2026-11/06 P2: Nur diese Primaerprovider sind im Preis-Updater
+# implementiert UND frei austauschbar. Steht der Primaerprovider auf einer
+# lizenzierten bzw. massgeblichen Quelle (Bloomberg) oder auf einem unbekannten
+# Namen, springt der konfigurierte Fallback NICHT ein: die Kurse duerfen nicht
+# still von einer Gratisquelle kommen. Ein Tenant-konfigurierter, markierter
+# Fallback fuer lizenzierte Quellen folgt mit der Tenant-Konfiguration (BBG-2).
+FREE_PRICE_PROVIDERS = frozenset({"yfinance", "twelvedata", "stooq", "aggregator"})
+LICENSED_PRICE_PROVIDERS = frozenset({"bloomberg"})
+PRICE_PROVIDER_NOT_IMPLEMENTED = "PRICE_PROVIDER_NOT_IMPLEMENTED"
+_ERROR_CODE_PATTERN = re.compile(r"\[([A-Z][A-Z0-9_]+)\]")
+
+
+def _normalized_provider(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def primary_allows_fallback(provider: Any = None) -> bool:
+    """True nur fuer freie, implementierte Primaerprovider."""
+    name = _normalized_provider(PRICE_SOURCE if provider is None else provider)
+    return name in FREE_PRICE_PROVIDERS and name not in LICENSED_PRICE_PROVIDERS
+
+
+def _fallback_configured() -> bool:
+    fallback = _normalized_provider(FALLBACK_PRICE_SOURCE)
+    return bool(fallback) and fallback != _normalized_provider(PRICE_SOURCE)
+
+
+def _error_code(message: Any) -> str | None:
+    match = _ERROR_CODE_PATTERN.search(str(message or ""))
+    return match.group(1) if match else None
 
 
 def utc_now_iso() -> str:
@@ -338,6 +379,20 @@ def _fetch_aggregator_symbol_points(symbols: list[str]) -> tuple[dict[str, tuple
     return symbol_points, symbol_errors
 
 
+def _fetch_bloomberg_symbol_points(symbols: list[str]) -> tuple[dict[str, tuple[str, int, str]], dict[str, str]]:
+    """BBG-1 / Audit P2: Der Preis-Updater hat (noch) keinen Bloomberg-Abruf.
+
+    Der Request-Aufbau folgt in BBG-3; bis dahin meldet jeder Kurs
+    eindeutig "nicht verfuegbar" mit Code. Ohne Kurs springt wegen
+    LICENSED_PRICE_PROVIDERS auch kein Gratis-Fallback ein.
+    """
+    message = (
+        "Preisprovider bloomberg nicht verfügbar [BLOOMBERG_REQUEST_NOT_IMPLEMENTED]: "
+        "Kursabruf ueber Bloomberg ist noch nicht implementiert (BBG-3)."
+    )
+    return {}, {symbol: message for symbol in symbols}
+
+
 def _append_market_warning(message: str | None, *warnings: str | None) -> str:
     base = str(message or "").strip() or "Unbekannter Preisfehler"
     seen = {base}
@@ -365,7 +420,12 @@ def _fetch_primary_symbol_points(
         return _fetch_stooq_symbol_points(symbols, product_by_symbol=product_by_symbol)
     if provider == "aggregator":
         return _fetch_aggregator_symbol_points(symbols)
-    return {}, {symbol: f"Preisprovider {provider or 'unbekannt'} ist nicht implementiert." for symbol in symbols}
+    if provider == "bloomberg":
+        return _fetch_bloomberg_symbol_points(symbols)
+    return {}, {
+        symbol: f"Preisprovider {provider or 'unbekannt'} ist nicht implementiert [{PRICE_PROVIDER_NOT_IMPLEMENTED}]."
+        for symbol in symbols
+    }
 
 
 def _fetch_fallback_symbol_points(
@@ -432,10 +492,22 @@ def fetch_latest_prices_batch(products: list[Product]) -> tuple[dict[str, PriceP
 
     symbols = sorted(primary_symbols.keys())
     symbol_points, symbol_errors = _fetch_primary_symbol_points(symbols, product_by_symbol=primary_symbols)
+    primary_errors = dict(symbol_errors)
+    fallback_allowed = primary_allows_fallback()
+
+    # N-862-4: Auch wenn der Primaerpfad frei ist ("aggregator"), darf fuer ein
+    # Symbol kein Fallback greifen, wenn der Aggregator wegen seiner
+    # massgeblichen Quelle abgebrochen hat.
+    blocked_symbols = {
+        symbol for symbol, message in primary_errors.items() if AUTHORITATIVE_FAILURE_MARKER in str(message)
+    }
+
+    def _fallback_allowed_for(symbol: str) -> bool:
+        return fallback_allowed and symbol not in blocked_symbols
 
     unresolved_products: list[tuple[Product, str]] = []
     for primary_symbol, mapped_products in primary_symbols.items():
-        if primary_symbol in symbol_points:
+        if primary_symbol in symbol_points or not _fallback_allowed_for(primary_symbol):
             continue
         for product in mapped_products:
             unresolved_products.append((product, primary_symbol))
@@ -484,32 +556,107 @@ def fetch_latest_prices_batch(products: list[Product]) -> tuple[dict[str, PriceP
 
         for product in mapped_products:
             fallback_lookup_symbol = str(fallback_symbol_by_product_id.get(product.id) or "").strip() or None
-            if fallback_lookup_symbol and fallback_lookup_symbol in fallback_points:
+            symbol_fallback_allowed = _fallback_allowed_for(primary_symbol)
+            if symbol_fallback_allowed and fallback_lookup_symbol and fallback_lookup_symbol in fallback_points:
                 price_date, price_rappen, price_source = fallback_points[fallback_lookup_symbol]
+                primary_reason = primary_errors.get(primary_symbol) or f"kein Kurs fuer {primary_symbol}"
                 resolved_points[product.id] = PricePoint(
                     price_date=price_date,
                     price_rappen=price_rappen,
                     currency=(product.currency or "CHF"),
                     source=price_source,
+                    fallback_reason=f"Primaerquelle {_normalized_provider(PRICE_SOURCE)}: {primary_reason}",
                 )
                 continue
 
+            primary_error = primary_errors.get(primary_symbol)
             error = symbol_errors.get(primary_symbol)
-            if fallback_lookup_symbol:
+            if symbol_fallback_allowed and fallback_lookup_symbol:
                 error = error or fallback_errors.get(fallback_lookup_symbol)
+            # N-862-7: Der interne Steuermarker gehoert nicht in die
+            # Betreibermeldung (er steuert nur den Fallback-Entscheid).
+            if error:
+                error = str(error).replace(f"{AUTHORITATIVE_FAILURE_MARKER} ", "").replace(
+                    AUTHORITATIVE_FAILURE_MARKER, ""
+                )
+            if not symbol_fallback_allowed and _fallback_configured():
+                if _error_code(str(primary_error or "").replace(AUTHORITATIVE_FAILURE_MARKER, "")) == (
+                    AGGREGATOR_CONFIGURATION_INVALID
+                ):
+                    # Bei ungueltiger Konfiguration ist gar keine massgebliche
+                    # Quelle wirksam; der Grund ist die Konfiguration selbst.
+                    fallback_reason = "Marktdaten-Konfiguration ungueltig, bitte MARKET_DATA_PROVIDERS korrigieren"
+                else:
+                    fallback_reason = (
+                        f"massgebliche bzw. nicht freigegebene Primaerquelle {_normalized_provider(PRICE_SOURCE)}"
+                    )
+                error = (
+                    f"{error or f'Kein Batch-Ergebnis fuer {primary_symbol}'} "
+                    f"(kein Fallback auf {_normalized_provider(FALLBACK_PRICE_SOURCE)}: {fallback_reason})"
+                )
             error = _append_market_warning(
                 error or f"Kein Batch-Ergebnis fuer {primary_symbol}",
                 provider_market_warning(PRICE_SOURCE, getattr(product, "exchange_code", None)),
-                provider_market_warning(FALLBACK_PRICE_SOURCE, getattr(product, "exchange_code", None)),
+                provider_market_warning(FALLBACK_PRICE_SOURCE, getattr(product, "exchange_code", None)) if symbol_fallback_allowed else None,
             )
             failures[product.id] = {
                 "product": product,
                 "lookup_mode": resolve_market_profile(product).get("lookup_mode"),
-                "lookup_symbol": fallback_lookup_symbol or primary_symbol,
+                "lookup_symbol": (fallback_lookup_symbol if symbol_fallback_allowed else None) or primary_symbol,
                 "error": error,
             }
+            provider_code = _error_code(str(primary_error or "").replace(AUTHORITATIVE_FAILURE_MARKER, ""))
+            if provider_code:
+                failures[product.id]["provider_code"] = provider_code
 
     return resolved_points, failures
+
+
+def primary_provider_status(
+    points: dict[str, PricePoint],
+    failures: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """BBG-1 / Audit P2: tatsaechlicher Zustand des Primaerproviders im Lauf.
+
+    ``status``: ``verfuegbar`` (alle Marktkurse von der Primaerquelle),
+    ``teilweise`` (Fallback-Kurse oder Providerfehler neben Primaerkursen),
+    ``nicht_verfuegbar`` (kein einziger Primaerkurs, Fehler vorhanden),
+    ``keine_abfrage`` (nichts abzufragen).
+    """
+    market_points = [p for p in points.values() if p.source != "synthetic_par"]
+    primary_hits = sum(1 for p in market_points if not p.fallback_reason)
+    fallback_hits = sum(1 for p in market_points if p.fallback_reason)
+    codes = sorted({str(f["provider_code"]) for f in failures.values() if f.get("provider_code")})
+    if codes and not primary_hits:
+        status = "nicht_verfuegbar"
+    elif fallback_hits or codes:
+        status = "teilweise"
+    elif primary_hits:
+        status = "verfuegbar"
+    elif failures:
+        status = "nicht_verfuegbar"
+    else:
+        status = "keine_abfrage"
+    return {
+        "provider": _normalized_provider(PRICE_SOURCE),
+        "status": status,
+        "code": codes[0] if len(codes) == 1 else (",".join(codes) if codes else None),
+        "fallback_provider": _normalized_provider(FALLBACK_PRICE_SOURCE) or None,
+        "fallback_allowed": bool(primary_allows_fallback() and _fallback_configured()),
+        "primary_prices": primary_hits,
+        "fallback_prices": fallback_hits,
+    }
+
+
+def _record_price_source(summary: dict[str, Any], product: Product, price_point: PricePoint) -> None:
+    """Tatsaechliche Quelle je gespeichertem Kurs im Laufstatus festhalten."""
+    summary["prices"].append({
+        "product_id": product.id,
+        "source": price_point.source,
+        "fallback_reason": price_point.fallback_reason,
+    })
+    sources = summary["price_sources"]
+    sources[price_point.source] = int(sources.get(price_point.source, 0)) + 1
 
 
 def upsert_price_history(db: Session, product: Product, price_point: PricePoint) -> tuple[PriceHistory, str]:
@@ -776,6 +923,9 @@ def refresh_prices_for_mandate(db: Session, mandate_id: str) -> dict[str, Any]:
         "provider": PRICE_SOURCE,
         "fallback_provider": FALLBACK_PRICE_SOURCE,
         "warnings": [],
+        "prices": [],
+        "price_sources": {},
+        "primary_provider_status": None,
     }
     if not product_ids:
         summary["finished_at"] = utc_now_iso()
@@ -807,6 +957,7 @@ def refresh_prices_for_mandate(db: Session, mandate_id: str) -> dict[str, Any]:
     today = date.today()
     stale_after_days = 5
     points, failures = fetch_latest_prices_batch(products)
+    summary["primary_provider_status"] = primary_provider_status(points, failures)
 
     for product in products:
         price_point = points.get(product.id)
@@ -870,6 +1021,7 @@ def refresh_prices_for_mandate(db: Session, mandate_id: str) -> dict[str, Any]:
             })
             continue
 
+        _record_price_source(summary, product, price_point)
         if outcome == "inserted":
             summary["inserted"] += 1
         elif outcome == "updated":
@@ -904,6 +1056,9 @@ def refresh_all_prices(db: Session) -> dict[str, Any]:
         "started_at": utc_now_iso(),
         "provider": PRICE_SOURCE,
         "fallback_provider": FALLBACK_PRICE_SOURCE,
+        "prices": [],
+        "price_sources": {},
+        "primary_provider_status": None,
     }
 
     summary["processed"] = len(products)
@@ -911,6 +1066,7 @@ def refresh_all_prices(db: Session) -> dict[str, Any]:
     today = date.today()
     stale_after_days = 5
     points, failures = fetch_latest_prices_batch(products)
+    summary["primary_provider_status"] = primary_provider_status(points, failures)
 
     for product in products:
         price_point = points.get(product.id)
@@ -977,6 +1133,7 @@ def refresh_all_prices(db: Session) -> dict[str, Any]:
             })
             continue
 
+        _record_price_source(summary, product, price_point)
         if outcome == "inserted":
             summary["inserted"] += 1
         elif outcome == "updated":
@@ -1009,6 +1166,10 @@ def get_price_runtime_status(db: Session | None = None) -> dict[str, Any]:
         "scheduler_enabled": settings.price_scheduler_enabled,
         "scheduler_running": is_running,
         "provider": PRICE_SOURCE,
+        # BBG-1 / Audit P2: konfigurierter Provider != tatsaechliche Quelle.
+        # Hier stehen die Quellen der zuletzt gespeicherten Kurse.
+        "effective_price_sources": dict((_last_refresh_summary or {}).get("price_sources") or {}),
+        "primary_provider_status": (_last_refresh_summary or {}).get("primary_provider_status"),
         "provider_roles": provider_roles,
         "setup": get_market_data_setup_status(provider_roles),
         "client_library_available": yf is not None,

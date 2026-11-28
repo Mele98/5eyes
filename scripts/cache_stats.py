@@ -7,7 +7,7 @@ existierende CachedAggregator.purge_expired()-Logik.
 
 Aufruf:
     python scripts/cache_stats.py
-    python scripts/cache_stats.py --db-path /pfad/zur/5eyes.db
+    python scripts/cache_stats.py --db-path /pfad/zur/ares.db
     python scripts/cache_stats.py --purge-expired
     python scripts/cache_stats.py --json
 
@@ -66,9 +66,11 @@ def collect_cache_stats(db_path: str | None = None) -> CacheStatsReport:
         url = f"sqlite:///{db_path}"
         path_str = db_path
     else:
-        from config import settings
-        url = f"sqlite:///{settings.db_path}"
-        path_str = settings.db_path
+        # C-T1-02: aktive Datenbank (DATABASE_URL vor DB_PATH); PostgreSQL sperrt
+        # typisiert statt still eine lokale SQLite-Datei zu lesen.
+        from database import active_sqlite_file
+        path_str = str(active_sqlite_file())
+        url = f"sqlite:///{path_str}"
 
     rpt = CacheStatsReport(db_path=path_str)
     try:
@@ -131,8 +133,9 @@ def purge_expired(db_path: str | None = None) -> int:
     if db_path:
         url = f"sqlite:///{db_path}"
     else:
-        from config import settings
-        url = f"sqlite:///{settings.db_path}"
+        # C-T1-02: aktive Datenbank, nie still DB_PATH (Schreibzugriff: purge).
+        from database import active_sqlite_file
+        url = f"sqlite:///{active_sqlite_file()}"
 
     engine = create_engine(url, connect_args={"check_same_thread": False})
     Session = sessionmaker(bind=engine, autocommit=False, autoflush=False)

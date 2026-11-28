@@ -13,7 +13,7 @@ in CMA hartkodiert. Das ist Allocation-relevante Vereinfachung:
 - Reinvestment-Risk nicht modelliert
 - Duration-Wirkung implizit ueber `bonds_chf_ig_vol_bps`, nicht explizit
 
-**3eyes-Aequivalent:** Nelson-Siegel-VAR mit pro-Maturity-Forward-Rates,
+**LB-A-Aequivalent:** Nelson-Siegel-VAR mit pro-Maturity-Forward-Rates,
 Mean-Reversion zu Long-Term-Rate, Curve-Shift-Risiko stochastisch.
 
 **Allocation-Wirkung:**

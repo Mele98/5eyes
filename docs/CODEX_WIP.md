@@ -1,6 +1,6 @@
 # Codex-Kollaborations-Doku
 
-Das 5eyes-Repo wird parallel von zwei AI-Agenten beackert:
+Das LB-B-Repo wird parallel von zwei AI-Agenten beackert:
 **Claude** (architektur-getrieben, Sub-App + Aggregator + Compliance) und
 **Codex** (PDF-Rendering + Design-Audits). Damit das ohne Konflikt
 funktioniert, gelten ein paar feste Regeln.

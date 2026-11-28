@@ -996,7 +996,7 @@ Ausgeführt aus `ares-backend` mit externem Basetemp:
 
 ```powershell
 python -m pytest -q -p no:cacheprovider `
-  --basetemp C:\tmp\5eyes-cost-conflict-audit-20260902 `
+  --basetemp C:\tmp\LB-B-cost-conflict-audit-20260902 `
   tests/test_cost_disclosure_endpoint.py `
   tests/pdf/test_kostenausweis.py `
   tests/test_cost_disclosure_retrocessions.py `

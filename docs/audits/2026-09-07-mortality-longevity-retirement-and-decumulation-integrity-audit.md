@@ -51,7 +51,7 @@ Kontrollrunde. Die Prüfung begann am 5. September 2026, wurde am 7. September
 Geprüft wurde nicht, ob eine bestimmte Person tatsächlich ein bestimmtes Alter
 erreicht und auch nicht, welche medizinische oder versicherungsmathematische
 Tafel für jeden Beratungsfall materiell die beste ist. Geprüft wurde der
-technische und fachliche Vertrag, den 5eyes selbst behauptet:
+technische und fachliche Vertrag, den LB-B selbst behauptet:
 
 1. welche Mortalitätsquelle und welches Berechnungsmodell produktiv wirken,
 2. wie Todesalter und Todesjahr pro Pfad erzeugt werden,
@@ -1141,7 +1141,7 @@ Die wichtigsten verifizierten Anker sind:
 
 ```powershell
 python -m pytest -p no:cacheprovider `
-  --basetemp=C:\tmp\5eyes-round28-gate-20260907-1 `
+  --basetemp=C:\tmp\LB-B-round28-gate-20260907-1 `
   tests\mortality `
   tests\test_bfs_mortality_stale_audit.py `
   tests\test_bfs_mortality_jurisdiction_gate.py `

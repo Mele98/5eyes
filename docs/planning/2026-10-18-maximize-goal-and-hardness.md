@@ -62,7 +62,7 @@ Immobilien (4.5 % / 8.2 %) haben in dieser CMA das beste Wachstum je Tracking-Er
 
 ### Fruehere Entscheide
 
-OD-1 (2026-05-05, vom User bestaetigt): Haertegrad-Gewichte 10/1/0.2. ADR-011 Entscheid 2 (2026-06-17, PR #274/#275): Default `equal` (3eyes "Alle Ziele sind gleich wichtig – Mittelung"), Haertegrad als Opt-in. Damals gab es weder Haus-Prior noch Zielhierarchie.
+OD-1 (2026-05-05, vom User bestaetigt): Haertegrad-Gewichte 10/1/0.2. ADR-011 Entscheid 2 (2026-06-17, PR #274/#275): Default `equal` (LB-A "Alle Ziele sind gleich wichtig – Mittelung"), Haertegrad als Opt-in. Damals gab es weder Haus-Prior noch Zielhierarchie.
 
 ### CIO-Entscheid 2026-10-18 und Begruendung der Default-Aenderung
 

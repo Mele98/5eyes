@@ -6,12 +6,12 @@
 - **Datum**: 2026-05-05
 - **Owner**: Emanuele
 - **Branch**: `codex/stochastic-optimizer` (abgezweigt von `codex/audit-master`)
-- **Backup**: Tag `pre-optimizer-2026-05-05` + Bundle `C:\5eyes\audit-master-backup-2026-05-05.bundle`
+- **Backup**: Tag `pre-optimizer-2026-05-05` + Bundle `C:\LB-B\audit-master-backup-2026-05-05.bundle`
 - **Status**: Draft v0.1 (zum Review durch Emanuele)
 
 ## Ziel
 
-5eyes von "House-Matrix-Default + Goal-Tilts" zu echter goal-basierter Allokation upgraden, wie Methodik-Schulung Slide 18 sie definiert: **Optimierung minimiert Fehlbeträge über alle Szenarien, sekundär minimiert Volatilität wenn Ziele erfüllt**. Ergebnis: erklärbare, reproduzierbare Allokation pro Mandat, die mathematisch nachvollziehbar gegen die individuellen Lebensziele optimiert ist — nicht ein generisches Profil mit nachträglichen Tilts.
+LB-B von "House-Matrix-Default + Goal-Tilts" zu echter goal-basierter Allokation upgraden, wie Methodik-Schulung Slide 18 sie definiert: **Optimierung minimiert Fehlbeträge über alle Szenarien, sekundär minimiert Volatilität wenn Ziele erfüllt**. Ergebnis: erklärbare, reproduzierbare Allokation pro Mandat, die mathematisch nachvollziehbar gegen die individuellen Lebensziele optimiert ist — nicht ein generisches Profil mit nachträglichen Tilts.
 
 ## Problem (heute)
 
@@ -20,7 +20,7 @@
 - Ziele beeinflussen nur über 2–3 manuelle Tilt-Regeln (`Vermoegensziel ≤5J → eq_reduction`, Reserve-Ceiling)
 - Hardness (hart/primaer/opp) wirkt nur in der Score-Aggregation, nicht in der Allokationswahl
 - Verschiedene Mandate mit gleichem Risikoprofil aber unterschiedlichen Goals → fast identische Allokation
-- Die Methodik-Schulung beschreibt explizit: "Optimierung gegen vordefinierte Modellportfolios **oder** Hyperpersonalisierung der SAA". 5eyes ist heute "vordefiniert".
+- Die Methodik-Schulung beschreibt explizit: "Optimierung gegen vordefinierte Modellportfolios **oder** Hyperpersonalisierung der SAA". LB-B ist heute "vordefiniert".
 
 ## Scope
 
@@ -435,11 +435,11 @@ Wenn alle 6 Defaults okay sind: ✅, dann starte ich Phase 1 sofort. Sonst sag w
 
 ```bash
 # Bereits geschehen — Branch existiert
-git -C C:\5eyes\5eyes_stage9_release_ready_develop_security checkout -b codex/stochastic-optimizer
+git -C C:\LB-B\LB-B_stage9_release_ready_develop_security checkout -b codex/stochastic-optimizer
 ```
 
 ## Backup (bereits eingerichtet)
 
 - Tag: `pre-optimizer-2026-05-05` → `c071cc8`
-- Bundle: `C:\5eyes\audit-master-backup-2026-05-05.bundle` (6 MB, complete history)
+- Bundle: `C:\LB-B\audit-master-backup-2026-05-05.bundle` (6 MB, complete history)
 - Recovery: `git checkout codex/audit-master && git reset --hard pre-optimizer-2026-05-05 && git branch -D codex/stochastic-optimizer`

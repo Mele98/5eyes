@@ -1,6 +1,6 @@
 # Codex-Sprint U-P30 — Ausgangslage-Felder aus existierenden Daten ableiten
 
-> **Adressat:** Codex (5eyes-Session).
+> **Adressat:** Codex (LB-B-Session).
 > **Erstellt durch:** Claude (Opus 4.7), 2026-05-25.
 > **Audit-Quelle:** §3.1 — 4 Felder im `client_info` sind heute 0/null
 > obwohl die Quell-Daten in der DB existieren.

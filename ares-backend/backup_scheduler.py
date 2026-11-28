@@ -55,17 +55,27 @@ def _alert_backup_problem(*, text: str, detail: str) -> None:
         logger.exception("Backup-Alert-Webhook-Versand fehlgeschlagen")
 
 
+# F4 (Codex-Entscheid Runde 3): Anker-Funktion fuer das Backup-Manifest
+# (Kettenkopf + Bestandssiegel), von main.lifespan uebergeben
+# (services.audit.backup_snapshot_anchor). Der Scheduler importiert sie nicht
+# selbst (Architektur-Ratsche).
+_snapshot_anchor = None
+
+
 def _run_backup_job() -> None:
     """APScheduler-Wrapper: lazy-import + Exceptions schlucken, damit ein
     Backup-Fehler den Scheduler nicht killt."""
     try:
-        from services.backup import backup_database, replicate_offsite
+        from services.backup import active_sqlite_file, backup_database, replicate_offsite
 
+        # C-T1-02: Quelle ist die aktive Datenbank (DATABASE_URL vor DB_PATH);
+        # PostgreSQL sperrt typisiert und landet im Fehlerpfad unten.
         result = backup_database(
             target_dir=settings.backup_dir,
-            source_db_path=settings.db_path,
+            source_db_path=active_sqlite_file(),
             retain_days=settings.backup_retain_days,
             keep_minimum=settings.backup_keep_minimum,
+            snapshot_anchor=_snapshot_anchor,
         )
         logger.info(
             "Scheduled DB-backup ok | path=%s bytes=%d retained=%d pruned=%d",
@@ -106,13 +116,17 @@ def _run_backup_job() -> None:
         )
 
 
-def start_backup_scheduler() -> None:
+def start_backup_scheduler(snapshot_anchor=None) -> None:
     """Startet den taeglichen Backup-Job. No-Op wenn deaktiviert oder
     APScheduler nicht installiert.
 
     Idempotent: zweiter Aufruf laesst den bestehenden Scheduler in Ruhe.
+    ``snapshot_anchor`` (F4): Anker-Funktion fuer das Backup-Manifest.
     """
-    global _scheduler
+    global _scheduler, _snapshot_anchor
+
+    if snapshot_anchor is not None:
+        _snapshot_anchor = snapshot_anchor
 
     if not settings.backup_enabled or not settings.backup_scheduler_enabled:
         logger.info("Backup scheduler disabled by configuration")

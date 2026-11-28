@@ -141,8 +141,12 @@ def test_production_missing_policy_or_cma_never_autoseeds(
             session.commit()
         before = _reference_counts(session)
 
+        # EXE-P (H-187): typisiert REFERENCE_DATA_PACKAGE_MISSING (gleiche Linie fuer
+        # app_env=production und die gepackte EXE).
+        from core.risk_parameter_set import ReferenceDataPackageMissing
+
         with pytest.raises(
-            JurisdictionReferenceDataMissingError,
+            ReferenceDataPackageMissing,
             match=r"Produktion|Autoseeding|OptimizerPolicy|CH-CMA",
         ):
             pe.ensure_runtime_reference_data(

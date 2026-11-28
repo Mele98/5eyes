@@ -4,8 +4,9 @@ Aufruf
 ------
     python scripts/backup_now.py
     python scripts/backup_now.py --target /pfad/zu/backups
-    python scripts/backup_now.py --source ~/5eyes/5eyes.db --target /mnt/backup
-    python scripts/backup_now.py --restore /pfad/zu/backup.db --target ~/5eyes/5eyes.db
+    python scripts/backup_now.py --source ~/ares/ares.db --target /mnt/backup
+    python scripts/backup_now.py --restore /pfad/zu/backup.db --target ~/ares/ares.db
+      (Owner-DB als Ziel nur mit ARES_OWNER_DB_OPT_IN=1; unter Tests/CI nie -- H11 N-907-18)
 
 Standardmaessig liest das Script Settings aus `.env` / Umgebungs-
 variablen via `config.settings` — selbe Quelle wie der laufende Server.
@@ -33,7 +34,7 @@ def main() -> int:
         "--source",
         type=str,
         default=None,
-        help="Pfad zur SQLite-DB (Default: settings.db_path)",
+        help="Pfad zur SQLite-DB (Default: aktive Datenbank, DATABASE_URL vor DB_PATH)",
     )
     parser.add_argument(
         "--target",
@@ -70,11 +71,23 @@ def main() -> int:
 
     # Settings lazy laden, damit `--help` ohne .env funktioniert.
     from config import settings  # noqa: WPS433
+    from database import ActiveDatabaseNotFileBacked, active_sqlite_file
+
+    try:
+        return _run(args, settings, active_sqlite_file)
+    except ActiveDatabaseNotFileBacked as exc:
+        # C-T1-02: lesbare Sperre statt Traceback (fail-closed, Exit 2).
+        print(f"GESPERRT: {exc}", file=sys.stderr)
+        return 2
+
+
+def _run(args, settings, active_sqlite_file) -> int:
     from services.backup import backup_database
     from services.maintenance import restore_backup
 
     if args.restore:
-        target = args.target or settings.db_path
+        # C-T1-02: Default-Ziel ist die aktive Datenbank, nie still DB_PATH.
+        target = args.target or active_sqlite_file()
         # PRIV-005: restore_backup() (statt services.backup.restore_database
         # direkt) wendet nach dem Restore automatisch jede DSG-Art.-32-
         # Loeschung erneut an, die im wiederhergestellten Backup noch fehlt
@@ -98,18 +111,22 @@ def main() -> int:
             )
         return 0
 
-    source = args.source or settings.db_path
+    source = args.source or active_sqlite_file()
     target = args.target or settings.backup_dir
     retain = (
         args.retain_days
         if args.retain_days is not None
         else settings.backup_retain_days
     )
+    # F4: Manifest mit Kettenkopf + Bestandssiegel des Snapshots.
+    from services.audit import backup_snapshot_anchor
+
     result = backup_database(
         target_dir=target,
         source_db_path=source,
         retain_days=retain,
         keep_minimum=settings.backup_keep_minimum,
+        snapshot_anchor=backup_snapshot_anchor,
     )
     print(
         f"BACKUP ok -> {result.path} "

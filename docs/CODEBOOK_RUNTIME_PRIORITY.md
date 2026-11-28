@@ -1,4 +1,4 @@
-# 5Eyes Runtime Codebook (WIP)
+# LB-B Runtime Codebook (WIP)
 
 Stand: 2026-04-02
 Branch-Kontext: `codex/mc-fan-chart`

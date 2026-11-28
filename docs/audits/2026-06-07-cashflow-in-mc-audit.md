@@ -67,7 +67,7 @@ Der `cashflow[t]`-Wert wird via NumPy-Broadcasting an ALLE n_paths gleich addier
 
 **Bewertung:** Korrekt **by design**. Der Cashflow ist deterministisch im Mandate (Lohn, Pension, geplante Ausgaben), nicht stochastisch wie Asset-Returns. Wenn der Berater eine stochastische Einnahme modellieren will (z.B. unsichere Bonuszahlung), löst er das per `Goal.probability_pct` (bedingtes Goal), NICHT durch CF-Variation.
 
-**Alternative die NICHT umgesetzt ist:** Stochastische CFs pro Pfad — wäre fundamental anderer Architektur-Ansatz (Mulvey-Style Multi-Stage SP). Nicht im Scope für 5eyes Stage 9.
+**Alternative die NICHT umgesetzt ist:** Stochastische CFs pro Pfad — wäre fundamental anderer Architektur-Ansatz (Mulvey-Style Multi-Stage SP). Nicht im Scope für LB-B Stage 9.
 
 ### F2 — CF wird POST-Growth + POST-Tax addiert
 
@@ -83,7 +83,7 @@ Der `cashflow[t]`-Wert wird via NumPy-Broadcasting an ALLE n_paths gleich addier
 - Dividenden-Steuer skaliert mit Yield-Komponente vom Wachstum
 - CF kommt am Jahresende rein/raus (Lohn-Income, Pension-Expense)
 
-**Alternative:** CF zur Jahresmitte applied (zinsen halb-jährlich). Wäre genauer aber komplexer. 5eyes-Scope: ganzjährlich.
+**Alternative:** CF zur Jahresmitte applied (zinsen halb-jährlich). Wäre genauer aber komplexer. LB-B-Scope: ganzjährlich.
 
 ### F3 — Inflation wird PRE-MC angewendet
 

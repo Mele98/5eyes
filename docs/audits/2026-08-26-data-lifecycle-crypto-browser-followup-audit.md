@@ -422,7 +422,7 @@ HttpOnly/Secure/SameSite-Cookie oder gleichwertigem Desktopvertrag. Erfolgreiche
 Logout widerruft Sessionversion und Refresh-Familie serverseitig und wird in
 allen Oberflächen wirksam. Bei Netzwerkfehler darf die UI nur „lokal getrennt,
 serverseitiger Widerruf ausstehend“ anzeigen und muss Retry/Expiry kenntlich
-machen. Legacy-LocalStorage- und Production-`VITE_5EYES_TOKEN`-Fallbacks werden
+machen. Legacy-LocalStorage- und Production-`VITE_LB-B_TOKEN`-Fallbacks werden
 entfernt. Tests simulieren Logout-500/Netzausfall, offenen Reporting-Tab,
 Shared-Workstation, erfolgreichen Widerruf und beweisen 401 in allen Tabs.
 

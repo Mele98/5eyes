@@ -17,6 +17,7 @@ Endpunkt-Parität, keine Fachlogik-Reimplementierung) gruen bleiben.
 """
 from pathlib import Path
 import re
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -80,7 +81,7 @@ def test_react_route_wrapper_renders_mandate_editor_component_directly():
 
 
 def test_html_bridge_opens_exact_same_route_the_react_router_exposes():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
 
     assert "async function openMandateEditor(){" in html
     bridge_fn = html.split(
@@ -95,7 +96,7 @@ def test_html_bridge_opens_exact_same_route_the_react_router_exposes():
 
 
 def test_html_bridge_reuses_same_token_handoff_as_other_editor_bridges():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
 
     assert "async function resolveReportingAppUrl(path){" in html
     # openReportingApp (Advisory-Report), openProfilingEditor (Risikoprofil)
@@ -112,7 +113,7 @@ def test_html_bridge_reuses_same_token_handoff_as_other_editor_bridges():
 
 
 def test_mandate_editor_entry_point_is_reachable_from_stammdaten_section():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
     sd_header = html.split('<div id="page-sd" class="page">', 1)[1].split(
         '<div class="pad">', 1
     )[0]
@@ -126,7 +127,7 @@ def test_mandate_editor_entry_point_is_reachable_from_stammdaten_section():
 
 
 def test_react_mandate_api_client_calls_same_endpoints_as_html_monolith():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
     mandate_api = _read(MANDATE_API_PATH)
 
     # HTML (openMandateSettingsModal/saveMandateSettings) und React

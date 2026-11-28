@@ -26,7 +26,7 @@ in diesem Report enthalten — sollte vor einer finalen Freigabe nachgeholt
 werden.
 
 **Ausfuehrungsumgebung:** Lief gegen eine ISOLIERTE KOPIE der Live-Datenbank
-(`~/5eyes/5eyes.db` → temporaere Kopie), NICHT gegen die Live-DB selbst —
+(`~/LB-B/LB-B.db` → temporaere Kopie), NICHT gegen die Live-DB selbst —
 keine reale Mandatsdaten wurden veraendert. `OPTIMIZER_MODE` wurde nur
 fuer diesen Analyse-Lauf in-process auf `shadow_stochastic` gesetzt, NIE
 in der echten Konfiguration der laufenden Installation.

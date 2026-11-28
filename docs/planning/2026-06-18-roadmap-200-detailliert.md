@@ -1,4 +1,4 @@
-# 5eyes — Detaillierte Master-Roadmap (200 Punkte, „Fleisch am Knochen")
+# LB-B — Detaillierte Master-Roadmap (200 Punkte, „Fleisch am Knochen")
 
 - **Datum:** 2026-06-18
 - **Zweck:** Jeder Punkt mit **Ziel/Was**, **Können (Verhalten/Anforderung)**, **Umsetzung (wie, Dateien)**, **Verknüpft mit**, **Definition of Done (DoD/Test)**.
@@ -13,7 +13,7 @@
 ### 0.1 Die drei Produkt-Wahrheiten, an denen alles hängt
 1. **Harte Mandanten-Trennung ist die oberste Maxime.** Jede Architekturentscheidung wird daran gemessen. Ein Datenleck zwischen Firmen ist existenzbedrohend (Bankgeheimnis Art. 47 BankG, revDSG). → Treibt: RLS (#34), per-Tenant-Key (#37), CI-Leak-Gate (#169), Pentest (#73).
 2. **„Ready, aber sicher": extern testbar OHNE Compliance-Exposition.** Die Daten-Klassifizierungs-Sperre (`allow_real_client_data=false`) ist der technische Garant. Sie entkoppelt *Infrastruktur-Reife* von *Daten-Reife* → wir können extern testen, lange bevor wir echte Daten dürfen.
-3. **Fachliche Korrektheit vor UX-Glanz.** Die Engine produziert FINMA-relevante Zahlen. Erst korrekt (Engine/3eyes-Parität, Determinismus, Tests), dann schön. „Solche Sachen sind verdammt gefährlich" (User) = jede falsche Kurve ist ein Haftungsrisiko.
+3. **Fachliche Korrektheit vor UX-Glanz.** Die Engine produziert FINMA-relevante Zahlen. Erst korrekt (Engine/LB-A-Parität, Determinismus, Tests), dann schön. „Solche Sachen sind verdammt gefährlich" (User) = jede falsche Kurve ist ein Haftungsrisiko.
 
 ### 0.2 Der kritische Pfad (was blockiert was)
 ```
@@ -60,7 +60,7 @@
 - **Determinismus:** gleiche Eingabe → gleiche Zahl (Seeds, gerundete Reihenfolge). Test pflicht bei Engine-Änderungen.
 - **Additiv & rückwärtskompatibel:** neue Felder nullable, Defaults sicher, alte Daten funktionieren weiter.
 - **Konservativ bei Unsicherheit:** tieferer Renditewert, höhere Kostenschätzung, strengere Reserve.
-- **Keine Dritt-Marken** (Swiss Life/3eyes) in Code/PDF/Texten.
+- **Keine Dritt-Marken** (Swiss Life/LB-A) in Code/PDF/Texten.
 - **Branch-Hygiene:** `git branch --show-current` vor jedem Commit (Dual-Agent mit Codex).
 - **Monolith-Snapshot** nach jedem HTML-Edit regenerieren (`audit_html_monolith.py`).
 
@@ -78,7 +78,7 @@
 - **DoD:** Login + ein voller Strategielauf von einem Gerät ausserhalb des LAN; Screenshot.
 
 ### [ ] 2. 🔴 Demo-Tenants mit ausschliesslich synthetischen Kunden
-- **Ziel:** 2–3 isolierte Firmen-Sandboxes (`5eyes-internal`, `demo-firma-a`, `demo-firma-b`).
+- **Ziel:** 2–3 isolierte Firmen-Sandboxes (`LB-B-internal`, `demo-firma-a`, `demo-firma-b`).
 - **Können:** Jeder Tenant hat eigene Berater + synthetische Mandanten; keine Überschneidung sichtbar.
 - **Umsetzung:** `routers/tenants.py` (super_admin) Tenants anlegen; Seed-Skript für synthetische Personas (analog Leart-Stil, klar als TEST markiert).
 - **Verknüpft:** #7 (Trennungstest), #17 (Reset-Skript), #184 (Klassifizierung).
@@ -184,7 +184,7 @@
 - **Verknüpft:** #33 (Postgres), #95 Compliance. **Wartet auf dich.**
 
 ### [⏸] 20. 🟠 Domain + Branding-Entscheid
-- **Ziel:** z.B. `app.5eyes.ch`.
+- **Ziel:** z.B. `app.LB-B.ch`.
 - **Verknüpft:** #27 TLS, #59 Branding. **Wartet auf dich.**
 
 ### [ ] 21. 🟠 VPS-Grundhärtung
@@ -196,7 +196,7 @@
 - **DoD:** A+ bei SSL-Labs; Auto-Renewal.
 
 ### [ ] 23. 🟠 systemd-Service + Auto-Restart
-- **Umsetzung:** `docs/deploy/5eyes.service`; gunicorn/uvicorn workers.
+- **Umsetzung:** `docs/deploy/LB-B.service`; gunicorn/uvicorn workers.
 - **DoD:** Reboot → App automatisch online; Crash → Restart.
 
 ### [ ] 24. 🟠 Cloudflare (WAF/DDoS/Rate-Limit-Edge)
@@ -362,9 +362,9 @@
 
 ---
 
-## G. ENGINE & 3eyes-FACHLOGIK (79–110)
+## G. ENGINE & LB-A-FACHLOGIK (79–110)
 
-> **Holistik:** Die Engine ist das Herz — sie produziert die Zahlen, denen Berater + FINMA vertrauen. Parität zu 3eyes = Methodik-Glaubwürdigkeit. Determinismus + Tests = Haftungssicherheit. Läuft parallel zu A–F (kein Infra-Block).
+> **Holistik:** Die Engine ist das Herz — sie produziert die Zahlen, denen Berater + FINMA vertrauen. Parität zu LB-A = Methodik-Glaubwürdigkeit. Determinismus + Tests = Haftungssicherheit. Läuft parallel zu A–F (kein Infra-Block).
 
 ### [✓] 79–82 Zielerreichung P25 · Ziel-Gleichgewichtung (Härtegrad opt-in) · maxIlliquid=PE · Itô-Hauptpfad=MC-Median (diese Session)
 
@@ -443,7 +443,7 @@
 ### [ ] 102. 🟠 IST-Depot-Illiquidität an „PE+Direktimmobilien=illiquid" angleichen (Codex)
 - **DoD:** `depot_check` klassifiziert konsistent zur SOLL-Definition.
 
-### [ ] 103. 🟢 Goal-Achievement-Ordinalskala 3eyes-exakt (heute kontinuierlich) — bewusst optional
+### [ ] 103. 🟢 Goal-Achievement-Ordinalskala LB-A-exakt (heute kontinuierlich) — bewusst optional
 ### [ ] 104. 🟢 Serielle Renditeziele sauber im Optimizer
 ### [ ] 105. 🟢 Liquid-Alts vs Hedge-Funds Liquiditäts-Klassifikation feinjustieren
 ### [✓] 106. 🟡 Engine-Whitepaper aktuell halten (Methodik-Transparenz für FINMA) — Stand 2026-06-19

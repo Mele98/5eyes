@@ -17,11 +17,17 @@ product is `indeterminate` under `evaluate_product_eligibility()`
 """
 from __future__ import annotations
 
-from sqlalchemy import DDL, Column, ForeignKey, Index, Integer, String, event, text
+from sqlalchemy import DDL, CheckConstraint, Column, ForeignKey, Index, Integer, String, event, text
 from sqlalchemy.orm import relationship
 
 from database import Base
 from core import product_eligibility_override_schema as _override_schema
+from core.product_evidence import (
+    PG_IDENTITY_FUNCTION, PG_IDENTITY_TRIGGER, PG_PRODUCT_IDENTITY_FUNCTION, PG_PRODUCT_IDENTITY_TRIGGER,
+    PG_SNAPSHOT_BINDING_FUNCTION, PG_SNAPSHOT_BINDING_TRIGGER, SQLITE_PRODUCT_IDENTITY_TRIGGER,
+    PRODUCT_EVIDENCE_KINDS, PRODUCT_EVIDENCE_SCHEMA, SQLITE_IDENTITY_TRIGGERS, SQLITE_SNAPSHOT_BINDING_TRIGGER,
+    SQLITE_TENANT_TRIGGERS, TENANT_MISMATCH_MESSAGE, TENANT_MISMATCH_SQL,
+)
 
 
 class ProductEligibilityRuleSet(Base):
@@ -216,6 +222,274 @@ class ProductEligibilityDecision(Base):
     )
 
 
+# Dialektneutrale DB-Regeln (SQLite, PostgreSQL); identisch in Alembic und
+# ares_schema.sql.
+PRODUCT_EVIDENCE_HASH_CHECK = (
+    "length(source_document_sha256) = 64 AND length(canonical_payload_hash) = 64 "
+    "AND ltrim(source_document_sha256, '0123456789abcdef') = '' "
+    "AND ltrim(canonical_payload_hash, '0123456789abcdef') = ''"
+)
+PRODUCT_EVIDENCE_APPROVAL_CHECK = (
+    "status = 'draft' OR (approved_by IS NOT NULL AND approved_at IS NOT NULL AND approval_mode IS NOT NULL "
+    "AND approval_mode IN ('four_eyes', 'single_approver_attested'))"
+)
+PRODUCT_EVIDENCE_FOUR_EYES_CHECK = (
+    "approved_by IS NULL OR approved_by <> created_by "
+    "OR COALESCE(approval_mode, '') = 'single_approver_attested'"
+)
+PRODUCT_EVIDENCE_CLOSURE_CHECK = (
+    "status NOT IN ('retired', 'revoked') OR (retired_or_revoked_by IS NOT NULL "
+    "AND retired_or_revoked_at IS NOT NULL AND reason_code IS NOT NULL)"
+)
+
+
+class ProductEvidenceItem(Base):
+    """Granularer, freizugebender Produktnachweis (C-COMP-02 v1).
+
+    Ein freigegebener Nachweis ist inhaltlich unveränderlich. Ablauf wird
+    aus ``valid_until`` ermittelt; Widerruf und Ersatz sind explizite
+    Lebenszyklusereignisse und ändern nie den belegten Inhalt. Die Produkt- und
+    Anteilsklassenidentität prüft ausschliesslich
+    ``core.product_evidence.identity_matches`` (Erfassung, Freigabe, Auswertung).
+    """
+
+    __tablename__ = "product_evidence_items"
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"))
+    product_id = Column(String, ForeignKey("products.id"), nullable=False)
+    stable_instrument_id = Column(String, nullable=False)
+    share_class_id = Column(String)
+    jurisdiction = Column(String, nullable=False)
+    evidence_kind = Column(String, nullable=False)
+    source_type = Column(String, nullable=False)
+    source_reference = Column(String, nullable=False)
+    source_document_title = Column(String, nullable=False)
+    source_document_version = Column(String)
+    source_document_date = Column(String)
+    retrieved_at = Column(String, nullable=False)
+    source_document_sha256 = Column(String, nullable=False)
+    canonical_payload_json = Column(String, nullable=False)
+    canonical_payload_hash = Column(String, nullable=False)
+    as_of = Column(String, nullable=False)
+    valid_from = Column(String, nullable=False)
+    valid_until = Column(String)
+    status = Column(String, nullable=False, default="draft")
+    note = Column(String)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(String, nullable=False)
+    approved_by = Column(String, ForeignKey("users.id"))
+    approved_at = Column(String)
+    approval_mode = Column(String)
+    supersedes_id = Column(String, ForeignKey("product_evidence_items.id"))
+    retired_or_revoked_by = Column(String, ForeignKey("users.id"))
+    retired_or_revoked_at = Column(String)
+    reason_code = Column(String)
+    updated_at = Column(String, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('draft', 'approved', 'retired', 'revoked')",
+            name="ck_product_evidence_item_status",
+        ),
+        CheckConstraint(
+            "evidence_kind IN (" + ", ".join(repr(kind) for kind in PRODUCT_EVIDENCE_KINDS) + ")",
+            name="ck_product_evidence_item_kind",
+        ),
+        CheckConstraint(
+            "valid_until IS NULL OR valid_until >= valid_from",
+            name="ck_product_evidence_item_validity",
+        ),
+        CheckConstraint(PRODUCT_EVIDENCE_HASH_CHECK, name="ck_product_evidence_item_hash_hex"),
+        CheckConstraint(PRODUCT_EVIDENCE_APPROVAL_CHECK, name="ck_product_evidence_item_approval"),
+        CheckConstraint(PRODUCT_EVIDENCE_FOUR_EYES_CHECK, name="ck_product_evidence_item_four_eyes"),
+        CheckConstraint(PRODUCT_EVIDENCE_CLOSURE_CHECK, name="ck_product_evidence_item_closure"),
+        Index(
+            "ix_product_evidence_item_lookup",
+            "product_id", "tenant_id", "jurisdiction", "evidence_kind", "status",
+        ),
+        Index(
+            "ux_product_evidence_item_active_tenant",
+            "product_id", "stable_instrument_id", text("COALESCE(share_class_id, '')"), "tenant_id",
+            "jurisdiction", "evidence_kind", "as_of",
+            unique=True,
+            sqlite_where=text("tenant_id IS NOT NULL AND status = 'approved'"),
+            postgresql_where=text("tenant_id IS NOT NULL AND status = 'approved'"),
+        ),
+        Index(
+            "ux_product_evidence_item_active_global",
+            "product_id", "stable_instrument_id", text("COALESCE(share_class_id, '')"),
+            "jurisdiction", "evidence_kind", "as_of",
+            unique=True,
+            sqlite_where=text("tenant_id IS NULL AND status = 'approved'"),
+            postgresql_where=text("tenant_id IS NULL AND status = 'approved'"),
+        ),
+    )
+
+
+class ProductEvidenceSnapshot(Base):
+    """Unveränderliche Produktnachweis-Bindung eines Empfehlungslaufs."""
+
+    __tablename__ = "product_evidence_snapshots"
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    # Purge-fest wie Envelope und Override-Belege: keine harten FKs auf Mandat
+    # und Lauf (Entwurfs-Cleanup/Demo-Purge loeschen Laeufe physisch); die
+    # Bindung bleibt ueber das gehashte Payload pruefbar.
+    mandate_id = Column(String, nullable=False)
+    recommendation_run_id = Column(String, nullable=False)
+    product_ids_json = Column(String, nullable=False)
+    item_ids_json = Column(String, nullable=False)
+    item_hashes_json = Column(String, nullable=False)
+    # C-COMP-02 (6.3): je Dimension die inhaltsadressierte ID
+    # ``<dimension>:<sha256>`` des im Payload gebundenen Snapshots (``bound``
+    # oder typisiert ``not_applicable`` mit Quelle, Freigabe und Hash). Der
+    # Einfuege-Trigger verlangt alle drei; NULL tragen nur Altsaetze (STALE).
+    eligibility_snapshot_id = Column(String)
+    cost_snapshot_id = Column(String)
+    conflict_snapshot_id = Column(String)
+    as_of = Column(String, nullable=False)
+    evaluated_at = Column(String, nullable=False)
+    expires_at = Column(String)
+    status = Column(String, nullable=False)
+    reason_codes_json = Column(String, nullable=False, default="[]")
+    canonical_payload_json = Column(String, nullable=False)
+    product_evidence_hash = Column(String, nullable=False, unique=True)
+    # C-COMP-02 (6.3): neue Saetze nur noch mit Schema 2 (Trigger erzwingt es);
+    # die Server-Vorgabe bleibt fuer den Altbestand unveraendert.
+    schema_version = Column(String, nullable=False, default=PRODUCT_EVIDENCE_SCHEMA)
+    evaluator_version = Column(String, nullable=False, default="ares-product-evidence/2")
+    created_at = Column(String, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('verified', 'missing', 'stale', 'conflict', 'revoked', 'hash_mismatch')",
+            name="ck_product_evidence_snapshot_status",
+        ),
+        Index("ix_product_evidence_snapshot_run", "recommendation_run_id"),
+    )
+
+
+for _product_evidence_snapshot_ddl in (
+    "CREATE TRIGGER IF NOT EXISTS trg_product_evidence_snapshot_immutable_update "
+    "BEFORE UPDATE ON product_evidence_snapshots FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'product_evidence_snapshots: Snapshot ist unveränderlich'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_product_evidence_snapshot_immutable_delete "
+    "BEFORE DELETE ON product_evidence_snapshots FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'product_evidence_snapshots: Snapshot ist unveränderlich'); END",
+    # C-COMP-02 (6.3): kein Satz ohne gebundene Dimensions-Snapshots.
+    SQLITE_SNAPSHOT_BINDING_TRIGGER,
+):
+    event.listen(
+        ProductEvidenceSnapshot.__table__, "after_create",
+        DDL(_product_evidence_snapshot_ddl).execute_if(dialect="sqlite"),
+    )
+
+PRODUCT_EVIDENCE_SNAPSHOT_PG_FUNCTION = """
+CREATE OR REPLACE FUNCTION product_evidence_snapshots_immutable()
+RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'product_evidence_snapshots: Snapshot ist unveränderlich';
+END;
+$$ LANGUAGE plpgsql
+"""
+for _product_evidence_snapshot_pg_ddl in (
+    PRODUCT_EVIDENCE_SNAPSHOT_PG_FUNCTION,
+    "CREATE TRIGGER trg_product_evidence_snapshot_immutable BEFORE UPDATE OR DELETE "
+    "ON product_evidence_snapshots FOR EACH ROW "
+    "EXECUTE FUNCTION product_evidence_snapshots_immutable()",
+    PG_SNAPSHOT_BINDING_FUNCTION,
+    PG_SNAPSHOT_BINDING_TRIGGER,
+):
+    event.listen(
+        ProductEvidenceSnapshot.__table__, "after_create",
+        DDL(_product_evidence_snapshot_pg_ddl).execute_if(dialect="postgresql"),
+    )
+
+
+PRODUCT_EVIDENCE_MUTABLE_LIFECYCLE_COLUMNS: tuple[str, ...] = (
+    "status", "retired_or_revoked_by", "retired_or_revoked_at",
+    "reason_code", "updated_at",
+)
+PRODUCT_EVIDENCE_IMMUTABLE_COLUMNS: tuple[str, ...] = tuple(
+    column.name for column in ProductEvidenceItem.__table__.columns
+    if column.name not in PRODUCT_EVIDENCE_MUTABLE_LIFECYCLE_COLUMNS
+)
+_PEI_SQLITE_UNCHANGED = " AND ".join(
+    f"NEW.{column} IS OLD.{column}" for column in PRODUCT_EVIDENCE_IMMUTABLE_COLUMNS
+)
+# C-COMP-02 (6.4): Identitaetstrigger (core.product_evidence) neben der Tenantgrenze.
+# Der Produkt-Trigger (Gegenrichtung) liegt auf ``products``, wird aber hier
+# angelegt -- erst jetzt existieren beide Tabellen.
+PRODUCT_EVIDENCE_SQLITE_TRIGGERS: tuple[str, ...] = SQLITE_TENANT_TRIGGERS + SQLITE_IDENTITY_TRIGGERS + (
+    SQLITE_PRODUCT_IDENTITY_TRIGGER,
+    "CREATE TRIGGER IF NOT EXISTS trg_product_evidence_immutable_update "
+    "BEFORE UPDATE ON product_evidence_items FOR EACH ROW "
+    "WHEN OLD.status <> 'draft' AND NOT (OLD.status = 'approved' "
+    "AND NEW.status IN ('retired', 'revoked') AND " + _PEI_SQLITE_UNCHANGED + ") "
+    "BEGIN SELECT RAISE(ABORT, 'product_evidence_items: freigegebener Nachweis ist unveränderlich'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_product_evidence_immutable_delete "
+    "BEFORE DELETE ON product_evidence_items FOR EACH ROW WHEN OLD.status <> 'draft' "
+    "BEGIN SELECT RAISE(ABORT, 'product_evidence_items: freigegebener Nachweis ist unveränderlich'); END",
+)
+for _product_evidence_trigger in PRODUCT_EVIDENCE_SQLITE_TRIGGERS:
+    event.listen(
+        ProductEvidenceItem.__table__,
+        "after_create",
+        DDL(_product_evidence_trigger).execute_if(dialect="sqlite"),
+    )
+
+_PEI_PG_UNCHANGED = " AND ".join(
+    f"NEW.{column} IS NOT DISTINCT FROM OLD.{column}"
+    for column in PRODUCT_EVIDENCE_IMMUTABLE_COLUMNS
+)
+PRODUCT_EVIDENCE_PG_FUNCTION = f"""
+CREATE OR REPLACE FUNCTION product_evidence_items_immutable()
+RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        IF OLD.status <> 'draft' THEN
+            RAISE EXCEPTION 'product_evidence_items: freigegebener Nachweis ist unveränderlich';
+        END IF;
+        RETURN OLD;
+    END IF;
+    IF {TENANT_MISMATCH_SQL} THEN
+        RAISE EXCEPTION '{TENANT_MISMATCH_MESSAGE}';
+    END IF;
+    IF TG_OP = 'INSERT' THEN
+        RETURN NEW;
+    END IF;
+    IF OLD.status <> 'draft' AND NOT (
+        OLD.status = 'approved' AND NEW.status IN ('retired', 'revoked')
+        AND {_PEI_PG_UNCHANGED}
+    ) THEN
+        RAISE EXCEPTION 'product_evidence_items: freigegebener Nachweis ist unveränderlich';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql
+"""
+PRODUCT_EVIDENCE_PG_TRIGGER = (
+    "CREATE TRIGGER trg_product_evidence_immutable BEFORE INSERT OR UPDATE OR DELETE "
+    "ON product_evidence_items FOR EACH ROW "
+    "EXECUTE FUNCTION product_evidence_items_immutable()"
+)
+for _product_evidence_pg_ddl in (
+    PRODUCT_EVIDENCE_PG_FUNCTION,
+    PRODUCT_EVIDENCE_PG_TRIGGER,
+    PG_IDENTITY_FUNCTION,
+    PG_IDENTITY_TRIGGER,
+    PG_PRODUCT_IDENTITY_FUNCTION,
+    PG_PRODUCT_IDENTITY_TRIGGER,
+):
+    event.listen(
+        ProductEvidenceItem.__table__,
+        "after_create",
+        DDL(_product_evidence_pg_ddl).execute_if(dialect="postgresql"),
+    )
+
+
 class ProductEligibilityOverride(Base):
     """Append-only (ELIG-OVERRIDE-APPEND-ONLY-001): UPDATE/DELETE are
     rejected by triggers; no hard FK to the run (Purge-fest), see
@@ -264,4 +538,345 @@ for _trigger_ddl in _override_schema.SQLITE_TRIGGERS:
         ProductEligibilityOverride.__table__,
         "after_create",
         DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# AUDIT-2026-11 T1 (Audit 05 §4.1/§4.2, Entscheide T-E1..T-E3):
+# Nachhaltigkeits- und Ausschlussmerkmale je Produkt plus Hausstandard je
+# Tenant. Liegt bewusst in diesem Modul (gleiche Governance wie die
+# Eignungsregeln: Vier-Augen-Freigabe, globale Zeilen = Plattform, R3).
+# In T1 OHNE Engine-Wirkung; services/product_eligibility_governance.py::
+# is_criterion_satisfied() wird erst in T3 verdrahtet.
+#
+# Grundsatz (T-E2): nur freigegebene, nicht abgelaufene Nachweise MIT Quelle
+# zaehlen. Seed-/Default-Werte auf products (sfdr_class, esg_rating, ...)
+# werden NICHT hierher migriert und erfuellen nie ein Kriterium.
+# ---------------------------------------------------------------------------
+
+#: Kategorienkatalog (erweiterbar; neue Werte hier und im Literal in
+#: schemas/review.py, ein Sync-Test haelt beide gleich).
+SUSTAINABILITY_REVENUE_CATEGORIES: tuple[str, ...] = (
+    "controversial_weapons",
+    "conventional_weapons",
+    "weapons",
+    "tobacco",
+    "thermal_coal",
+    "fossil_fuels",
+    "gambling",
+    "adult_entertainment",
+    "alcohol",
+    "nuclear_power",
+    "animal_testing",
+)
+SUSTAINABILITY_CONDUCT_CATEGORIES: tuple[str, ...] = ("ungc_violation",)
+
+#: H-4 Kategorie-Hierarchie (konservativ, fest): Ein Nachweis der
+#: uebergeordneten Kategorie deckt die untergeordnete ab, nie umgekehrt.
+#: "weapons" = Waffen insgesamt (konventionelle und kontroverse); ein
+#: Ausschluss "Waffen" mit Schwelle <= Hausschwelle erfuellt daher auch
+#: "kontroverse Waffen" bzw. "konventionelle Waffen". Eine Messung der
+#: Oberkategorie mit Exposure belegt dagegen keinen Verstoss in einer
+#: bestimmten Unterkategorie und blockiert sie nicht.
+SUSTAINABILITY_CATEGORY_COVERED_BY: dict[str, tuple[str, ...]] = {
+    "controversial_weapons": ("weapons",),
+    "conventional_weapons": ("weapons",),
+}
+SUSTAINABILITY_CLASSIFICATION_CATEGORIES: tuple[str, ...] = ("sfdr_classification", "impact_theme")
+SUSTAINABILITY_CATEGORIES: tuple[str, ...] = (
+    SUSTAINABILITY_REVENUE_CATEGORIES
+    + SUSTAINABILITY_CONDUCT_CATEGORIES
+    + SUSTAINABILITY_CLASSIFICATION_CATEGORIES
+)
+
+SUSTAINABILITY_KINDS: tuple[str, ...] = (
+    "exclusion_policy",    # Produkt schliesst Emittenten ab x % Umsatz aus
+    "measured_exposure",   # gemessenes Gewicht betroffener Emittenten (Look-through)
+    "certification",       # Zertifikat/Label mit Nachweis
+    "classification",      # z. B. SFDR-Artikel 6/8/9
+)
+
+#: Zulaessige Arten je Kategorie (fail-closed: alles andere 422).
+SUSTAINABILITY_KINDS_BY_CATEGORY: dict[str, tuple[str, ...]] = {
+    **{c: ("exclusion_policy", "measured_exposure") for c in SUSTAINABILITY_REVENUE_CATEGORIES},
+    "ungc_violation": ("exclusion_policy", "measured_exposure"),
+    "sfdr_classification": ("classification",),
+    "impact_theme": ("classification", "certification"),
+}
+
+SFDR_CLASSIFICATION_VALUES: tuple[str, ...] = ("6", "8", "9")
+
+#: Zulaessige Quellen (T-E3). Eine Quelle 'seed' gibt es bewusst nicht.
+SUSTAINABILITY_SOURCE_TYPES: tuple[str, ...] = (
+    "prospectus",
+    "fund_contract",
+    "kid",
+    "factsheet",
+    "provider_exclusion_policy",
+    "provider_confirmation",
+    "data_vendor",
+    "house_analysis",
+)
+
+SUSTAINABILITY_STATUSES: tuple[str, ...] = ("draft", "approved", "retired")
+
+#: N-863-6: neutrale Quellbezeichnung fuer Kundendokumente als KATALOGWERT
+#: (kein Freitext, keine Dritt- oder Markennamen). Gespeichert wird der Code,
+#: angezeigt der Text. Default ist der Code des Quellentyps.
+SUSTAINABILITY_CLIENT_SOURCE_LABELS: dict[str, str] = {
+    "prospectus": "Fondsprospekt",
+    "fund_contract": "Fondsvertrag",
+    "kid": "Basisinformationsblatt",
+    "factsheet": "Factsheet des Anbieters",
+    "provider_exclusion_policy": "Ausschlussrichtlinie des Anbieters",
+    "provider_confirmation": "Bestätigung des Anbieters",
+    "data_vendor": "Datenanbieter (Export)",
+    "house_analysis": "eigene Prüfung",
+}
+SUSTAINABILITY_CLIENT_SOURCE_LABEL_CODES: tuple[str, ...] = tuple(SUSTAINABILITY_CLIENT_SOURCE_LABELS)
+
+#: Hausstandard-Defaults (T-E1), Umsatzanteil des Emittenten in bps.
+#: ungc_violation: keine Umsatzschwelle (schwere/anhaltende Verstoesse
+#: ausgeschlossen) -> None. sfdr_classification/impact_theme sind keine
+#: Umsatzkriterien und haben keinen Hausstandard. Tenant-aenderbar ueber
+#: sustainability_exclusion_standards.
+SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS: dict[str, int | None] = {
+    "controversial_weapons": 0,
+    "conventional_weapons": 1000,
+    "weapons": 1000,
+    "tobacco": 500,
+    "thermal_coal": 1000,
+    "gambling": 500,
+    "adult_entertainment": 500,
+    "alcohol": 1000,
+    "ungc_violation": None,
+    "nuclear_power": 1000,
+    "animal_testing": 1000,
+    "fossil_fuels": 1000,
+}
+
+#: Gueltigkeit eines Nachweises ab Stichtag (T-E3).
+SUSTAINABILITY_EVIDENCE_VALIDITY_MONTHS = 12
+
+_SUSTAINABILITY_FOUR_EYES_CHECK = (
+    "approved_by IS NULL OR approved_by <> created_by "
+    "OR approval_mode = 'single_approver_attested'"
+)
+
+
+class ProductSustainabilityAttribute(Base):
+    """Ein Nachweis je Produkt x Kategorie x Art x Stichtag.
+
+    ``tenant_id`` NULL = Plattform-Nachweis (globaler Katalog; in Multi-
+    Tenant nur super_admin, Regel R3); gesetzt = Tenant-Nachweis (Overlay,
+    nur fuer diesen Tenant sichtbar). Freigegebene Zeilen sind inhaltlich
+    unveraenderlich; eine Korrektur ist ein neuer Entwurf, der bei Freigabe
+    den Vorgaenger abloest (status 'retired').
+    """
+
+    __tablename__ = "product_sustainability_attributes"
+
+    id = Column(String, primary_key=True)
+    product_id = Column(String, ForeignKey("products.id"), nullable=False)
+    tenant_id = Column(String, ForeignKey("tenants.id"))
+    category = Column(String, nullable=False)
+    kind = Column(String, nullable=False)
+    revenue_threshold_bps = Column(Integer)
+    measured_exposure_bps = Column(Integer)
+    value = Column(String)
+    source_type = Column(String, nullable=False)
+    source_reference = Column(String, nullable=False)
+    source_provider = Column(String)
+    source_retrieved_on = Column(String)
+    # FINMA-Kundenanzeige (Pruefrunde #863, 9b/9c): Identitaet des
+    # Quelldokuments und eine neutrale, kundentaugliche Quellbezeichnung
+    # (keine Drittmarken), getrennt von source_provider (intern).
+    source_document_title = Column(String)
+    source_document_version = Column(String)
+    source_document_date = Column(String)
+    source_document_sha256 = Column(String)
+    client_source_label = Column(String)
+    as_of = Column(String, nullable=False)
+    valid_until = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="draft")
+    note = Column(String)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(String, nullable=False)
+    approved_by = Column(String, ForeignKey("users.id"))
+    approved_at = Column(String)
+    approval_mode = Column(String)
+    retired_by = Column(String, ForeignKey("users.id"))
+    retired_at = Column(String)
+    supersedes_id = Column(String, ForeignKey("product_sustainability_attributes.id"))
+    updated_at = Column(String, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('draft', 'approved', 'retired')", name="ck_psa_status"),
+        CheckConstraint(
+            "kind IN ('exclusion_policy', 'measured_exposure', 'certification', 'classification')",
+            name="ck_psa_kind",
+        ),
+        CheckConstraint(
+            "revenue_threshold_bps IS NULL OR (revenue_threshold_bps >= 0 AND revenue_threshold_bps <= 10000)",
+            name="ck_psa_revenue_threshold_bps",
+        ),
+        CheckConstraint(
+            "measured_exposure_bps IS NULL OR (measured_exposure_bps >= 0 AND measured_exposure_bps <= 10000)",
+            name="ck_psa_measured_exposure_bps",
+        ),
+        CheckConstraint("valid_until >= as_of", name="ck_psa_valid_until"),
+        CheckConstraint(_SUSTAINABILITY_FOUR_EYES_CHECK, name="ck_psa_four_eyes"),
+        CheckConstraint(
+            # N-863-6/-8: Katalogwert, fest an source_type gebunden.
+            "client_source_label IS NULL OR (client_source_label = source_type AND client_source_label IN ("
+            "'prospectus', 'fund_contract', 'kid', 'factsheet', 'provider_exclusion_policy', "
+            "'provider_confirmation', 'data_vendor', 'house_analysis'))",
+            name="ck_psa_client_source_label",
+        ),
+        Index("ix_psa_product_category_status", "product_id", "category", "status"),
+        Index("ix_psa_tenant_id", "tenant_id"),
+        # Unique (product, tenant, category, kind, as_of) fuer nicht
+        # abgeloeste Zeilen. Zwei partielle Indizes, weil NULL in Unique-
+        # Indizes als verschieden gilt (Muster product_eligibility_rule_sets).
+        Index(
+            "ux_psa_active_tenant",
+            "product_id", "tenant_id", "category", "kind", "as_of",
+            unique=True,
+            sqlite_where=text("tenant_id IS NOT NULL AND status <> 'retired'"),
+            postgresql_where=text("tenant_id IS NOT NULL AND status <> 'retired'"),
+        ),
+        Index(
+            "ux_psa_active_global",
+            "product_id", "category", "kind", "as_of",
+            unique=True,
+            sqlite_where=text("tenant_id IS NULL AND status <> 'retired'"),
+            postgresql_where=text("tenant_id IS NULL AND status <> 'retired'"),
+        ),
+    )
+
+
+# H-6 (Pruefrunde #863): Unveraenderlichkeit freigegebener Nachweise in der DB.
+# Entwuerfe sind frei; ein freigegebener Nachweis darf nur noch nach
+# 'retired' wechseln (dabei nur retired_by/retired_at/updated_at setzen),
+# ein zurueckgezogener gar nicht mehr. Freigegebene und zurueckgezogene
+# Nachweise duerfen nicht geloescht werden (Audit-Spur). Postgres-Pfad:
+# alembic/versions/a3e7c9d1f5b4_*.py (dort eingefroren, Test prueft Gleichheit).
+SUSTAINABILITY_ATTRIBUTE_MUTABLE_ON_RETIRE: tuple[str, ...] = ("status", "retired_by", "retired_at", "updated_at")
+SUSTAINABILITY_ATTRIBUTE_IMMUTABLE_COLUMNS: tuple[str, ...] = tuple(
+    c.name for c in ProductSustainabilityAttribute.__table__.columns
+    if c.name not in SUSTAINABILITY_ATTRIBUTE_MUTABLE_ON_RETIRE
+)
+_PSA_UNCHANGED = " AND ".join(f"NEW.{c} IS OLD.{c}" for c in SUSTAINABILITY_ATTRIBUTE_IMMUTABLE_COLUMNS)
+SUSTAINABILITY_ATTRIBUTE_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_psa_immutable_update "
+    "BEFORE UPDATE ON product_sustainability_attributes FOR EACH ROW "
+    "WHEN OLD.status <> 'draft' AND NOT (OLD.status = 'approved' AND NEW.status = 'retired' AND "
+    + _PSA_UNCHANGED + ") "
+    "BEGIN SELECT RAISE(ABORT, 'product_sustainability_attributes: freigegebener Nachweis ist unveraenderlich'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_psa_immutable_delete "
+    "BEFORE DELETE ON product_sustainability_attributes FOR EACH ROW "
+    "WHEN OLD.status <> 'draft' "
+    "BEGIN SELECT RAISE(ABORT, 'product_sustainability_attributes: freigegebener Nachweis ist unveraenderlich'); END",
+)
+
+for _psa_trigger_ddl in SUSTAINABILITY_ATTRIBUTE_SQLITE_TRIGGERS:
+    event.listen(
+        ProductSustainabilityAttribute.__table__,
+        "after_create",
+        DDL(_psa_trigger_ddl).execute_if(dialect="sqlite"),
+    )
+
+# E-1 (Delta-Pruefung #863): derselbe Schutz fuer ein per create_all gebautes
+# Postgres-Schema (Tests, Neuaufbau ohne Alembic); Muster
+# models/portfolio_handoff.py. Identisch mit a3e7c9d1f5b4 (Test).
+_PSA_MESSAGE = "product_sustainability_attributes: freigegebener Nachweis ist unveraenderlich"
+_PSA_PG_UNCHANGED = " AND ".join(
+    f"NEW.{c} IS NOT DISTINCT FROM OLD.{c}" for c in SUSTAINABILITY_ATTRIBUTE_IMMUTABLE_COLUMNS
+)
+SUSTAINABILITY_ATTRIBUTE_PG_FUNCTION = f"""
+CREATE OR REPLACE FUNCTION product_sustainability_attributes_immutable()
+RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        IF OLD.status <> 'draft' THEN
+            RAISE EXCEPTION '{_PSA_MESSAGE}';
+        END IF;
+        RETURN OLD;
+    END IF;
+    IF OLD.status <> 'draft' AND NOT (OLD.status = 'approved' AND NEW.status = 'retired' AND {_PSA_PG_UNCHANGED}) THEN
+        RAISE EXCEPTION '{_PSA_MESSAGE}';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql
+"""
+SUSTAINABILITY_ATTRIBUTE_PG_TRIGGER = (
+    "CREATE TRIGGER trg_psa_immutable BEFORE UPDATE OR DELETE ON product_sustainability_attributes "
+    "FOR EACH ROW EXECUTE FUNCTION product_sustainability_attributes_immutable()"
+)
+for _psa_pg_ddl in (SUSTAINABILITY_ATTRIBUTE_PG_FUNCTION, SUSTAINABILITY_ATTRIBUTE_PG_TRIGGER):
+    event.listen(
+        ProductSustainabilityAttribute.__table__,
+        "after_create",
+        DDL(_psa_pg_ddl).execute_if(dialect="postgresql"),
+    )
+
+
+class SustainabilityExclusionStandard(Base):
+    """Hausstandard je Tenant und Kategorie (Audit 05 §4.2, T-E1), versioniert.
+
+    Je Tenant und Kategorie gilt hoechstens eine freigegebene Version mit
+    offenem ``valid_to`` (aktuell); fehlt sie, gilt der Code-Default
+    (``SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS``). H-1 (Pruefrunde #863):
+    Verschaerfungen (Schwelle <= Default, Kategorie aktiv) wirken sofort
+    (approval_mode 'immediate_tightening'); Lockerungen unter den T-E1-
+    Default (hoehere Schwelle oder Kategorie deaktiviert) entstehen als
+    Entwurf und brauchen eine Vier-Augen-Freigabe. ``valid_from``/``valid_to``
+    erlauben T3, die am Generate-Stichtag verwendete Schwelle samt Version im
+    Snapshot zu speichern. Jede Aenderung steht im Audit-Log.
+    """
+
+    __tablename__ = "sustainability_exclusion_standards"
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    category = Column(String, nullable=False)
+    max_revenue_threshold_bps = Column(Integer)
+    is_disabled = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    status = Column(String, nullable=False, default="approved", server_default=text("'approved'"))
+    note = Column(String)
+    updated_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_by = Column(String, ForeignKey("users.id"))
+    approved_by = Column(String, ForeignKey("users.id"))
+    approved_at = Column(String)
+    approval_mode = Column(String)
+    valid_from = Column(String)
+    valid_to = Column(String)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "max_revenue_threshold_bps IS NULL OR "
+            "(max_revenue_threshold_bps >= 0 AND max_revenue_threshold_bps <= 10000)",
+            name="ck_ses_threshold_bps",
+        ),
+        CheckConstraint("status IN ('draft', 'approved', 'retired')", name="ck_ses_status"),
+        CheckConstraint("is_disabled IN (0, 1)", name="ck_ses_is_disabled"),
+        CheckConstraint(
+            "approved_by IS NULL OR created_by IS NULL OR approved_by <> created_by "
+            "OR approval_mode IN ('immediate_tightening', 'single_approver_attested', 'pre_versioning')",
+            name="ck_ses_four_eyes",
+        ),
+        Index("ix_ses_tenant_category", "tenant_id", "category", "status"),
+        Index(
+            "ux_ses_tenant_category_current", "tenant_id", "category", unique=True,
+            sqlite_where=text("status = 'approved' AND valid_to IS NULL"),
+            postgresql_where=text("status = 'approved' AND valid_to IS NULL"),
+        ),
+        Index(
+            "ux_ses_tenant_category_pending", "tenant_id", "category", unique=True,
+            sqlite_where=text("status = 'draft'"),
+            postgresql_where=text("status = 'draft'"),
+        ),
     )

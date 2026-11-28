@@ -1,4 +1,4 @@
-# 5eyes WealthArchitekten – Codex Debug & Test Guide
+# LB-B LB-C – Codex Debug & Test Guide
 **Ziel:** Systematisches Entbuggen und Testen der gesamten App. Jede Sektion, jeder Button, jeder Datenfluss.
 
 ---
@@ -25,7 +25,7 @@ Electron (main.js)
        │    └─ risk_scoring.py       ← Risiko-Score-Berechnung
        ├─ models/                    ← SQLAlchemy DB-Modelle
        └─ schemas/                   ← Pydantic Validation Schemas
-  └─ Database: ~/5eyes/5eyes.db     ← SQLite (Pfad: config.py → db_path)
+  └─ Database: ~/LB-B/LB-B.db     ← SQLite (Pfad: config.py → db_path)
 ```
 
 **Wichtig:** Alle Frontend-Änderungen in `ares.html`. Backend-Änderungen erfordern Neustart.
@@ -443,7 +443,7 @@ SCHRITT 7: REVIEW/EMPFEHLUNG
 
 ### Wenn du testest:
 1. Backend direkt via `curl` oder Python-`requests` testen (auth-Token aus DB oder frontend)
-2. DB-Stand prüfen: `sqlite3 ~/5eyes/5eyes.db "SELECT * FROM risk_assessments WHERE mandate_id='...';"`
+2. DB-Stand prüfen: `sqlite3 ~/LB-B/LB-B.db "SELECT * FROM risk_assessments WHERE mandate_id='...';"`
 3. Frontend-Änderungen: Electron neu starten (kill alle `electron` Prozesse, dann `npm start`)
 4. Backend-Änderungen: Python-Prozess auf Port 8000 killen, Electron neu starten (startet Backend auto)
 

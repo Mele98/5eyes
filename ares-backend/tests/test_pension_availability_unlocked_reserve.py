@@ -257,6 +257,7 @@ def test_plain_liquid_other_assets_position_still_unlocked_end_to_end(session_fa
 # ============================================================================
 
 
+@pytest.mark.usefixtures("property_advanced_mechanics_enabled")  # K1: dormante Mechanik
 def test_property_with_active_linked_mortgage_counts_net_of_debt(session_factory):
     """Audit-Repro (PROPERTY-COLLATERAL-001): eine freigegebene Direktimmobilie
     mit einer aktiv verknuepften Hypothek darf den Schloss-Pool nur um ihren
@@ -290,7 +291,7 @@ def test_property_with_active_linked_mortgage_counts_net_of_debt(session_factory
             id=f"pos-mortgage-{uuid.uuid4().hex[:8]}",
             client_id=client_id,
             label="Hypothek Ferienhaus",
-            position_type="Hypothek",
+            position_type="Hypothek", mortgage_interest_rate_bps=0,  # K1 N-913-01: Satz erfasst (0 %), Testfokus unveraendert
             assignment="Verbindlichkeit",
             current_value_rappen=800_000_00,
             currency="CHF",
@@ -313,6 +314,7 @@ def test_property_with_active_linked_mortgage_counts_net_of_debt(session_factory
     assert delta == 200_000_00
 
 
+@pytest.mark.usefixtures("property_advanced_mechanics_enabled")  # K1: dormante Mechanik
 def test_property_without_mortgage_still_counts_gross(session_factory):
     """Regressionsschutz: eine freigegebene Immobilie OHNE verknuepfte
     Hypothek ist von PROPERTY-COLLATERAL-001 nicht betroffen und zaehlt
@@ -348,3 +350,6 @@ def test_property_without_mortgage_still_counts_gross(session_factory):
         - baseline["unlocked_other_assets_rappen"]
     )
     assert delta == 500_000_00
+
+
+from tests.property_gate_support import property_advanced_mechanics_enabled  # noqa: E402,F401  (K1)

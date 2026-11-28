@@ -177,16 +177,16 @@ final_tilt = min(raw_tilt, room_up)
 
 ---
 
-## 8. Vergleich mit 3eyes
+## 8. Vergleich mit LB-A
 
-| Dimension | 3eyes | 5eyes (Pre-Option-C) | 5eyes (Post-Option-C) |
+| Dimension | LB-A | LB-B (Pre-Option-C) | LB-B (Post-Option-C) |
 |-----------|-------|----------------------|----------------------|
 | Allocation reagiert auf Goal-Change | implizit (Mulvey/Ziemba erwähnt) | nein | **ja, innerhalb Bands** |
 | Tilt-Magnitude | unklar | n/a | ±150/200 bps geclippt |
 | Audit-Trail des Tilts | unklar | n/a | **reasoning[] dokumentiert** |
 | Hardness-respektierend | unklar | n/a | **ja (Opp tilted nicht)** |
 
-→ **5eyes ist in jeder Dimension besser oder gleichwertig — plus voller Audit-Trail.**
+→ **LB-B ist in jeder Dimension besser oder gleichwertig — plus voller Audit-Trail.**
 
 ---
 
@@ -208,4 +208,4 @@ final_tilt = min(raw_tilt, room_up)
 
 ---
 
-**Status:** Option C komplett. 5eyes hat damit **Allocation-Reaktion auf Goal-Targets** in einer FINMA-konformen, ADR-respektierenden, Audit-fähigen Form.
+**Status:** Option C komplett. LB-B hat damit **Allocation-Reaktion auf Goal-Targets** in einer FINMA-konformen, ADR-respektierenden, Audit-fähigen Form.

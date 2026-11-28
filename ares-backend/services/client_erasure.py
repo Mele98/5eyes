@@ -10,10 +10,12 @@ NICHT absolut: es steht zurueck, wo eine gesetzliche Aufbewahrungspflicht
 entgegensteht. Fuer Ares als Vermoegensverwaltungs-/Beratungs-Software
 sind das insbesondere:
 
-- FIDLEG Art. 11/12/16/19/21 (Dokumentationspflicht Beratung, Eignungs-
-  pruefung, Kostenoffenlegung) -- i.d.R. 10 Jahre.
-- GwG Art. 7 (Sorgfaltspflicht-Belege) -- i.d.R. 10 Jahre.
-- OR Art. 962 (kaufmaennische Buchfuehrung/Aufbewahrung) -- 10 Jahre.
+- FIDLEG Art. 15 (Dokumentationspflicht Beratung, Eignungspruefung,
+  Kostenoffenlegung) -- keine eigene Frist; 10 Jahre aus Beweissicherung
+  (OR Art. 127) ab Mandatsende.
+- GwG Art. 7 Abs. 3 (Sorgfaltspflicht-Belege) -- mindestens 10 Jahre nach
+  Ende der Geschaeftsbeziehung.
+- OR Art. 958f (Buecher und Buchungsbelege) -- 10 Jahre.
 
 Die bestehende, bereits vor diesem Sprint gepflegte Aufstellung in
 ``services/data_export.py::RETENTION_NOTES`` dokumentiert diese Fristen
@@ -24,7 +26,7 @@ Design-Entscheidung: Zwei-Stufen-Modell statt Alles-oder-Nichts
 -----------------------------------------------------------------
 Ein voller Hard-Delete des gesamten Kunden-Fussabdrucks wuerde die oben
 genannten 10-Jahres-Pflichten verletzen, solange die Frist laeuft
-(genau das ist die "Retention-Abwaegung FIDLEG 10 Jahre vs. OR 962", die
+(genau das ist die "Retention-Abwaegung FIDLEG 10 Jahre vs. OR 962" (heute: OR 958f), die
 in docs/planning/2026-08-03-launch-readiness-update.md als offener
 Punkt gelistet ist). Ein reiner Soft-Delete (nur ``deleted_at`` setzen,
 wie der bestehende ``DELETE /clients/{id}``) loescht dagegen faktisch
@@ -169,6 +171,39 @@ def _in_params(prefix: str, values: list[str]) -> tuple[str, dict[str, str]]:
     return ", ".join(f":{key}" for key in params), params
 
 
+def _redact_external_holding_labels(db: Session, client_id: str) -> int:
+    """K3 / N-937-05: ``wealth_positions.external_holdings_json`` behaelt seine
+    Struktur (ISIN, Anlageklasse, Waehrung, Marktwert, Stichtag = RECORD); die
+    freie Bezeichnung je Titel wird durch den Marker ersetzt. Unlesbarer Inhalt
+    wird ganz markiert (kein Freitext bleibt stehen). Returns Anzahl Zeilen."""
+    if "external_holdings_json" not in _columns(db, "wealth_positions"):
+        return 0
+    rows = db.execute(
+        text("SELECT id, external_holdings_json FROM wealth_positions "
+             "WHERE client_id = :cid AND external_holdings_json IS NOT NULL"),
+        {"cid": client_id},
+    ).all()
+    count = 0
+    for row_id, raw in rows:
+        try:
+            items = json.loads(raw)
+        except (TypeError, ValueError):
+            items = None
+        if isinstance(items, list):
+            redacted_items = [
+                {**item, "label": REDACTION_MARKER} if isinstance(item, dict) else REDACTION_MARKER
+                for item in items
+            ]
+            new_raw = json.dumps(redacted_items, ensure_ascii=False, sort_keys=True)
+        else:
+            new_raw = REDACTION_MARKER
+        if new_raw != raw:
+            db.execute(text("UPDATE wealth_positions SET external_holdings_json = :v WHERE id = :id"),
+                       {"v": new_raw, "id": row_id})
+            count += 1
+    return count
+
+
 def _redact(
     db: Session,
     table: str,
@@ -218,15 +253,21 @@ def _ledger_path(db: Session) -> Path:
     unabhaengig davon, wie ``settings.db_path`` konfiguriert ist.
     """
     bind = db.get_bind()
-    db_file = getattr(getattr(bind, "url", None), "database", None) if bind is not None else None
-    if db_file:
+    url = getattr(bind, "url", None) if bind is not None else None
+    # Nur eine SQLite-Datei ist ein lokaler Pfad; ein PostgreSQL-Datenbankname nie.
+    is_sqlite = bool(url is not None and str(url.drivername).startswith("sqlite"))
+    db_file = url.database if is_sqlite else None
+    if db_file and db_file != ":memory:":
         return Path(db_file).expanduser().resolve().parent / ERASURE_LEDGER_FILENAME
-    # Fallback (z.B. In-Memory-DB ohne eigene Datei) -- Settings-Pfad als
-    # Referenz, analog zu services/maintenance.py::database_paths().
+    # Fallback (In-Memory-DB oder PostgreSQL): neben der aktiven SQLite-Datei,
+    # sonst im Datenverzeichnis (``DB_PATH``-Ordner, nur als Ablageort).
     from config import settings
-    from database import resolve_db_file
+    from database import ActiveDatabaseNotFileBacked, active_sqlite_file, resolve_db_file
 
-    return resolve_db_file(settings.db_path).parent / ERASURE_LEDGER_FILENAME
+    try:
+        return active_sqlite_file().parent / ERASURE_LEDGER_FILENAME
+    except ActiveDatabaseNotFileBacked:
+        return resolve_db_file(settings.db_path).parent / ERASURE_LEDGER_FILENAME
 
 
 def _append_ledger_entry(path: Path, entry: dict[str, Any]) -> None:
@@ -344,6 +385,17 @@ def erase_client_personal_data(
         ],
     )
     _apply("client_tax_residencies", "client_id", [client_id], null_columns=["tax_id_number"])
+    # H8 N-890-09: KYC-Bestaetigungen bleiben als Nachweis erhalten (append-only,
+    # Trigger erlauben nur diese Redaktion); Freitexte werden markiert.
+    _apply("kyc_confirmations", "client_id", [client_id],
+           marker_columns=["external_reference", "note"])
+    _apply("kyc_confirmation_approvals", "client_id", [client_id], marker_columns=["note"])
+    _apply("kyc_confirmation_rejections", "client_id", [client_id], marker_columns=["reason"])
+    # H8 N-890-09: Vertretung -- Name der vertretenden Person (Dritter) und
+    # Freitexte redigiert; Art, Wirksamkeit und Widerruf bleiben als Nachweis.
+    _apply("client_representations", "client_id", [client_id],
+           marker_columns=["representative_name", "scope", "evidence_reference"],
+           null_columns=["note", "revocation_reason"])
 
     # --- Mandat: redundante PII-Kopien + Bankverbindung ---
     if mandate_ids:
@@ -361,6 +413,11 @@ def erase_client_personal_data(
             "depot_account_number", "mortgage_bank", "notes",
         ],
     )
+    # K3 / N-937-05: Bezeichnungen der Titel ausserhalb der Empfehlung sind
+    # Freitext in einer RECORD-Spalte -- nur ``label`` wird geschwaerzt.
+    n_external = _redact_external_holding_labels(db, client_id)
+    if n_external:
+        redacted["wealth_positions.external_holdings_json"] = n_external
     _apply("cashflows", "client_id", [client_id], marker_columns=["notes"])
     _apply("wealth_inflows", "client_id", [client_id], marker_columns=["notes"])
     if mandate_ids:

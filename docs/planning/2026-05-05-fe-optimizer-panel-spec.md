@@ -6,7 +6,7 @@
 - **Datum**: 2026-05-05
 - **Owner**: Emanuele
 - **Branch-Vorschlag**: `codex/fe-optimizer-panel` (von `codex/rp-ueberarbeitung`, da FE-only)
-- **Workspace**: `C:\5eyes\5eyes_stage9_release_ready` (nicht der Audit-Workspace)
+- **Workspace**: `C:\LB-B\LB-B_stage9_release_ready` (nicht der Audit-Workspace)
 - **Backend-Voraussetzung**: Optimizer Phase 1–5 fertig im Audit-Branch `codex/audit-master`
   → siehe `docs/planning/2026-05-05-stochastic-optimizer-spec.md`
 - **Audit-Branch ist NICHT gemerged** — vor diesem FE-Block muss Audit-Branch in develop sein.

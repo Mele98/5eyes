@@ -3,7 +3,7 @@ handoff_schema: "ares.optimizer-handoff/v1"
 document_role: "b2b-privacy-governance-reconciliation-audit"
 status_as_of: "2026-10-05"
 language: "de"
-repository: "asset-allocation-stochastic-core / 5eyes"
+repository: "asset-allocation-stochastic-core / LB-B"
 audited_repository_head: "<siehe git log dieser Branch — Reconciliation ueber die Rounds 1-5 plus bestehende Audits, kein eigener neuer Code-Scan>"
 audit_mode: "read_only_synthesis_of_rounds_1_5_plus_existing_privacy_lifecycle_audits"
 audit_mutated_product_code: false

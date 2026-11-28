@@ -1,4 +1,4 @@
-# Sprint U-P22.6 — Token-Handoff von der 5eyes-Hauptapp zur Reporting-Sub-App
+# Sprint U-P22.6 — Token-Handoff von der LB-B-Hauptapp zur Reporting-Sub-App
 
 ## Meta
 
@@ -14,7 +14,7 @@
 
 Heute (vor U-P22.6): Berater muss seinen Bearer-Token manuell aus der
 Hauptapp lesen (DevTools → sessionStorage) und in den Browser-Tab der
-Reporting-App via `sessionStorage.setItem('5eyes_token', ...)` einsetzen.
+Reporting-App via `sessionStorage.setItem('LB-B_token', ...)` einsetzen.
 Mühsam, fehleranfällig, blockiert den schnellen Visual-Check.
 
 Mit U-P22.6: Ein Klick → neuer Browser-Tab → Cover-Seite mit echten
@@ -24,7 +24,7 @@ Daten. Der Token wandert sicher über das URL-Fragment, wird sofort in
 ## Architektur
 
 ```
-5eyes-Hauptapp                          Reporting-Sub-App
+LB-B-Hauptapp                          Reporting-Sub-App
 (Electron + ares.html)              (React + Vite-Dev :5173)
 ─────────────────────────                ──────────────────────────
 [Portfolio ⋯-Menü]
@@ -33,7 +33,7 @@ Daten. Der Token wandert sicher über das URL-Fragment, wird sofort in
              │
              │ openReportingApp(mid):
              │  1. token = window.desktop.getAuthToken()
-             │           || sessionStorage.getItem('5eyes_token')
+             │           || sessionStorage.getItem('LB-B_token')
              │  2. url = "http://localhost:5173/mandates/<mid>/report
              │           #token=<token>"
              │  3. window.open(url, "_blank", "noopener")
@@ -44,7 +44,7 @@ Daten. Der Token wandert sicher über das URL-Fragment, wird sofort in
                                         ↓
                                       handoff.ts:
                                         a. liest #token=... aus location.hash
-                                        b. sessionStorage.setItem('5eyes_token')
+                                        b. sessionStorage.setItem('LB-B_token')
                                         c. history.replaceState (URL säubern)
                                         ↓
                                       ReactDOM.createRoot(...).render(App)
@@ -53,7 +53,7 @@ Daten. Der Token wandert sicher über das URL-Fragment, wird sofort in
                                         ↓
                                       fetchAdvisoryReport:
                                         resolveAuthToken() liest jetzt
-                                        sessionStorage['5eyes_token']
+                                        sessionStorage['LB-B_token']
                                         → Authorization: Bearer <token>
                                         ↓
                                       Backend /advisory-report → 200
@@ -78,7 +78,7 @@ Daten. Der Token wandert sicher über das URL-Fragment, wird sofort in
 | Token im Browser-History | `history.replaceState` direkt nach Verbrauch — Token verschwindet aus der Adressleiste |
 | Neuer Tab kann `window.opener` abusen | `window.open(..., '_blank', 'noopener')` |
 | sessionStorage in hardened browser fehlt | `try/catch` mit fail-soft — Reporting-App zeigt dann 401, Berater fällt auf manuelles Setzen zurück |
-| Token-Key-Drift zur Hauptapp | Test verifiziert exakt `5eyes_token`-Konvention beider Seiten |
+| Token-Key-Drift zur Hauptapp | Test verifiziert exakt `LB-B_token`-Konvention beider Seiten |
 | Drittsoftware könnte das URL-Fragment lesen | Lokales Dev-Setup auf 127.0.0.1, kein externes Routing |
 
 ## In Produktion (U-P27)
@@ -96,7 +96,7 @@ Code bleibt als Safety-Net — er ist no-op wenn kein Fragment da ist.
 | # | Test | Was |
 |---|---|---|
 | 1 | `handoff_ts_exists_and_exports_consumer` | API-Vertrag |
-| 2 | `handoff_uses_5eyes_token_key_for_sessionstorage` | Konventions-Sync zur Hauptapp |
+| 2 | `handoff_uses_LB-B_token_key_for_sessionstorage` | Konventions-Sync zur Hauptapp |
 | 3 | `handoff_reads_url_fragment_not_querystring` | Server-Log-Hygiene + replaceState |
 | 4 | `handoff_is_safe_in_non_browser_environments` | Vitest-Tauglichkeit |
 | 5 | `main_tsx_calls_handoff_before_react_render` | Reihenfolge: handoff → render |
@@ -112,7 +112,7 @@ Kompletter Reporting-Test-Suite: **76 Tests, alle grün in 0.19s**.
 ## Owner-Workflow (ab jetzt)
 
 ```
-1. 5eyes-Hauptapp öffnen, einloggen
+1. LB-B-Hauptapp öffnen, einloggen
 2. Mandat auswählen
 3. Portfolio-Tab → ⋯-Menü → "Advisory-Report"
 4. → neuer Browser-Tab mit Cover-Seite, automatisch authentisiert

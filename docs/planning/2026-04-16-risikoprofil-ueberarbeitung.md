@@ -14,13 +14,13 @@
 
 ## Warum diese Spec existiert — Fachlicher Kontext
 
-Das bestehende Risikoprofil-Formular in 5eyes basiert auf einem früheren internen Entwurf.
+Das bestehende Risikoprofil-Formular in LB-B basiert auf einem früheren internen Entwurf.
 Der offizielle Wealth-Management-Referenz Fragebogen Eignungspruefung (Eignungsprüfung, 3 Seiten) ist das
 einzige FIDLEG-konforme Dokument das im Kundengespräch eingesetzt wird.
 
-5eyes muss mit diesem Formular übereinstimmen:
+LB-B muss mit diesem Formular übereinstimmen:
 - Dieselben Fragen, dieselbe Struktur, dieselbe Punkteverteilung
-- Das Dokument das 5eyes ausdruckt muss dem offiziellen Formular entsprechen
+- Das Dokument das LB-B ausdruckt muss dem offiziellen Formular entsprechen
 - Prüfer, Compliance-Officer oder Kunde dürfen keinen Unterschied sehen
 
 **Drei Hauptänderungen:**

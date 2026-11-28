@@ -510,3 +510,37 @@ def test_cache_is_isolated_between_calls(session_factory):
     second_goal_labels = {g.get("label") for g in second["ausgangslage"]["wealth_summary"]["ziele"]}
     assert "NEW-GOAL-AFTER-FIRST-COMPUTE" not in first_goal_labels
     assert "NEW-GOAL-AFTER-FIRST-COMPUTE" in second_goal_labels
+
+
+def test_compute_advisory_report_with_external_holdings_stays_within_budget(session_factory):
+    """K3 / N-937-04: dasselbe Budget (50) gilt MIT erfasstem Fremdbestand
+    (Titel ausserhalb der Empfehlung an einem Depot im Beratungsvermoegen),
+    auch mit vielen Titeln (kein N+1). Budget wird nicht angehoben."""
+    import json
+
+    BUDGET = 50
+    counts = {}
+    with session_factory() as s:
+        mandate, client, advisor = _seed_realistic_mandate(s)
+        depot = WealthPosition(
+            id=str(uuid.uuid4()), client_id=client.id, position_type="Depot", label="Depot",
+            current_value_rappen=0, currency="CHF", assignment="Beratungsvermögen", is_active=1,
+            created_at=_NOW, updated_at=_NOW,
+        )
+        s.add(depot)
+        for n_titles in (1, 40):
+            depot.external_holdings_json = json.dumps([
+                {"label": f"Titel {i}", "isin": None, "asset_class": "Aktien", "currency": "CHF",
+                 "market_value_rappen": 1_000_000 + i, "valuation_date": "2026-05-30"}
+                for i in range(n_titles)
+            ])
+            s.commit()
+            with _QueryCounter() as counter:
+                payload = compute_advisory_report(s, mandate, advisor=advisor)
+            assert payload["mandate_id"] == mandate.id
+            counts[n_titles] = counter.count
+            assert counter.count <= BUDGET, (
+                f"compute() mit {n_titles} Fremdtiteln macht {counter.count} SELECTs -- Budget {BUDGET}.\n"
+                f"Hotspots: {sorted(counter.by_table().items(), key=lambda kv: -kv[1])[:10]}"
+            )
+    assert counts[1] == counts[40], counts  # kein N+1 je Titel

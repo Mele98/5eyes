@@ -1,4 +1,4 @@
-# 5eyes Trust-, Compliance- und Accessibility-Readiness
+# LB-B Trust-, Compliance- und Accessibility-Readiness
 
 **Stand:** 2026-10-05
 **Status:** repository-basierte Ersttriage und umsetzbarer Backlog; keine
@@ -19,8 +19,8 @@ des aktuellen Zielprodukts und werden nur als Re-Evaluation-Trigger gefuehrt.
 
 ## 1. Kurzurteil
 
-Die vorgeschlagenen Punkte sind richtig, aber nicht alle sind fuer 5eyes gleich
-anzuwenden. 5eyes ist derzeit keine generische Consumer-Webseite, sondern eine
+Die vorgeschlagenen Punkte sind richtig, aber nicht alle sind fuer LB-B gleich
+anzuwenden. LB-B ist derzeit keine generische Consumer-Webseite, sondern eine
 Beratungssoftware mit sensiblen Finanz-, Familien-, Vorsorge- und Profildaten.
 Deshalb sind technisch belegte Datenlebenszyklen, FIDLEG-Nachweise,
 Auftragsbearbeitung, Security und barrierefreie Kernworkflows hoeher zu
@@ -96,9 +96,9 @@ Steuerung und Umsetzung werden sie jedoch in zwoelf lieferbare Pakete gebuendelt
 
 ### A. Rechtsgrundlage, Transparenz und Datenrechte
 
-| ID | Thema | Prio | 5eyes-Einordnung und aktueller Stand | Abnahmekriterium |
+| ID | Thema | Prio | LB-B-Einordnung und aktueller Stand | Abnahmekriterium |
 |---|---|---:|---|---|
-| `TRUST-01` | Betriebs-, Rollen- und Jurisdiktionsmatrix | P0 | **B2B ist bestaetigt.** Offen bleiben Betreiber-Rechtseinheit, T1/T2/T3, Verantwortlicher/Auftragsbearbeiter, Ziellaender, regulatorischer Status der Firmenkunden und ob 5eyes selbst Finanzdienstleistungen erbringt oder ausschliesslich Software liefert. | Signierte Matrix je Vertriebs-/Hostingmodell; jeder nachfolgende Text verweist auf eine freigegebene Variante; B2C-Aktivierung erzwingt vorab eine neue Rechts- und Produktpruefung. |
+| `TRUST-01` | Betriebs-, Rollen- und Jurisdiktionsmatrix | P0 | **B2B ist bestaetigt.** Offen bleiben Betreiber-Rechtseinheit, T1/T2/T3, Verantwortlicher/Auftragsbearbeiter, Ziellaender, regulatorischer Status der Firmenkunden und ob LB-B selbst Finanzdienstleistungen erbringt oder ausschliesslich Software liefert. | Signierte Matrix je Vertriebs-/Hostingmodell; jeder nachfolgende Text verweist auf eine freigegebene Variante; B2C-Aktivierung erzwingt vorab eine neue Rechts- und Produktpruefung. |
 | `TRUST-02` | Datenschutzerklaerung / Privacy Notice | P0 | Eine produktfertige, versionierte Notice wurde nicht gefunden. AVV/DSFA ersetzen die Information der betroffenen Person nicht. | Identitaet/Kontakt des Verantwortlichen, Zwecke, Datenkategorien, Empfaenger/Auftragsbearbeiter, Auslandbekanntgaben/Garantien, Dauer/Kriterien, Rechte, automatisierte Entscheidungen, Beschwerde-/Kontaktweg; Version und Zustellnachweis je betroffener Person. |
 | `TRUST-03` | Bearbeitungsverzeichnis und Datenflusskarte | P0 | `CLIENT_DATA_STORAGE_AND_PROCESSING.md` ist ein guter technischer Start, aber kein vollstaendiges, owner-geprueftes Verzeichnis. | Jede Datenkategorie ist Quelle, Zweck, Rechtsgrundlage, System, Empfaenger, Land, Schutzklasse, Owner, Retention, Loeschpfad und DSAR-Exportsektion zugeordnet. |
 | `TRUST-04` | DSFA finalisieren | P0 | `docs/compliance/dsfa-datenschutz-folgenabschaetzung.md` ist ausdruecklich eine unausgefuellte Release-Blocker-Vorlage. | Reale Verarbeitung, Risiko, Massnahmen, Restrisiko, Owner-/DPO-Entscheid und Reviewdatum ausgefuellt; bei verbleibendem hohem Risiko formelle Eskalation/Konsultation geprueft. |
@@ -110,12 +110,12 @@ Steuerung und Umsetzung werden sie jedoch in zwoelf lieferbare Pakete gebuendelt
 | `TRUST-10` | Einwilligung und Widerruf | P1/bedingt | Consent ist nicht pauschal die Rechtsgrundlage fuer alles. Er ist nur fuer den konkreten optionalen Zweck zu verwenden. Ein Konfigurationsflag fuer Telemetrie ist kein Betroffenen-Nachweis. | Zweckgebundene, freiwillige, granulare Zustimmung nur wo erforderlich; Notice-Version, Zeitpunkt, Quelle und Actor gespeichert; Widerruf so einfach wie Erteilung; Kernservice nicht unnoetig gekoppelt. |
 | `TRUST-11` | Cookie-/Local-Storage-/SDK-Inventar | P1 | Electron, Reporting-Subapp, Session Storage, Local Storage, Telemetrie und spaetere Website getrennt inventarisieren. | Maschinenlesbare Liste jeder Client-Speicherung/ID/SDK-Verbindung mit Zweck, Laufzeit, Empfaenger und Notwendigkeit; Netzwerk-Mitschnitt bestaetigt Vollstaendigkeit. |
 | `TRUST-12` | Cookie-/Consent-Banner | P2/bedingt | Kein Banner allein aus Vorsicht bauen. Fuer ausschliesslich notwendige Technik kann eine transparente Notice genuegen; fuer optionale Tracker/Marketing gilt vorheriges Blockieren nach anwendbarem Recht. | Banner erscheint nur in betroffenen Weboberflaechen; `Ablehnen` gleichwertig zu `Akzeptieren`; keine vorangekreuzten Optionen; optionale Requests vor Zustimmung technisch null; Widerruf persistent erreichbar. |
-| `TRUST-13` | Minderjaehrigen-/Kinderdaten-Policy | P1 fuer Datenmodell, B2C-Consent N/A | B2B ist bestaetigt; 5eyes richtet daher keine Consumer-Accounts direkt an Kinder. Haushalts-, Nachkommens- oder Beguenstigtendaten koennen dennoch Personendaten Minderjaehriger enthalten. | Direkte Minderjaehrigen-Consumer-Accounts sind im aktuellen Scope ausgeschlossen; Kinderdaten im Beratungsmandat sind zweckgebunden, minimal, rollenbeschraenkt und ohne Profilierung/Marketing; jede spaetere B2C-Oeffnung loest eine neue Alters-/Consent-Pruefung aus. |
+| `TRUST-13` | Minderjaehrigen-/Kinderdaten-Policy | P1 fuer Datenmodell, B2C-Consent N/A | B2B ist bestaetigt; LB-B richtet daher keine Consumer-Accounts direkt an Kinder. Haushalts-, Nachkommens- oder Beguenstigtendaten koennen dennoch Personendaten Minderjaehriger enthalten. | Direkte Minderjaehrigen-Consumer-Accounts sind im aktuellen Scope ausgeschlossen; Kinderdaten im Beratungsmandat sind zweckgebunden, minimal, rollenbeschraenkt und ohne Profilierung/Marketing; jede spaetere B2C-Oeffnung loest eine neue Alters-/Consent-Pruefung aus. |
 | `TRUST-14` | Datenschutzverletzungsprozess | P0 | Technische Security-Dokumente existieren; benoetigt wird ein operativ geuebter DSG-/Kunden-/FINMA-Eskalationsprozess. | 24/7 Intake, Triage, Risikoentscheidung, Beweissicherung, Rollen/Rufnummern, EDÖB-/Betroffenen-/Kundenmeldung, Fristen, Vorlagen und mindestens jaehrlicher Tabletop-Test. |
 
 ### B. Vertrag, Verkauf und faire Produktpraxis
 
-| ID | Thema | Prio | 5eyes-Einordnung und aktueller Stand | Abnahmekriterium |
+| ID | Thema | Prio | LB-B-Einordnung und aktueller Stand | Abnahmekriterium |
 |---|---|---:|---|---|
 | `FAIR-01` | Terms of Service / AGB und Lizenzvertrag | P0 vor Verkauf | Produktlizenz, erlaubte Nutzung, Support/SLA, Verfuegbarkeit, Haftung, Datenrollen, Exit, Updates, Laufzeit und Kuendigung sind vom Datenschutztext zu trennen. | Rechtsgepruefte B2B-Vertragsvariante je Hostingmodell; akzeptierte Version und Vertretungsbefugnis nachweisbar; keine widerspruechlichen In-App-/Vertragsaussagen. |
 | `FAIR-02` | B2B-Preis-, Kuendigungs- und Refund-Policy | P1 vor Verkauf | Kein Consumer-Checkout ist Teil des bestaetigten B2B-Scopes. Preis, Laufzeit, Verlaengerung, Kuendigung, Service Credits und Erstattung muessen dennoch im Firmenvertrag transparent und technisch konsistent sein. | Gesamtpreis und nicht optionale Kosten vor Vertrag; klare Trial-/Renewal-/Kuendigungslogik; B2B-Refund-/No-Refund- und Service-Credit-Regel; technisch und vertraglich identisch; B2C/EU-Vertrieb bleibt bis separater Freigabe gesperrt. |
@@ -130,7 +130,7 @@ Steuerung und Umsetzung werden sie jedoch in zwoelf lieferbare Pakete gebuendelt
 
 ### C. Accessibility und inklusive Bedienung
 
-| ID | Thema | Prio | 5eyes-Einordnung und aktueller Stand | Abnahmekriterium |
+| ID | Thema | Prio | LB-B-Einordnung und aktueller Stand | Abnahmekriterium |
 |---|---|---:|---|---|
 | `A11Y-01` | WCAG-2.2-AA-Baseline | P1 | Accessibility darf nicht auf Alt-Texte reduziert werden. Desktop-Webviews, Reporting-App und exportierte PDFs benoetigen getrennte Pruefprofile. | Freigegebene Accessibility Policy; automatisierte axe-/HTML-/Kontrast-Gates plus manueller Testplan; bekannte Ausnahmen mit Owner und Frist. |
 | `A11Y-02` | Textalternativen und Charts | P1 | Fuer aussagekraeftige Grafiken braucht es nicht nur `alt`, sondern Name, Zusammenfassung, Daten-/Tabellenalternative und nicht-farbige Kodierung. Dekoratives bleibt verborgen. | Inventar aller Bilder, Canvas, SVG und Charts; Screenreader-Test; jede fachliche Grafik besitzt gleichwertige textuelle Aussage/Datenansicht. |
@@ -143,14 +143,14 @@ Steuerung und Umsetzung werden sie jedoch in zwoelf lieferbare Pakete gebuendelt
 
 ### D. Drittanbieter, Lizenzen, Security und „Banking Standard“
 
-| ID | Thema | Prio | 5eyes-Einordnung und aktueller Stand | Abnahmekriterium |
+| ID | Thema | Prio | LB-B-Einordnung und aktueller Stand | Abnahmekriterium |
 |---|---|---:|---|---|
 | `ASSURE-01` | Third-Party-SDK-/Vendor-Audit | P0 fuer Release | Abhaengigkeiten, Datenanbieter, SMTP, optionales Sentry, Update-Feed und Hosting muessen funktional, datenschutzrechtlich, sicherheitstechnisch und vertraglich bewertet werden. | Owner-geprueftes Vendor-Register; Zweck/Daten/Land/Vertrag/SLA/Subprocessor/Exit; keine nicht inventarisierte ausgehende Verbindung; jaehrlicher Review und Aenderungsgate. |
 | `ASSURE-02` | Software-, Font- und Bildlizenzen | P0 fuer Distribution | Inter- und Cormorant-Garamond-TTFs sowie zahlreiche Bilder sind gebuendelt; zentrale Provenienz-/Lizenzbelege fehlen. | `THIRD_PARTY_NOTICES`, SPDX/SBOM, Quelle/Version/Lizenz/Urheber/Attribution je Asset; Build enthaelt erforderliche Texte; unbekannte Assets entfernt oder ersetzt. |
 | `ASSURE-03` | SBOM, Dependency- und Supply-Chain-Gates | P1 | Lockfiles und Pins existieren, aber Freigabe braucht reproduzierbare Artefakte und Schwachstellenprozess. | CycloneDX/SPDX-SBOM je Release; Hash/signierte Artefakte; SCA fuer Python/NPM/Electron; Severity-/SLA-Policy; Ausnahme mit Ablaufdatum; Herkunft und Build-Provenienz. |
 | `ASSURE-04` | Secure SDLC und externe Pruefung | P0/P1 | `PENTEST_PREPARATION.md` existiert, der externe Test ist noch nicht beauftragt. | Threat Model, Security-Requirements, Code-/Dependency-/Secret-Scanning, externer Pentest vor breitem T2/T3-Rollout, Re-Test aller Critical/High, verantwortlicher Disclosure-Prozess. |
 | `ASSURE-05` | Incident Response und Business Continuity | P0 | Finanzdatenplattformen brauchen nachweisbaren Restore und Kommunikationsfaehigkeit, nicht nur ein Runbook. | RTO/RPO je Service, verschluesselte/gepruefte Backups, Restore-Drills, Szenario fuer Ransomware/Vendor-Ausfall/Datenleck, Kunden-/Behoerdenkommunikation und Lessons Learned. |
-| `ASSURE-06` | Banking-/Finanzstandard-Matrix | P0 Entscheidung | „Banking standard“ ist kein einzelner Standard. FINMA-RS 2023/1 gilt seinem Scope nach fuer bestimmte Institute, nicht automatisch fuer jeden Softwareanbieter. Kunden koennen Anforderungen jedoch vertraglich auf 5eyes herunterreichen. | Applicability Matrix fuer FIDLEG/FIDLEV, DSG/DSV, FINMA-Vorgaben je Kundentyp, GwG sofern relevant, ISO 27001/27017/27018, ISO 22301, SOC 2, OWASP ASVS; DORA/GDPR/PSD2/PCI DSS nur bei realem EU-/Payment-/Open-Banking-Trigger. |
+| `ASSURE-06` | Banking-/Finanzstandard-Matrix | P0 Entscheidung | „Banking standard“ ist kein einzelner Standard. FINMA-RS 2023/1 gilt seinem Scope nach fuer bestimmte Institute, nicht automatisch fuer jeden Softwareanbieter. Kunden koennen Anforderungen jedoch vertraglich auf LB-B herunterreichen. | Applicability Matrix fuer FIDLEG/FIDLEV, DSG/DSV, FINMA-Vorgaben je Kundentyp, GwG sofern relevant, ISO 27001/27017/27018, ISO 22301, SOC 2, OWASP ASVS; DORA/GDPR/PSD2/PCI DSS nur bei realem EU-/Payment-/Open-Banking-Trigger. |
 | `ASSURE-07` | Security- und Datenschutz-Kontrollnachweise fuer Kunden | P1 | Institutionelle Kunden benoetigen Due-Diligence-Evidence. | Aktuelles Security Whitepaper, TOMs, Architektur-/Datenflussbild, Subprocessor-Liste, PenTest-Attest, DR-Nachweis, Vulnerability-SLAs, Verschluesselungs-/Key-Management- und Exitbeschreibung; keine unbelegten Zertifizierungsclaims. |
 | `ASSURE-08` | Automatisierte Entscheidungen und Modelltransparenz | P0 fachlich | Monte Carlo, Risikoprofil und Optimierer beeinflussen Anlageentscheide. Datenschutzinformation allein reicht nicht; Modellgrenzen und menschliche Verantwortung muessen kanalgleich sein. | Version, Inputs, Annahmen, Unsicherheit, Grenzen, Override/Review, Erklaerung und menschliche Freigabe im Audit-/Kundenartefakt; keine stille automatische Finalisierung. |
 

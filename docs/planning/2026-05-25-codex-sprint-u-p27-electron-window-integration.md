@@ -1,6 +1,6 @@
 # Codex-Sprint U-P27 — Electron-Window-Integration (Polish-Phase)
 
-> **Adressat:** Codex (5eyes-Session).
+> **Adressat:** Codex (LB-B-Session).
 > **Erstellt durch:** Claude (Opus 4.7), 2026-05-25.
 > **Voraussetzung:** U-P23, U-P24, U-P25 (Frontend voll) + U-P26 (PDF) müssen
 > fertig sein. Dieser Sprint **schließt die Production-Lücke**: keine
@@ -93,7 +93,7 @@ async function openReportingApp(){
   }
 
   // Dev-Fallback: weiterhin Browser-Tab (Vite-Dev)
-  const token = sessionStorage.getItem('5eyes_token') || '';
+  const token = sessionStorage.getItem('LB-B_token') || '';
   window.open(
     'http://localhost:5173/mandates/' + encodeURIComponent(mid) + '/report' +
     (token ? '#token=' + encodeURIComponent(token) : ''),

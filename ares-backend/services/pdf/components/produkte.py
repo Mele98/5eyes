@@ -14,6 +14,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from core.presentation_rounding import allocation_pct_texts, apportion_percent_bps, format_amount_minor, format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_METRIC_BG,
@@ -36,8 +37,8 @@ from services.pdf.styles import (
 BUCKET_ORDER = ("liquidity", "bonds", "equities", "real_estate", "alternatives")
 
 FALLBACK_TEXT = (
-    "Keine aktuelle Produktempfehlung fuer die gueltige Asset Allocation. "
-    "Sobald das Portfolio fuer diese Allokation generiert wurde, erscheint hier die Produktliste mit ISIN, "
+    "Keine aktuelle Produktempfehlung für die gültige Asset Allocation. "
+    "Sobald das Portfolio für diese Allokation generiert wurde, erscheint hier die Produktliste mit ISIN, "
     "Zielgewicht, Zielwert, Währung und TER."
 )
 
@@ -49,14 +50,14 @@ def make_produkte_section(
 ) -> list:
     """Returns Flowables: Section-Title + 4 Metric-Boxes + Tabelle ODER Fallback."""
     products_list = list(products or [])
-    flowables = [_section_title("Uebersicht der enthaltenen Fonds")]
+    flowables = [_section_title("Übersicht der enthaltenen Fonds")]
 
     # Beschreibungs-Paragraph
     flowables.append(Paragraph(
         '<font name="' + FONT_DEFAULT + '" size="8.5" color="#475569">'
-        'Diese Uebersicht zeigt die Fonds und die Gewichtung, die bei '
+        'Diese Übersicht zeigt die Fonds und die Gewichtung, die bei '
         'Vertragsbeginn bzw. bei Umsetzung des Portfolios verwendet werden. '
-        'Gewichtung, Wert und Produkte koennen sich ueber die Laufzeit veraendern.'
+        'Gewichtung, Wert und Produkte können sich über die Laufzeit verändern.'
         '</font>',
         make_paragraph_styles()["body"],
     ))
@@ -86,17 +87,17 @@ def _make_metric_boxes(products: list, base_currency: str):
     weight_sum = 0
     for p in products:
         w = int(p.get("target_weight_bps", 0) or 0)
-        t = int(p.get("ter_bps", 0) or 0)
-        if w > 0 and t > 0:
-            ter_sum_weighted += w * t
+        t = p.get("ter_bps")
+        if w > 0 and t is not None:  # C-COMP-02: unbelegte TER ist nie 0
+            ter_sum_weighted += w * int(t)
             weight_sum += w
-    avg_ter_bps = (ter_sum_weighted / weight_sum) if weight_sum > 0 else 0
+    avg_ter = format_bps_as_pct(ter_sum_weighted / weight_sum, decimals=2) if weight_sum > 0 else "—"
     currencies = sorted({str(p.get("currency", "CHF") or "CHF") for p in products if p.get("currency")})
 
     boxes_data = [
         ("Produkte", str(count)),
         ("Zielvolumen", _format_amount(total_amount, base_currency)),
-        ("Gewichtete TER", f"{avg_ter_bps/100.0:.2f}%"),
+        ("Gewichtete TER", avg_ter),
         ("Währungen", ", ".join(currencies) if currencies else "—"),
     ]
 
@@ -177,10 +178,26 @@ def _make_isin_table(products: list, base_currency: str):
 
     grand_weight_bps = 0
     grand_amount = 0
+    # G7 N-894-02: Subtotale gemeinsam apportioniert (= Soll-Tabelle), Produktzeilen
+    # auf den angezeigten Subtotal (Gleichstand: Unterklasse, Produktname, Position).
+    class_bps = {
+        b: sum(int(p.get("target_weight_bps", 0) or 0) for p in by_bucket.get(b, []))
+        for b in BUCKET_ORDER if by_bucket.get(b)
+    }
+    class_text = allocation_pct_texts({b: v for b, v in class_bps.items() if v > 0})
     for bucket in BUCKET_ORDER:
         bucket_products = by_bucket.get(bucket, [])
         if not bucket_products:
             continue
+        product_text: dict[int, str] = {}
+        weighted = [(i, int(p.get("target_weight_bps", 0) or 0)) for i, p in enumerate(bucket_products)]
+        weighted = [(i, w) for i, w in weighted if w > 0]
+        if weighted and bucket in class_text:
+            order = sorted(weighted, key=lambda iw: (str(bucket_products[iw[0]].get("sub_asset_class", "") or ""),
+                                                     str(bucket_products[iw[0]].get("name", "") or ""), iw[0]))
+            shown = apportion_percent_bps([w for _, w in order], 1,
+                                          target_display=class_text[bucket].replace("%", "").strip())
+            product_text = {i: f"{v} %" for (i, _), v in zip(order, shown)}
 
         # Gruppen-Header-Zeile (Bucket-Name in Farbe)
         color_hex = asset_class_color(bucket).hexval()[2:]
@@ -202,14 +219,14 @@ def _make_isin_table(products: list, base_currency: str):
 
         bucket_weight_bps = 0
         bucket_amount = 0
-        for p in bucket_products:
+        for p_idx, p in enumerate(bucket_products):
             name = str(p.get("name", "—") or "—")
             isin = str(p.get("isin", "") or "")
             sub = str(p.get("sub_asset_class", "") or "")
             weight_bps = int(p.get("target_weight_bps", 0) or 0)
             amount = int(p.get("target_amount_rappen", 0) or 0)
             ccy = str(p.get("currency", "CHF") or "CHF")
-            ter = int(p.get("ter_bps", 0) or 0)
+            ter = p.get("ter_bps")  # C-COMP-02: None = nicht belegt
             provider = str(p.get("provider", "") or "")
 
             bucket_weight_bps += weight_bps
@@ -224,13 +241,13 @@ def _make_isin_table(products: list, base_currency: str):
             rows.append([
                 Paragraph("<br/>".join(product_cell_parts), _para_compact()),
                 _esc(sub) if sub else "—",
-                f"{weight_bps/100:.1f}%" if weight_bps > 0 else "—",
+                product_text.get(p_idx, format_bps_as_pct(weight_bps, decimals=1)) if weight_bps > 0 else "—",
                 # target_amount_rappen ist CHF (base_currency) — NICHT in die Produkt-
                 # Waehrung umrechnen, sonst summieren die Zeilen nicht auf Subtotal/
                 # Total (die base_currency nutzen). Die Produkt-CCY steht separat.
                 _format_amount(amount, base_currency) if amount > 0 else "—",
                 ccy,
-                f"{ter/100:.2f}%" if ter > 0 else "—",
+                format_bps_as_pct(ter, decimals=2) if ter is not None else "—",
             ])
 
         # Subtotal-Zeile
@@ -241,7 +258,7 @@ def _make_isin_table(products: list, base_currency: str):
                 _para_compact(),
             ),
             "",
-            f"{bucket_weight_bps/100:.1f}%" if bucket_weight_bps > 0 else "—",
+            class_text.get(bucket, format_bps_as_pct(bucket_weight_bps, decimals=1)) if bucket_weight_bps > 0 else "—",
             _format_amount(bucket_amount, base_currency) if bucket_amount > 0 else "—",
             "", "",
         ])
@@ -258,7 +275,7 @@ def _make_isin_table(products: list, base_currency: str):
     rows.append([
         Paragraph(f'<font name="{FONT_BOLD}">Total Portfolio</font>', _para_compact()),
         "",
-        f"{grand_weight_bps/100:.1f}%" if grand_weight_bps > 0 else "—",
+        f"{format_bps_as_pct(grand_weight_bps, decimals=1)}" if grand_weight_bps > 0 else "—",
         _format_amount(grand_amount, base_currency) if grand_amount > 0 else "—",
         "", "",
     ])
@@ -287,11 +304,7 @@ def _format_amount(rappen: int, currency: str = "CHF") -> str:
     # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): rappen ist bereits in
     # mandate.base_currency (siehe portfolio_engine._load_allocation_inputs).
     # Kein zweites convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
-    try:
-        value = rappen / 100.0
-        return f"{currency} {value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"CHF {rappen/100.0:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")
 
 
 def _section_title(text: str):

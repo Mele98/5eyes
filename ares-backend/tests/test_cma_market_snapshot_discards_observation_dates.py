@@ -78,8 +78,14 @@ class _FakeProvider:
 # auseinander, beide innerhalb des 30-Tage-Lookback-Fensters
 # (dp._LOOKBACK_DAYS) -- die Minimal-Reproduktion fuer "eine Zinskurve
 # kombiniert Punkte mit genuinely unterschiedlichen Stichtagen".
-_NEWER_OBS_DATE = date.today() - timedelta(days=5)
-_OLDER_OBS_DATE = date.today() - timedelta(days=15)
+_IMPORT_DAY = date.today()
+_NEWER_OBS_DATE = _IMPORT_DAY - timedelta(days=5)
+_OLDER_OBS_DATE = _IMPORT_DAY - timedelta(days=15)
+
+# KN6 (CI 44840465176): jeder Test laeuft am Importtag (tests/import_day_clock.py).
+from tests.import_day_clock import fixed_import_clock  # noqa: E402
+
+_fixed_import_clock = fixed_import_clock(_IMPORT_DAY)
 assert (_NEWER_OBS_DATE - _OLDER_OBS_DATE).days == 10
 assert (date.today() - _OLDER_OBS_DATE).days <= dp._LOOKBACK_DAYS
 
@@ -192,7 +198,7 @@ def test_compute_candidate_source_detail_has_no_per_point_dates_or_pe_proxy_asof
     monkeypatch.setattr(dp, "_fetch_pe_ticker_info", lambda ticker: {"trailingPE": 22.0})
 
     with session_factory() as db:
-        cma = dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30")
+        cma = dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30", created_by_user_id="test-user")
         db.commit()
 
         detail = json.loads(cma.source_detail)

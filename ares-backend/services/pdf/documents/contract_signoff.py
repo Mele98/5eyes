@@ -1,6 +1,8 @@
 """Customer sign-off document for the final advisory decision."""
 from __future__ import annotations
 
+from core.customer_terms import customer_suitability_text
+from core.preference_labels import method_label
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.platypus import PageBreak, Paragraph, Spacer, Table, TableStyle
@@ -14,7 +16,10 @@ from services.pdf.components.depotcheck_soll import (
 )
 from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.single_report_disclaimer import make_single_report_cover
-from services.pdf.components.unterschrift import make_unterschrift_section
+# H-193 Fixrunde 1: Text und Box stehen zentral in components/unterschrift.py
+# (NOT_FOR_SIGNATURE_TEXT hier nur noch Re-Export fuer Bestandsaufrufer).
+from services.pdf.components.unterschrift import NOT_FOR_SIGNATURE_TEXT, make_signature_block  # noqa: F401
+from core.presentation_rounding import allocation_pct_texts, format_amount_minor, format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TEXT,
@@ -40,14 +45,14 @@ def build_contract_signoff_flowables(
     flowables.extend(make_single_report_cover(
         ctx,
         title="Beratungsentscheid",
-        subtitle="Anlagestrategie und Kundenbestaetigung",
+        subtitle="Anlagestrategie und Kundenbestätigung",
         mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
         focus_points=[
-            "Dokumentiertes Risikoprofil und allfaelliger Override",
-            "Gewaehlte Anlagestrategie mit Zielallokation und Bandbreiten",
+            "Dokumentiertes Risikoprofil und allfällige manuelle Anpassung",
+            "Gewählte Anlagestrategie mit Zielallokation und Bandbreiten",
             "Zusammenfassung der Beratung und finale Empfehlung",
-            "Bestaetigung durch Kunde und Berater",
+            "Bestätigung durch Kunde und Berater",
         ],
     ))
     flowables.append(PageBreak())
@@ -59,7 +64,7 @@ def build_contract_signoff_flowables(
         flowables.append(_override_panel(data.risk_override_reason))
     else:
         flowables.append(_status_panel(
-            "Kein manueller Override",
+            "Keine manuelle Anpassung des Risikoprofils",
             "Die Strategiewahl basiert auf dem dokumentierten Risikoprofil.",
             colors.HexColor("#e8f2ec"),
             colors.HexColor("#2f6d4f"),
@@ -67,7 +72,7 @@ def build_contract_signoff_flowables(
     flowables.append(Spacer(1, 7 * mm))
     flowables.append(make_summary_text(
         "Die Zielallokation darf das dokumentierte Risikobudget nicht "
-        "ueberschreiten. Eine hoehere Zielrendite fuehrt deshalb nicht "
+        "überschreiten. Eine höhere Zielrendite führt deshalb nicht "
         "automatisch zu einer riskanteren Strategie."
     ))
     flowables.append(PageBreak())
@@ -112,26 +117,26 @@ def build_contract_signoff_flowables(
     flowables.append(make_summary_text(
         data.final_recommendation
         # SIGN-CLAIM-001: ohne belegte finale Empfehlung keine Behauptung.
-        or "Fuer dieses Mandat liegt keine finalisierte Empfehlung vor."
+        or "Für dieses Mandat liegt keine finalisierte Empfehlung vor."
     ))
     flowables.append(PageBreak())
 
-    _start_page(flowables, ctx, data, advisory_label, "Aufklaerung und Bestaetigung")
+    _start_page(flowables, ctx, data, advisory_label, "Aufklärung und Bestätigung")
     flowables.append(Paragraph(
         '<font name="{}" size="9.5" color="#334155">'
-        'Mit der Unterzeichnung bestaetigen die Parteien die Besprechung und '
+        'Mit der Unterzeichnung bestätigen die Parteien die Besprechung und '
         'Dokumentation der nachstehenden Punkte. Die Unterschrift ersetzt '
         'keine Produktunterlagen oder Vertragsbedingungen.</font>'.format(FONT_DEFAULT),
         make_paragraph_styles()["body"],
     ))
     flowables.append(Spacer(1, 4 * mm))
-    acknowledgements = list(data.client_acknowledgements or _default_acknowledgements())
+    acknowledgements = list(data.client_acknowledgements or _default_acknowledgements(data))
     if data.band_house_deviations and not data.client_acknowledgements:
         acknowledgements.insert(2, (
             "Die Abweichung vom Eignungsrahmen des Risikoprofils (vereinbarte "
             "Bandbreiten ausserhalb des Rahmens des Risikoprofils) und ihre "
-            "dokumentierte Begruendung wurden erlaeutert und vom Kunden bewusst "
-            "bestaetigt."
+            "dokumentierte Begründung wurden erläutert und vom Kunden bewusst "
+            "bestätigt."
         ))
     for item in acknowledgements:
         flowables.append(_acknowledgement_row(item))
@@ -140,24 +145,24 @@ def build_contract_signoff_flowables(
     _start_page(flowables, ctx, data, advisory_label, "Unterschriften")
     flowables.append(Paragraph(
         '<font name="{}" size="9.5" color="#334155">'
-        'Die nachstehenden Bestaetigungen beziehen sich auf das vollstaendige '
-        'vorliegende Dokument und die im Beratungsgespraech uebergebenen '
+        'Die nachstehenden Bestätigungen beziehen sich auf das vollständige '
+        'vorliegende Dokument und die im Beratungsgespräch übergebenen '
         'Unterlagen.</font>'.format(FONT_DEFAULT),
         make_paragraph_styles()["body"],
     ))
     flowables.append(Spacer(1, 6 * mm))
-    flowables.extend(make_unterschrift_section(
+    # N-910-01 / H-193 Fixrunde 1 (N-939-01): nur die finale Fassung traegt
+    # Unterschriftsfelder; nicht publiziert, Ansicht durch "Lesend" und jeder
+    # andere Entwurf zeigen "Nicht zur Unterzeichnung" (zentrale Regel).
+    flowables.extend(make_signature_block(
+        ctx,
         client_confirm_text=(
-            "Ich bestaetige, dass mir Risikoprofil, Zielallokation, "
-            "Bandbreiten, Kosten, Risiken und die finale Empfehlung erklaert "
-            "wurden. Einen dokumentierten Override habe ich ausdruecklich "
-            "besprochen und bestaetigt."
+            "Ich bestätige, dass mir Risikoprofil, Zielallokation, "
+            "Bandbreiten, Kosten, Risiken und die finale Empfehlung erklärt "
+            "wurden. Eine dokumentierte manuelle Anpassung des Risikoprofils "
+            "habe ich ausdrücklich besprochen und bestätigt."
         ),
-        advisor_confirm_text=(
-            "Der Berater bestaetigt, die Geeignetheit geprueft, die Empfehlung "
-            "begruendet und die wesentlichen Risiken, Kosten sowie "
-            "Zielkonflikte dokumentiert zu haben."
-        ),
+        advisor_confirm_text=advisor_confirm_text(data),
         signature_space_mm=18,
     ))
     return flowables
@@ -185,20 +190,23 @@ def _start_page(
 
 def _risk_strategy_table(data: ContractSignoffData) -> Table:
     rows = [
-        ["Dokumentierter Punkt", "Festgehaltene Auspraegung"],
+        ["Dokumentierter Punkt", "Festgehaltene Ausprägung"],
         ["Risikoprofil", data.risk_profile_label or "Nicht dokumentiert"],
-        ["Risikoprofil manuell ueberschrieben", "Ja" if data.risk_is_overridden else "Nein"],
-        ["Gewaehlte Anlagestrategie", data.strategy_name or "Strategische Zielallokation"],
-        ["Berechnungsmethode", data.strategy_method or "Nicht dokumentiert"],
+        ["Risikoprofil manuell überschrieben", "Ja" if data.risk_is_overridden else "Nein"],
+        ["Gewählte Anlagestrategie", data.strategy_name or "Strategische Zielallokation"],
         ["Limitierender Faktor", _limiting_factor_label(data.limiting_factor)],
     ]
+    # KN4-B / DEMO-B3: Methode nur als Kundentext; unbekannt -> Zeile weglassen.
+    method = method_label(data.strategy_method)
+    if method:
+        rows.insert(5, ["Berechnungsmethode", method])
     return _table(rows, [0.38, 0.62])
 
 
 def _override_panel(reason: str | None) -> Table:
     return _status_panel(
-        "Manueller Risikoprofil-Override dokumentiert",
-        "Begruendung: " + (reason or "Keine Begruendung hinterlegt."),
+        "Manuelle Anpassung des Risikoprofils dokumentiert",
+        "Begründung: " + (reason or "Keine Begründung hinterlegt."),
         colors.HexColor("#fbf4df"),
         colors.HexColor("#8a6718"),
     )
@@ -231,6 +239,8 @@ def _allocation_table(allocation, bands, wealth, currency) -> Table:
     from services.pdf.styles import asset_class_label
 
     rows = [["Hauptanlageklasse", "Zielquote", "Band Min", "Band Max", "Zielbetrag"]]
+    # G7: Zielquoten apportioniert (Summe 100.0 %), wie App und Anlagestrategie-PDF.
+    shown = allocation_pct_texts({b: int(v or 0) for b, v in allocation.items() if int(v or 0) > 0})
     for bucket, value in sorted(
         allocation.items(),
         key=lambda item: -int(item[1] or 0),
@@ -242,9 +252,9 @@ def _allocation_table(allocation, bands, wealth, currency) -> Table:
         amount = int((wealth or 0) * bps / 10000)
         rows.append([
             asset_class_label(bucket),
-            f"{bps / 100:.1f}%",
-            f"{int(band[0] or 0) / 100:.1f}%",
-            f"{int(band[1] or 0) / 100:.1f}%",
+            shown[bucket],
+            f"{format_bps_as_pct(int(band[0] or 0), decimals=1)}",
+            f"{format_bps_as_pct(int(band[1] or 0), decimals=1)}",
             _format_amount(amount, currency),
         ])
     if len(rows) == 1:
@@ -267,7 +277,7 @@ def _consultation_table(items: list) -> Table:
             ),
         ])
     if len(rows) == 1:
-        rows.append(["-", "Keine strukturierten Eintraege", "Beratung verbal dokumentiert."])
+        rows.append(["-", "Keine strukturierten Einträge", "Beratung verbal dokumentiert."])
     return _table(rows, [0.18, 0.28, 0.54])
 
 
@@ -288,14 +298,77 @@ def _acknowledgement_row(text: str) -> Table:
     return table
 
 
-def _default_acknowledgements() -> list[str]:
+# KN7 (H-181, CTO-Nachtrag Punkt 1): Bestaetigungstexte je Pruefgrundlage.
+# Status aus derselben Funktion wie Sektion 19 des Advisory-Reports
+# (customer_suitability_text). «Geeignetheit geprueft» nur bei einer
+# Geeignetheitspruefung (risk_assessment, konform); Execution-only und
+# institutionelle Kunden bestaetigen nie eine Pruefung, die nicht stattfand.
+_ADVISOR_CONFIRM_CHECKED = {
+    "risk_assessment": (
+        "Der Berater bestätigt, die Geeignetheit geprüft, die Empfehlung "
+        "begründet und die wesentlichen Risiken, Kosten sowie "
+        "Zielkonflikte dokumentiert zu haben."
+    ),
+    "appropriateness": (
+        "Der Berater bestätigt, die Angemessenheit geprüft, die Empfehlung "
+        "begründet und die wesentlichen Risiken, Kosten sowie "
+        "Zielkonflikte dokumentiert zu haben."
+    ),
+}
+_ADVISOR_CONFIRM_WITHOUT_CHECK = (
+    "Der Berater bestätigt, die Empfehlung begründet und die wesentlichen "
+    "Risiken, Kosten sowie Zielkonflikte dokumentiert zu haben."
+)
+_ACK_CHECKED = {
+    "risk_assessment": (
+        "Die Geeignetheit der Empfehlung, wesentliche Risiken, Bandbreiten, "
+        "Kosten und mögliche Zielkonflikte wurden erläutert."
+    ),
+    "appropriateness": (
+        "Die Angemessenheit der Dienstleistung, wesentliche Risiken, Bandbreiten, "
+        "Kosten und mögliche Zielkonflikte wurden erläutert."
+    ),
+}
+_ACK_WITHOUT_CHECK = (
+    "Wesentliche Risiken, Bandbreiten, Kosten und mögliche Zielkonflikte der "
+    "Empfehlung wurden erläutert."
+)
+
+
+def _suitability_status(data: ContractSignoffData) -> tuple[str, str, str]:
+    """(Status, Kundentext, Grundlage) -- dieselbe Regel wie Sektion 19."""
+    basis = str(getattr(data, "suitability_basis", None) or "").strip()
+    status, text = customer_suitability_text({
+        "suitability_basis": basis,
+        "is_compliant": getattr(data, "suitability_is_compliant", None),
+        "audit_degraded": bool(getattr(data, "suitability_audit_degraded", False)),
+    })
+    return status, text, basis
+
+
+def advisor_confirm_text(data: ContractSignoffData) -> str:
+    status, text, basis = _suitability_status(data)
+    if status == "ok" and basis in _ADVISOR_CONFIRM_CHECKED:
+        return _ADVISOR_CONFIRM_CHECKED[basis]
+    # Keine (gueltige) Pruefung: nichts bestaetigen, den Grund nennen.
+    return f"{_ADVISOR_CONFIRM_WITHOUT_CHECK} {text}"
+
+
+def suitability_acknowledgement(data: ContractSignoffData) -> str:
+    status, _text, basis = _suitability_status(data)
+    if status == "ok" and basis in _ACK_CHECKED:
+        return _ACK_CHECKED[basis]
+    return _ACK_WITHOUT_CHECK
+
+
+def _default_acknowledgements(data: ContractSignoffData) -> list[str]:
     return [
-        "Die Angaben zur persoenlichen und finanziellen Situation sowie zum Risikoprofil sind vollstaendig und korrekt besprochen worden.",
-        "Die Geeignetheit der Empfehlung, wesentliche Risiken, Bandbreiten, Kosten und moegliche Zielkonflikte wurden erlaeutert.",
-        "Ein allfaelliger manueller Override des Risikoprofils wurde mit Begruendung dokumentiert und vom Kunden bewusst bestaetigt.",
-        "Der Kunde hat die relevanten Produkt-, Kosten- und Vertragsunterlagen erhalten oder weiss, wo diese verfuegbar sind.",
-        "Personendaten werden fuer Beratung, Dokumentation, gesetzliche Nachweise und Vertragserfuellung gemaess revDSG bearbeitet.",
-        "Es bestehen keine Zusicherungen zu kuenftiger Rendite, Zielerreichung oder Verlustfreiheit.",
+        "Die Angaben zur persönlichen und finanziellen Situation sowie zum Risikoprofil sind vollständig und korrekt besprochen worden.",
+        suitability_acknowledgement(data),
+        "Eine allfällige manuelle Anpassung des Risikoprofils wurde mit Begründung dokumentiert und vom Kunden bewusst bestätigt.",
+        "Der Kunde hat die relevanten Produkt-, Kosten- und Vertragsunterlagen erhalten oder weiss, wo diese verfügbar sind.",
+        "Personendaten werden für Beratung, Dokumentation, gesetzliche Nachweise und Vertragserfüllung gemäss revDSG bearbeitet.",
+        "Es bestehen keine Zusicherungen zu künftiger Rendite, Zielerreichung oder Verlustfreiheit.",
     ]
 
 
@@ -346,7 +419,7 @@ def _cell_style():
 def _limiting_factor_label(value: str | None) -> str:
     labels = {
         "risikoprofil": "Risikoprofil",
-        "liquiditaetsreserve": "Liquiditaetsreserve",
+        "liquiditaetsreserve": "Liquiditätsreserve",
         "bandbreite": "Strategische Bandbreiten",
         "zielkonflikt": "Zielkonflikt",
         "gemeinsamer_engpass": "Gemeinsamer Engpass (ein Konflikt)",
@@ -356,4 +429,4 @@ def _limiting_factor_label(value: str | None) -> str:
 
 
 def _format_amount(rappen: int | None, currency: str) -> str:
-    return f"{currency} {int(rappen or 0) / 100:,.0f}".replace(",", "'")
+    return format_amount_minor(int(rappen or 0), currency or "CHF")

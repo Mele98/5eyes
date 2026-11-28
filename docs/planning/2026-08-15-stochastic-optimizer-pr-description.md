@@ -2,7 +2,7 @@
 
 **Branch:** `codex/asset-allocation-stochastic-core` (`ea53a63`) → `develop`
 **Merge-Typ:** Squash-Merge empfohlen
-**Verifiziert in:** `C:\tmp\5eyes-merge-stochastic` (isolierter Merge-Worktree, `merge/asset-allocation-stochastic-core-into-develop`, Merge-Commit `d1e26cb`)
+**Verifiziert in:** `C:\tmp\LB-B-merge-stochastic` (isolierter Merge-Worktree, `merge/asset-allocation-stochastic-core-into-develop`, Merge-Commit `d1e26cb`)
 
 ## Zusammenfassung
 

@@ -942,7 +942,7 @@ command:
     tests/test_runtime_contracts.py
     tests/test_audit_z6_anchors.py
     -q
-    --basetemp=C:\tmp\5eyes-round29-gate-20260907-1
+    --basetemp=C:\tmp\LB-B-round29-gate-20260907-1
 
 result:
   521 passed in 168.41s

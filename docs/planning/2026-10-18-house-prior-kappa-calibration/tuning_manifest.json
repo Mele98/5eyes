@@ -1,5 +1,5 @@
 {
-  "description": "Tuning HOUSE-PRIOR-SHRINKAGE-001 vom 2026-10-18 (Engine saa_resampled_v5 + Monkeypatch-Prior, Worktree C:/tmp/5eyes-shrink-design, Branch origin/fix/importance-sampling-ess). Rohdaten gzip-komprimiert; Hash = SHA-256 des UNKOMPRIMIERTEN JSONL. Ergebnistexte mit LF-Zeilenenden gehasht.",
+  "description": "Tuning HOUSE-PRIOR-SHRINKAGE-001 vom 2026-10-18 (Engine saa_resampled_v5 + Monkeypatch-Prior, Worktree C:/tmp/LB-B-shrink-design, Branch origin/fix/importance-sampling-ess). Rohdaten gzip-komprimiert; Hash = SHA-256 des UNKOMPRIMIERTEN JSONL. Ergebnistexte mit LF-Zeilenenden gehasht.",
   "raw": {
     "kappa_A_ausg_spar.jsonl": {
       "lines": 21,

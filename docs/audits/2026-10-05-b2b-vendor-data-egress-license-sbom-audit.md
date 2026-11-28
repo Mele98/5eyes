@@ -3,7 +3,7 @@ handoff_schema: "ares.optimizer-handoff/v1"
 document_role: "b2b-vendor-data-egress-license-sbom-inventory-audit"
 status_as_of: "2026-10-05"
 language: "de"
-repository: "5eyes"
+repository: "LB-B"
 branch: "codex/b2b-vendor-egress-license-sbom-audit"
 audited_repository_head: "8dfd6cc13a7869e1996331e5d226551fc441a6ee"
 prior_meta_audit_path: "docs/audits/2026-10-05-b2b-trust-compliance-pre-implementation-coverage-audit.md"
@@ -191,7 +191,7 @@ im selben Gate wie die übrige Testsuite.
 
 ```json
 "publish": [
-  { "provider": "generic", "url": "https://updates.example.invalid/5eyes/windows" }
+  { "provider": "generic", "url": "https://updates.example.invalid/LB-B/windows" }
 ]
 ```
 
@@ -329,7 +329,7 @@ Kommentar:
 
 ```
 /* Natural Earth 1:110m Admin-0 countries, v5.1.1, public domain.
-   Simplified and quantized for the 5eyes intro globe. Generated file. */
+   Simplified and quantized for the LB-B intro globe. Generated file. */
 ```
 
 ebenfalls selbstdokumentiert und unproblematisch (public domain).

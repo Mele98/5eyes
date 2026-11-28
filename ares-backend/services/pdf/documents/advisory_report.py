@@ -16,8 +16,13 @@ Risikoprofil, Building Blocks, Weiteres Vorgehen) folgen in U-P26 PR B-F.
 """
 from __future__ import annotations
 
+from core.customer_terms import (
+    READONLY_VIEW_MODE, customer_term, decision_footer_label, is_final_document, normalize_mode, short_reference,
+)
+from core.goal_metric_contract import GOAL_STATUS_LEGACY, goal_status_display, goal_status_fields
 import logging
 import time
+from types import SimpleNamespace
 from datetime import datetime
 from io import BytesIO
 from typing import Any
@@ -36,17 +41,21 @@ from sqlalchemy.orm import Session
 from models.mandates import Mandate
 from models.users import User
 from services.backtest_stress import STRESS_REPLAY_SCOPE_LABEL
-from services.cost_disclosure import build_cost_disclosure
-from services.advisory_report import compute_advisory_report
+from services.cost_disclosure import build_cost_disclosure, fee_agreement_missing
+# KN9a: Integritaetsregel ueber den Aggregator (keine neue Import-Kante).
+from services.advisory_report import (  # noqa: F401  (Re-Export fuer routers.pdf_reports)
+    AdvisoryLogIntegrityFailed, _build_suitability_compliance, advisory_log_integrity_message,
+    assert_report_advisory_log_integrity, assert_shown_entries_intact, compute_advisory_report,
+    conflict_text_view, customer_protocol_entry, PROTOCOL_TEXT_TAMPERED, ProtocolReader)
 from services.pdf.fonts import register_editorial_fonts
 from services.pdf.components.advisory_page_chrome import (
     AdvisoryNumberedCanvas,
     _format_swiss_datetime,
     make_advisory_page_chrome,
 )
-from services.pdf.components.compliance_audit import render_compliance_audit_section
+from services.pdf.components.compliance_audit import customer_suitability_text, render_compliance_audit_section
 from services.pdf.components.kostenausweis import build_kostenausweis_flowables
-from services.pdf.components.unterschrift import make_unterschrift_section
+from services.pdf.components.unterschrift import make_signature_block
 from services.pdf.components.table_of_contents import (
     TocCollector,
     TocSectionAnchor,
@@ -76,14 +85,16 @@ from services.pdf.components.advisory_palette import (
     PAGE_SIZE,
     make_advisory_styles,
 )
-from services.pdf.components.goal_classification import classify_goals
+from core.presentation_rounding import allocation_pct_texts
 from services.pdf.components.mc_paths_chart import build_mc_paths_drawing
 from services.pdf.components.swiss_numbers import (
     format_bps_as_pct,
     format_bps_signed_pct,
     format_chf_rappen,
     format_integer,
+    format_number,
 )
+from core.depletion_display import depleted, depletion_note, not_meaningful_text
 
 
 logger = logging.getLogger(__name__)
@@ -99,6 +110,9 @@ def render_advisory_report_pdf(
     advisor: User | None = None,
     *,
     watermark_mode: str = "none",
+    decision_ref: dict | None = None,
+    meta: dict | None = None,
+    view_reason: str | None = None,
 ) -> bytes | None:
     """PDF-Bytes des Advisory-Reports für ein Mandat, oder ``None`` falls das
     Dokument unter dem Publikations-Gate nicht client-ready ist.
@@ -154,7 +168,20 @@ def render_advisory_report_pdf(
     provisional_notice = _resolve_advisory_report_provisional_notice(db, mandate)
     if provisional_notice is not None:
         payload["provisional_notice"] = provisional_notice
-    return render_advisory_report_pdf_from_payload(payload, watermark_mode=watermark_mode)
+    # EXE-P (H-187): ohne Gebuehrenvereinbarung ist der Bericht (mit Kostenteil) ein Entwurf;
+    # N-935-04: wie jeder Entwurf ohne Pruefnummer im Fuss (nur der IC-Vermerk).
+    fee_missing = fee_agreement_missing(payload.get("cost_disclosure"))
+    if is_final_document(watermark_mode) and fee_missing:
+        watermark_mode = "gebuehren"
+        decision_ref = {k: v for k, v in (decision_ref or {}).items() if k == "ic_release_status"} or None
+    elif watermark_mode == READONLY_VIEW_MODE and not view_reason and fee_missing:
+        # N-939-05: die Ansicht nennt auch den Gebuehren-Entwurf als Grund.
+        view_reason = "gebuehren"
+    if meta is not None:  # N-935-04: der Router setzt daraus X-Ares-Draft
+        meta["watermark_mode"] = normalize_mode(watermark_mode)
+    return render_advisory_report_pdf_from_payload(
+        payload, watermark_mode=watermark_mode, decision_ref=decision_ref, view_reason=view_reason,
+    )
 
 
 def _resolve_advisory_report_provisional_notice(
@@ -178,8 +205,34 @@ def _resolve_advisory_report_provisional_notice(
     return resolve_pdf_provisional_notice(db, mandate)
 
 
+def suitability_compliance_for_mandate(db: Session, mandate: Mandate) -> dict[str, Any]:
+    """KN7: Suitability-Audit des Mandats, genau wie Sektion 19 ihn erhaelt
+    (services.advisory_report._build_suitability_compliance, fail-closed:
+    Fehler -> ``audit_degraded``). Der Beratungsentscheid nutzt dieselbe Quelle,
+    damit beide Dokumente dieselbe Pruefgrundlage nennen."""
+    return _build_suitability_compliance(db, mandate) or {}
+
+
+# KN9 / N-931-01 (CTO-Entscheid fail-closed): ein Protokolleintrag, dessen
+# Pruefsumme nicht zum Inhalt passt (``integrity_verified is False``), ist
+# veraendert oder beschaedigt. Das Kunden-PDF wird dann nicht erzeugt; der
+# Router antwortet 409 ``ADVISORY_LOG_INTEGRITY_FAILED``. Kein Hinweis an den
+# Kunden, die Warnung steht in der Berater-Ansicht beim Eintrag.
+# KN9a / N-934-01: die Regel selbst steht in services.advisory_log_service
+# (eine Regel fuer Advisory-Report, Beratungsprotokoll, Beratungsentscheid und
+# Kundenportal); hier nur die Anwendung auf den Report-Payload.
+ADVISORY_LOG_INTEGRITY_FAILED_MESSAGE = advisory_log_integrity_message()
+
+
+def assert_advisory_log_integrity(payload: dict[str, Any]) -> None:
+    """Fail-closed fuer das Advisory-Report-PDF (Regel: services.advisory_report.
+    assert_report_advisory_log_integrity, gleich wie Kundenportal)."""
+    assert_report_advisory_log_integrity(payload, document="Advisory-Report")
+
+
 def render_advisory_report_pdf_from_payload(
     payload: dict[str, Any], *, watermark_mode: str = "none",
+    decision_ref: dict | None = None, view_reason: str | None = None,
 ) -> bytes:
     """Pure PDF-Render aus einem bereits berechneten Aggregator-Payload.
 
@@ -187,7 +240,11 @@ def render_advisory_report_pdf_from_payload(
     Seitenzustände und zeichnet den Page-Chrome beim Speichern mit bekannter
     Gesamtseitenzahl. Falls ReportLab in diesem Pfad scheitert, fällt der
     Renderer auf den bisherigen Two-Pass-Pfad zurück.
+
+    KN9: ein Protokolleintrag mit nicht passender Pruefsumme wirft
+    ``AdvisoryLogIntegrityFailed`` (kein Kunden-PDF).
     """
+    assert_advisory_log_integrity(payload)
     register_editorial_fonts()
     cover = payload.get("cover") or {}
     mandate_number = str(cover.get("mandate_number") or "—")
@@ -216,11 +273,14 @@ def render_advisory_report_pdf_from_payload(
     # Pass 1 zaehlt Seiten + sammelt Section-Startseiten via TocCollector.
     # Pass 2 rendert mit den realen page-numbers in der TOC-Tabelle.
     # Vorher: single-pass mit AdvisoryNumberedCanvas — TOC zeigte nur Titel.
+    # H-193 Fixrunde 1 (N-939-01): Markierungszustand fuer Unterschriftsblock
+    # (nur final) und Wasserzeichen (jede Seite).
+    document_state = SimpleNamespace(watermark_mode=watermark_mode, view_reason=view_reason)
     _scratch_buf, scratch_doc = _new_doc()
     counter = _PageCounter()
     toc_collector = TocCollector()
     scratch_doc.build(
-        _build_all_flowables(payload, styles, toc_collector=toc_collector),
+        _build_all_flowables(payload, styles, toc_collector=toc_collector, document_state=document_state),
         onFirstPage=counter, onLaterPages=counter,
     )
     total_pages = counter.page_count or 1
@@ -235,12 +295,16 @@ def render_advisory_report_pdf_from_payload(
         mandate_number=mandate_number,
         generated_at_iso=generated_at,
         total_pages_hint=total_pages,
+        decision_label=decision_footer_label(decision_ref),  # CCX P5
+        watermark_mode=document_state.watermark_mode,
+        view_reason=view_reason,
     )
     out_doc.build(
         _build_all_flowables(
             payload, styles,
             toc_page_numbers=toc_page_numbers,
             toc_section_ids=toc_section_ids,
+            document_state=document_state,
         ),
         onFirstPage=chrome, onLaterPages=chrome,
     )
@@ -256,6 +320,7 @@ def _build_all_flowables(
     toc_collector: TocCollector | None = None,
     toc_page_numbers: dict[str, int] | None = None,
     toc_section_ids: dict[str, str] | None = None,
+    document_state: Any = None,
 ) -> list[Any]:
     """Erzeugt einen *frischen* Flowable-Snapshot — wird zweimal aufgerufen
     (Pass 1 zum Zaehlen + TOC-Sammeln, Pass 2 zum Zeichnen mit echten
@@ -298,6 +363,7 @@ def _build_all_flowables(
         flowables.extend(_build_ausgangslage_flowables(
             payload.get("ausgangslage") or {}, styles,
             projection_gate=payload.get("projection_gate"),
+            depletion=_report_depletion_note(payload),
         ))
         flowables.append(PageBreak())
     if "positionen" in payload:
@@ -363,9 +429,10 @@ def _build_all_flowables(
         flowables.append(PageBreak())
     # U-FINMA-3 (2026-05-29, re-architektiert 2026-06-09): SuitabilityCheck-
     # Summary fuer Berater-Sicht (per-Mandat, Single-Check). Geschuetzt (FIDLEG).
-    flowables.append(_toc_anchor(toc_collector, "suitability_summary", "Eignungspruefung"))
+    flowables.append(_toc_anchor(toc_collector, "suitability_summary", "Eignungsprüfung"))
     flowables.extend(_build_suitability_summary_flowables(
         payload.get("suitability_summary") or {}, styles,
+        suitability_compliance=payload.get("suitability_compliance") or {},
     ))
     flowables.append(PageBreak())
     # Kostenausweis vor Compliance-Audit. Geschuetzt (FIDLEG Art. 8/9).
@@ -377,7 +444,8 @@ def _build_all_flowables(
     render_compliance_audit_section(payload, flowables, styles)
     # U-93: Signatur-Block am Bericht-Ende.
     flowables.append(PageBreak())
-    flowables.extend(make_unterschrift_section())
+    # H-193 Fixrunde 1 (N-939-01): Unterschriften nur in der finalen Fassung.
+    flowables.extend(make_signature_block(document_state))
     return flowables
 
 
@@ -630,6 +698,7 @@ def _build_ausgangslage_flowables(
     styles: dict,
     *,
     projection_gate: dict | None = None,
+    depletion: str | None = None,
 ) -> list[Any]:
     """Editorial 2-Spalten-Layout: links Client-Info, rechts Wealth-Summary,
     unten 6 KPI-Karten.
@@ -683,8 +752,30 @@ def _build_ausgangslage_flowables(
             "<b>Achtung:</b> " + _escape(gate_hint), styles["body"],
         ))
         out.append(Spacer(1, 3 * mm))
-    out.append(_build_key_metrics_row(metrics, styles))
+    out.append(_build_key_metrics_row(metrics, styles, depletion=depletion))
     return out
+
+
+def _safe_bps(value: Any) -> int | None:
+    try:
+        return None if value is None else int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _report_depletion_note(payload: dict) -> str | None:
+    """KN3-B / N-917R2-02: Verzehr-Hinweis aus dem Faecher desselben Berichts
+    (``goal_based_investing.monte_carlo_paths``: SOLL-Median inkl. Reserve-
+    Sockel, dieselbe Strategie-Payload wie die App). Gleiche Regel wie die
+    uebrigen Kunden-PDFs (``services.pdf.base.depletion_note``, E2E2-03)."""
+    gbi = payload.get("goal_based_investing") if isinstance(payload, dict) else None
+    paths = (gbi or {}).get("monte_carlo_paths") if isinstance(gbi, dict) else None
+    if not isinstance(paths, dict) or paths.get("data_pending"):
+        return None
+    try:
+        return depletion_note(paths.get("time_axis"), paths.get("p50"))
+    except (TypeError, ValueError):
+        return None
 
 
 def _build_client_info_block(client_info: dict, styles: dict, *, currency: str = "CHF"):
@@ -700,7 +791,8 @@ def _build_client_info_block(client_info: dict, styles: dict, *, currency: str =
         ("Anlageziel", _safe_string(client_info.get("anlageziel"))),
         (
             "Liquiditätsbedarf",
-            format_chf_rappen(client_info.get("liquiditaetsbedarf_rappen"), currency=currency),
+            # G7 N4: Rohsumme der Ausgaben-Cashflows -> deren Waehrung; unbekannt -> "—".
+            _amount_in(client_info.get("liquiditaetsbedarf_rappen"), client_info.get("liquiditaetsbedarf_currency")),
         ),
         ("Steuerdomizil", _safe_string(client_info.get("steuerdomizil"))),
         ("Referenzwährung", _safe_string(client_info.get("referenzwaehrung"))),
@@ -709,7 +801,14 @@ def _build_client_info_block(client_info: dict, styles: dict, *, currency: str =
 
 
 def _build_wealth_summary_block(wealth: dict, styles: dict, *, currency: str = "CHF"):
-    """Rechte Spalte der Sektion 4 — 5 Vermögens-Kategorien."""
+    """Rechte Spalte der Sektion 4 — 5 Vermögens-Kategorien.
+
+    CCX-P3-FX: Betraege in der Waehrung, in der der Server sie liefert
+    (``amount_currency`` = Mandatswaehrung nach Konversion mit gebundener
+    FX-Basis); dazu Bewertungsstichtag und FX-Basis. Das PDF rechnet nie um;
+    ohne belegten Kurs liefert der Server keine Summe ("—")."""
+    if "amount_currency" in wealth:
+        currency = wealth.get("amount_currency") or ""
     rows = [
         ("Gesamtvermögen", format_chf_rappen(wealth.get("gesamtvermoegen_rappen"), currency=currency)),
         ("Beratungsvermögen", format_chf_rappen(wealth.get("beratungsvermoegen_rappen"), currency=currency)),
@@ -717,6 +816,18 @@ def _build_wealth_summary_block(wealth: dict, styles: dict, *, currency: str = "
         ("Vorsorge", format_chf_rappen(wealth.get("vorsorge_rappen"), currency=currency)),
         ("Kredite", format_chf_rappen(wealth.get("kredite_rappen"), currency=currency)),
     ]
+    if wealth.get("valuation_as_of"):
+        basis = str(wealth.get("fx_basis_hash") or "")
+        rows.append((
+            "Bewertungsstand",
+            _safe_string(f"{wealth.get('valuation_as_of')} · FX-Basis {basis[:12]}" if basis
+                         else wealth.get("valuation_as_of")),
+        ))
+    if isinstance(wealth.get("fx_status"), dict):
+        rows.append(("Hinweis", _safe_string(
+            "Summen gesperrt: Wechselkurs fehlt oder ist nicht aktuell ("
+            + str(wealth["fx_status"].get("reason_code") or "") + ")."
+        )))
     return _label_value_table(rows, styles)
 
 
@@ -754,23 +865,35 @@ def _label_value_table(rows: list[tuple[str, str]], styles: dict) -> Table:
     return table
 
 
-def _build_key_metrics_row(metrics: dict, styles: dict) -> Table:
+def _build_key_metrics_row(metrics: dict, styles: dict, *, depletion: str | None = None) -> Table:
     """6 KPI-Karten in einer Zeile (Risky-Fraction / Zielerreichung /
-    erw Vol / erw Return / Max DD / VaR 95)."""
+    erw Vol / Median-Rendite / Max DD / VaR 95).
+
+    KN3-B / N-917R2-02 (E2E2-03-Regel): bei Vermoegensverzehr im mittleren
+    Verlauf (Hinweis ``depletion``) oder Totalverlust-Median sind die simulierte
+    Rendite (-100 %) und der Drawdown (100 %) nicht aussagekraeftig -- statt
+    der Zahl steht "nicht aussagekräftig – Vermögen aufgebraucht ab JJJJ".
+    Die Kachel zeigt den simulierten Median (``mc_exp_return_bps``), daher
+    "Median-Rendite (simuliert)" statt "Erw. Rendite"."""
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
     col_w = inner_width / 6
 
+    exp_return = metrics.get("exp_return_bps")
+    is_depleted = depleted(depletion, _safe_bps(exp_return))
+    na = not_meaningful_text(depletion or "Vermögen aufgebraucht") if is_depleted else None
     karten = [
         ("Risikobehafteter Anteil", format_bps_as_pct(metrics.get("risky_fraction_bps"))),
         ("Erfolgs-Wkt. gesamt", format_bps_as_pct(metrics.get("zielerreichung_bps"))),
         ("Erw. Volatilität", format_bps_as_pct(metrics.get("exp_vol_bps"))),
-        ("Erw. Rendite", format_bps_as_pct(metrics.get("exp_return_bps"))),
-        ("Max Drawdown", format_bps_as_pct(metrics.get("max_drawdown_bps"))),
+        ("Median-Rendite (simuliert)", na or format_bps_as_pct(exp_return)),
+        ("Max Drawdown", na or format_bps_as_pct(metrics.get("max_drawdown_bps"))),
         ("VaR 95 %", format_bps_as_pct(metrics.get("var_95_bps"))),
     ]
     cells = [
-        _kpi_card(label, value, styles) for label, value in karten
+        # Der Verzehr-Hinweis ist laenger als eine Zahl: kleinere Schrift,
+        # damit «aussagekräftig» in der schmalen Karte nicht mitten im Wort bricht.
+        _kpi_card(label, value, styles, small=bool(na) and value == na) for label, value in karten
     ]
     row = Table([cells], colWidths=[col_w] * 6)
     row.setStyle(TableStyle([
@@ -783,8 +906,9 @@ def _build_key_metrics_row(metrics: dict, styles: dict) -> Table:
     return row
 
 
-def _kpi_card(label: str, value: str, styles: dict) -> Table:
-    """Mini-Karte: Label oben (micro), Wert mittig (body-bold)."""
+def _kpi_card(label: str, value: str, styles: dict, *, small: bool = False) -> Table:
+    """Mini-Karte: Label oben (micro), Wert mittig (body-bold; ``small``:
+    Hinweistext in Caption-Groesse)."""
     label_p = Paragraph(
         _escape(label),
         _ar_paragraph_style(
@@ -794,7 +918,7 @@ def _kpi_card(label: str, value: str, styles: dict) -> Table:
     value_p = Paragraph(
         _escape(value or "—"),
         _ar_paragraph_style(
-            styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD,
+            styles["caption"] if small else styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD,
         ),
     )
     card = Table([[label_p], [value_p]])
@@ -841,8 +965,14 @@ def _build_positionen_flowables(positionen: dict, styles: dict, *, currency: str
         ))
         return out
 
-    for group in groups:
-        out.extend(_build_position_group(group, styles, currency=currency))
+    # N-894-14: Gruppenanteile ueber die gemeinsame Apportionierung (Summe exakt
+    # 100.0 %, kanonische Gleichstandsregel) -- dieselbe Zahl wie die Soll-Tabellen.
+    group_pct = allocation_pct_texts({
+        str(g.get("key") or g.get("label") or i): g.get("share_bps") or 0 for i, g in enumerate(groups)
+    })
+    for i, group in enumerate(groups):
+        shown = group_pct.get(str(group.get("key") or group.get("label") or i))
+        out.extend(_build_position_group(group, styles, currency=currency, share_text=shown))
         out.append(Spacer(1, 4 * mm))
 
     total_rappen = positionen.get("total_rappen") or 0
@@ -858,7 +988,8 @@ def _build_positionen_flowables(positionen: dict, styles: dict, *, currency: str
     return out
 
 
-def _build_position_group(group: dict, styles: dict, *, currency: str = "CHF") -> list[Any]:
+def _build_position_group(group: dict, styles: dict, *, currency: str,
+                          share_text: str | None = None) -> list[Any]:
     """Ein Bucket: Header (Label + Share + Total) + Positions-Tabelle."""
     out: list[Any] = []
     label = _safe_string(group.get("label"))
@@ -867,7 +998,7 @@ def _build_position_group(group: dict, styles: dict, *, currency: str = "CHF") -
 
     header_text = (
         f"<b>{_escape(label)}</b>"
-        f"  &mdash; {format_bps_as_pct(share_bps)}"
+        f"  &mdash; {share_text or format_bps_as_pct(share_bps)}"
         f"  &middot; {format_chf_rappen(total_rappen, currency=currency)}"
     )
     out.append(Paragraph(header_text, _ar_paragraph_style(
@@ -1030,7 +1161,8 @@ _AMPEL_PALETTE = {
     "gruen":            ("OK",       "#E5EEDF", "#4E6F58"),
     "gelb":             ("Achtung",  "#F4EBD5", "#B59243"),
     "rot":              ("Handeln",  "#F0D9D9", "#9E4747"),
-    "nicht_beurteilbar":("Pendant",  "#E9EBEE", "#7A8395"),
+    # KN4-B / E2E4-11: "Pendant" heisst Gegenstueck -- Statuslabel "Ausstehend".
+    "nicht_beurteilbar":("Ausstehend",  "#E9EBEE", "#7A8395"),
 }
 
 
@@ -1038,7 +1170,7 @@ def _build_erkenntnisse_flowables(erkenntnisse: dict, styles: dict) -> list[Any]
     """Tabelle: Prüfpunkt | Ampel | Beurteilung | Handlungsempfehlung.
 
     Ampel-Pills sind kleine farbige Rechtecke mit Status-Label (gruen→OK,
-    gelb→Achtung, rot→Handeln, nicht_beurteilbar→Pendant). Matte Farben
+    gelb→Achtung, rot→Handeln, nicht_beurteilbar→Ausstehend). Matte Farben
     gemäss Design-System (NICHT signal-grün/-rot).
     """
     out: list[Any] = []
@@ -1058,9 +1190,10 @@ def _build_erkenntnisse_flowables(erkenntnisse: dict, styles: dict) -> list[Any]
 
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
-    col_pruefpunkt = inner_width * 0.22
-    col_ampel = inner_width * 0.10
-    col_beurteilung = inner_width * 0.36
+    col_pruefpunkt = inner_width * 0.20
+    # KN4-B / E2E4-11: Platz fuer "Ausstehend" ohne Umbruch im Wort.
+    col_ampel = inner_width * 0.13
+    col_beurteilung = inner_width * 0.35
     col_empfehlung = inner_width - col_pruefpunkt - col_ampel - col_beurteilung
 
     header_row = [
@@ -1318,9 +1451,9 @@ def _build_bar_chart_section(
 def _data_basis_banner(styles: dict) -> Table:
     """Banner-Hinweis: IST basiert auf SOLL (alte Mandate ohne aktuelle Bestände)."""
     text = Paragraph(
-        "<b>Datenstand:</b> IST basiert aktuell auf SOLL-/Empfehlungswerten. "
-        "Sobald aktuelle Bestände gepflegt sind, zeigt der Bericht echte "
-        "Portfolio-Drifts.",
+        "<b>Datenstand:</b> Bestand unvollständig – für Titel der Empfehlung ist "
+        "kein aktueller Bestand erfasst. Der IST-Vergleich ist nicht beurteilbar; "
+        "gezeigt wird nur die SOLL-Struktur.",
         _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
     )
     banner = Table([[text]])
@@ -1365,18 +1498,16 @@ def _editorial_note(label: str, body: str, styles: dict) -> Table:
 # Sektion 11 — Goal-Based Investing
 # ---------------------------------------------------------------------------
 
-_GOAL_STATUS_PILL = {
-    "erreichbar":      ("Erreichbar",     "#E5EEDF", "#4E6F58"),
-    "knapp":           ("Knapp",          "#F4EBD5", "#B59243"),
-    "nicht_erreichbar":("Schwierig",      "#F0D9D9", "#9E4747"),
-    "data_pending":    ("Daten ausstehend","#E9EBEE", "#7A8395"),
-    "past":            ("Vergangen",      "#E9EBEE", "#7A8395"),
-    "beyond_horizon":  ("Jenseits Horizont","#E9EBEE", "#7A8395"),
-    "unknown":         ("Unklar",         "#E9EBEE", "#7A8395"),
-    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: Altbewertung ohne Prioritaets-
-    # zuordnung -- gemeinsamer Planwert, keine Ampel.
-    "legacy_aggregate_unknown": ("Altbewertung", "#E9EBEE", "#7A8395"),
-}
+# P5c / N-930-01: Wort und Farbe der Status-Pille aus der einen Tabelle
+# core/goal_metric_contract.GOAL_STATUS_DISPLAY (M-3); die fruehere eigene
+# Pillen-Tabelle und die Spalte "MC-Status" (Faecherquantile) sind entfallen.
+
+
+def _amount_in(rappen: Any, currency: str | None) -> str:
+    """G7 N4 (Grundregel): Betrag mit der Waehrung, in der er vorliegt; unbekannt -> "—"."""
+    if not currency:
+        return "—"
+    return format_chf_rappen(rappen, currency=currency)
 
 
 def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") -> list[Any]:
@@ -1395,8 +1526,8 @@ def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") ->
 
     goals = gbi.get("goals") or []
     mc = gbi.get("monte_carlo_paths") or {}
-    mc_classifications = classify_goals(goals, mc)
-    chart = build_mc_paths_drawing(mc, goals)
+    # G7 N4: Pfade in der Waehrung, in der der Server sie liefert (amount_currency), nicht Mandatswaehrung.
+    chart = build_mc_paths_drawing(mc, goals, currency=mc.get("amount_currency"))
     if chart is not None:
         out.append(chart)
         if mc.get("horizon_note"):
@@ -1423,7 +1554,7 @@ def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") ->
         out.append(Spacer(1, 3 * mm))
 
     if goals:
-        out.append(_goals_table(goals, styles, mc_classifications, currency=currency))
+        out.append(_goals_table(goals, styles, currency=currency))
         out.append(Spacer(1, 2 * mm))
         out.append(Paragraph(
             "<b>Erfolgswahrscheinlichkeit (Erfolgs-Wkt.):</b> Anteil der simulierten "
@@ -1529,57 +1660,47 @@ def _achievement_score_kpi(score_bps: int, styles: dict):
 def _goals_table(
     goals: list[dict],
     styles: dict,
-    mc_classifications: list[dict] | None = None,
     *,
     currency: str = "CHF",
 ) -> Table:
-    """Goal-Achievability-Tabelle mit 8 Spalten.
+    """Goal-Achievability-Tabelle mit 7 Spalten.
 
-    Spalten: Ziel/Typ/Hartheit/Ziel-Datum/Zielwert/Status/MC-Status/
-    Wahrscheinlichkeit. U-72 (MC-Status-Spalte) und Stage-9 (Hartheit +
-    Ziel-Datum aus Stochastic-Optimizer goal_achievability_json) kombiniert.
+    Spalten: Ziel/Typ/Hartheit/Ziel-Datum/Zielwert/Status/Wahrscheinlichkeit.
+    P5c / N-930-01: einziger Status ist der M-3-Status der Zeile (Wort und
+    Farbe aus GOAL_STATUS_DISPLAY); die Spalte "MC-Status" (U-72, Einstufung
+    aus Faecherquantilen) entfaellt -- die Quantile bleiben als Grafik.
     """
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
-    col_label = inner_width * 0.20
-    col_type = inner_width * 0.10
-    col_hardness = inner_width * 0.11
-    col_target_date = inner_width * 0.10
-    col_target = inner_width * 0.13
-    col_status = inner_width * 0.11
-    col_mc_status = inner_width * 0.13
+    col_label = inner_width * 0.22
+    col_type = inner_width * 0.12
+    col_hardness = inner_width * 0.12
+    col_target_date = inner_width * 0.11
+    col_target = inner_width * 0.14
+    col_status = inner_width * 0.13
     col_prob = (
         inner_width - col_label - col_type - col_hardness - col_target_date
-        - col_target - col_status - col_mc_status
+        - col_target - col_status
     )
 
     header = [
         _th("Ziel", styles), _th("Typ", styles),
         _th("Hartheit", styles), _th("Ziel-Datum", styles),
         _th("Zielwert", styles), _th("Status", styles),
-        _th("MC-Status", styles),
         _th("Erfolgs-Wkt. (nach Priorität)", styles),
     ]
     rows = [header]
-    mc_by_goal_id = {
-        str(c.get("goal_id") or ""): c
-        for c in (mc_classifications or [])
-        if isinstance(c, dict)
-    }
     for g in goals:
         label = _safe_string(g.get("label"))
         goal_type = _safe_string(g.get("goal_type"))
         hardness = _safe_string(g.get("hardness")) or "—"
         target_date = _safe_string(g.get("target_date")) or "—"
         target = format_chf_rappen(g.get("target_amount_rappen"), currency=currency)
-        status = str(g.get("status") or "data_pending").lower()
         if str(g.get("evaluation_scope") or "") == "legacy_aggregate_unknown":
-            # Altbewertung: gemeinsamer Planwert je Zeile, keine Ampel.
-            status = "legacy_aggregate_unknown"
-        mc_status = str(
-            (mc_by_goal_id.get(str(g.get("goal_id") or "")) or {}).get("status")
-            or "unknown"
-        ).lower()
+            # Altbewertung: gemeinsamer Planwert je Zeile, keine Einstufung.
+            status_fields = goal_status_display(GOAL_STATUS_LEGACY)
+        else:
+            status_fields = goal_status_fields(g)
         prob = format_bps_as_pct(g.get("probability_bps"))
         rows.append([
             Paragraph(_escape(label), _ar_paragraph_style(
@@ -1589,15 +1710,14 @@ def _goals_table(
             Paragraph(_escape(hardness), styles["caption"]),
             Paragraph(_escape(target_date), styles["caption_mono"]),
             Paragraph(_escape(target), styles["caption"]),
-            _goal_status_pill(status, styles),
-            _goal_status_pill(mc_status, styles),
+            _goal_status_pill(status_fields, styles),
             Paragraph(_escape(prob), _ar_paragraph_style(
                 styles["caption_mono"], color=COLOR_INK,
             )),
         ])
     table = Table(rows, colWidths=[
         col_label, col_type, col_hardness, col_target_date,
-        col_target, col_status, col_mc_status, col_prob,
+        col_target, col_status, col_prob,
     ])
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -1621,12 +1741,11 @@ def _th(text: str, styles: dict) -> Paragraph:
     )
 
 
-def _goal_status_pill(status: str, styles: dict):
+def _goal_status_pill(fields: dict, styles: dict):
+    """Status-Pille aus den M-3-Anzeigefeldern (GOAL_STATUS_DISPLAY)."""
     from reportlab.lib.colors import HexColor
 
-    label, fill_hex, text_hex = _GOAL_STATUS_PILL.get(
-        status, _GOAL_STATUS_PILL["data_pending"]
-    )
+    label, fill_hex, text_hex = fields["status_label"], fields["status_bg"], fields["status_color"]
     pill = Table(
         [[Paragraph(
             _escape(label),
@@ -2423,6 +2542,21 @@ def _bp_status_pill(status: str, styles: dict) -> Table:
     return pill
 
 
+# KN8: Anzeigeform des Gespraechskanals (Werte aus schemas/review.py
+# CommunicationChannel; gleiche Beschriftung wie das Erfassungsformular in
+# ares.html). Vorher stand der Schluessel «Persoenlich» im Kunden-PDF.
+COMMUNICATION_CHANNEL_DISPLAY = {
+    "persoenlich": "Persönlich", "video": "Video", "telefon": "Telefon",
+    "schriftlich": "Schriftlich", "hybrid": "Hybrid",
+}
+
+
+def communication_channel_display(value) -> str:
+    """KN9 / N-931-02: Anzeigeform des Kanals; unbekannte oder leere Werte
+    ergeben «—», nie den Rohschluessel (die DB-Spalte ist frei)."""
+    return COMMUNICATION_CHANNEL_DISPLAY.get(str(value or "").strip(), "—")
+
+
 def _bp_latest_entry_block(entry: dict, styles: dict) -> Table:
     """Detail-Block: Header (Datum/Typ) + Channel/Dauer + Topics + Warnings + Hash."""
     page_width, _ = PAGE_SIZE
@@ -2434,12 +2568,16 @@ def _bp_latest_entry_block(entry: dict, styles: dict) -> Table:
     pretty_dt = _format_swiss_datetime(datetime_iso)
     duration = entry.get("duration_minutes")
     duration_text = f"{duration} min" if isinstance(duration, (int, float)) else "—"
-    channel = _safe_string(entry.get("communication_channel")).capitalize()
+    channel = communication_channel_display(entry.get("communication_channel"))
     status = str(entry.get("status") or "Empfohlen")
     topics = entry.get("topics") or []
     warnings = entry.get("risk_warnings_given") or []
     version = int(entry.get("version") or 1)
-    hash_short = (entry.get("integrity_hash") or "")[:16]
+    # KN8 / N-929-01: Kundenfassung -- Kurzreferenz (8 Zeichen) statt Hash-
+    # Ausschnitt, Pruefergebnis aus ``integrity_verified`` (nie fest).
+    integrity_hash = str(entry.get("integrity_hash") or "").strip()
+    hash_short = short_reference(integrity_hash) if integrity_hash else ""
+    integrity_verified = entry.get("integrity_verified")
     description = _safe_string(entry.get("description"))
 
     rows = []
@@ -2493,7 +2631,8 @@ def _bp_latest_entry_block(entry: dict, styles: dict) -> Table:
     out_table = Table(
         [
             [table],
-            [_bp_topics_block(topics, warnings, hash_short, styles)],
+            [_bp_topics_block(topics, warnings, hash_short, styles,
+                              integrity_verified=integrity_verified)],
         ],
         colWidths=[inner_width],
     )
@@ -2508,10 +2647,33 @@ def _bp_latest_entry_block(entry: dict, styles: dict) -> Table:
     return out_table
 
 
+# KN8 / N-929-01: Pruefergebnis der Protokoll-Integritaet in Worten. Quelle ist
+# ``integrity_verified`` aus services/advisory_log_service.verify_entry_integrity
+# (True = Hash stimmt, False = Hash stimmt nicht, None = nicht geprueft). Nur
+# ``True`` ergibt «verifiziert»; alles andere nie. KN9 / N-931-01: False
+# erreicht das Kunden-PDF nicht mehr (assert_advisory_log_integrity sperrt);
+# der Eintrag bleibt als Rueckfall ohne Handlungszusage an den Kunden.
+INTEGRITY_STATUS_DISPLAY = {
+    True: ("verifiziert", "#4E6F58"),
+    False: ("nicht verifiziert", "#9E4747"),
+    None: ("nicht geprüft", "#7A8395"),
+}
+
+
+def integrity_status_display(integrity_verified) -> tuple[str, str]:
+    """(Text, Farbe) zum Pruefergebnis; unbekannte Werte gelten als ungeprueft."""
+    if integrity_verified is True:
+        return INTEGRITY_STATUS_DISPLAY[True]
+    if integrity_verified is False:
+        return INTEGRITY_STATUS_DISPLAY[False]
+    return INTEGRITY_STATUS_DISPLAY[None]
+
+
 def _bp_topics_block(
     topics: list, warnings: list, hash_short: str, styles: dict,
+    *, integrity_verified=None,
 ) -> Table:
-    """Topics + Risk-Warnings + Hash-Marker als kompakter Block."""
+    """Topics + Risk-Warnings + Pruefsumme (Kurzreferenz) als kompakter Block."""
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT - 10
 
@@ -2547,6 +2709,7 @@ def _bp_topics_block(
         ])
 
     if hash_short:
+        status_text, status_color = integrity_status_display(integrity_verified)
         rows.append([
             Paragraph(
                 "INTEGRITÄT",
@@ -2555,8 +2718,8 @@ def _bp_topics_block(
                 ),
             ),
             Paragraph(
-                f"<font face='{FONT_MONO}'>{_escape(hash_short)}…</font>  "
-                "<font color='#4E6F58'><b>verifiziert</b></font>",
+                f"Prüfsumme <font face='{FONT_MONO}'>{_escape(hash_short)}</font>  &middot;  "
+                f"<font color='{status_color}'><b>{_escape(status_text)}</b></font>",
                 _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
             ),
         ])
@@ -2652,9 +2815,9 @@ def _stress_replay_table(scenarios: list[dict], styles: dict) -> Table:
     ) or 1
     rows = [[
         _th("Szenario", styles),
-        _th("Return", styles),
-        _th("Max-Drawdown", styles),
-        _th("Recovery", styles),
+        _th("Rendite", styles),
+        _th("Max. Verlust", styles),
+        _th("Erholung", styles),
         _th("Zeitraum", styles),
     ]]
     for scenario in scenarios:
@@ -2736,7 +2899,7 @@ def _build_ab_backtest_flowables(ab: dict, styles: dict) -> list[Any]:
     """Read-only Policy-Vergleich im Advisory-Report-PDF."""
     out: list[Any] = []
     out.append(Paragraph("Sektion 18", styles["kicker"]))
-    out.append(Paragraph("Policy-A/B-Vergleich", styles["h1"]))
+    out.append(Paragraph("Strategievergleich A/B", styles["h1"]))
     out.append(Spacer(1, 4 * mm))
     out.append(_hr())
     out.append(Spacer(1, 5 * mm))
@@ -2752,9 +2915,10 @@ def _build_ab_backtest_flowables(ab: dict, styles: dict) -> list[Any]:
     policy_a = ab.get("policy_a") or {}
     policy_b = ab.get("policy_b") or {}
     out.append(Paragraph(
-        "Der Vergleich rechnet zwei House-Matrix-Policies auf demselben "
-        "Risikoprofil und derselben Kapitalmarktannahme. Er ist read-only "
-        "und isoliert den Policy-Effekt ohne Tilts, Goals oder Reserve-Logik.",
+        "Der Vergleich rechnet zwei hausinterne Strategiemodelle auf demselben "
+        "Risikoprofil und derselben Kapitalmarktannahme. Er dient nur der "
+        "Information und zeigt den Unterschied der Modelle ohne individuelle "
+        "Anpassungen, Ziele oder Liquiditätsreserve.",
         _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
     ))
     out.append(Spacer(1, 5 * mm))
@@ -2765,7 +2929,7 @@ def _build_ab_backtest_flowables(ab: dict, styles: dict) -> list[Any]:
     if stress:
         out.append(Spacer(1, 6 * mm))
         out.append(Paragraph(
-            "Stress-Replay-Differenz",
+            "Stress-Szenarien: Differenz",
             _ar_paragraph_style(
                 styles["caption"], color=COLOR_INK, font=FONT_SANS_BOLD,
             ),
@@ -2837,8 +3001,8 @@ def _ab_metrics_table(policy_a: dict, policy_b: dict, styles: dict) -> Table:
 def _ab_bucket_diff_table(rows_in: list[dict], styles: dict) -> Table:
     rows = [[
         _th("Anlageklasse", styles),
-        _th("Policy A", styles),
-        _th("Policy B", styles),
+        _th("Modell A", styles),
+        _th("Modell B", styles),
         _th("Delta B-A", styles),
     ]]
     for item in rows_in:
@@ -2868,10 +3032,10 @@ def _ab_bucket_diff_table(rows_in: list[dict], styles: dict) -> Table:
 def _ab_stress_diff_table(rows_in: list[dict], styles: dict) -> Table:
     rows = [[
         _th("Szenario", styles),
-        _th("Return A", styles),
-        _th("Return B", styles),
-        _th("Delta", styles),
-        _th("MaxDD A/B", styles),
+        _th("Rendite A", styles),
+        _th("Rendite B", styles),
+        _th("Differenz", styles),
+        _th("Max. Verlust A/B", styles),
     ]]
     for item in rows_in:
         rows.append([
@@ -2936,7 +3100,7 @@ def _ab_policy_label(policy: dict) -> str:
 
 def _format_x100(value: int | float | None) -> str:
     try:
-        return f"{float(value or 0) / 100:.2f}"
+        return format_number(float(value or 0) / 100, decimals=2)
     except (TypeError, ValueError):
         return "0.00"
 
@@ -2946,8 +3110,8 @@ def _format_signed_x100(value: int | float | None) -> str:
         numeric = float(value or 0) / 100
     except (TypeError, ValueError):
         numeric = 0.0
-    sign = "+" if numeric > 0 else ""
-    return f"{sign}{numeric:.2f}"
+    text = format_number(numeric, decimals=2)
+    return ("+" + text) if numeric > 0 and text != "0.00" else text
 
 
 # ---------------------------------------------------------------------------
@@ -2958,67 +3122,59 @@ def _format_signed_x100(value: int | float | None) -> str:
 _SUITABILITY_RESULT_PILL = {
     "passed":     ("Eignung gegeben",       "#E5EEDF", "#4E6F58"),
     "mismatch":   ("Mismatch dokumentiert", "#F0D9D9", "#9E4747"),
-    "incomplete": ("Pruefung unvollstaendig","#F4EBD5", "#B59243"),
+    "incomplete": ("Prüfung unvollständig","#F4EBD5", "#B59243"),
 }
 
 _DUTY_TYPE_LABEL = {
-    "suitability":     "Eignungspruefung (Suitability)",
-    "appropriateness": "Angemessenheitspruefung (Appropriateness)",
-    "informational":   "Informationspruefung",
+    "suitability":     "Eignungsprüfung (Suitability)",
+    "appropriateness": "Angemessenheitsprüfung (Appropriateness)",
+    "informational":   "Informationsprüfung",
     "execution_only":  "Execution-only",
 }
 
 
-def _build_suitability_summary_flowables(ss: dict, styles: dict) -> list[Any]:
+def _build_suitability_summary_flowables(
+    ss: dict, styles: dict, *, suitability_compliance: dict | None = None,
+) -> list[Any]:
     """FINMA-Eignungspruefung als eigenstaendige PDF-Sektion.
 
     Stellt im Bericht sichtbar den juengsten SuitabilityCheck dar:
     Status-Pill (passed/mismatch/incomplete), wer hat wann was geprueft,
     Result-Notes, fehlende Infos, Warnungs-/Bestaetigungs-Spur falls
     Mismatch + Kunde weitergefuehrt, Referenzen, Empty-State.
+
+    KN7 / N-928-01: Sektion 27 widerspricht Sektion 19 (Compliance-Audit) nie.
+    Massgebend ist der Status aus ``customer_suitability_text`` (Pruefgrundlage
+    des Suitability-Audits): der Leerzustand richtet sich danach, und ein
+    erfasster Pruefdatensatz zeigt «Eignung gegeben» nur, wenn Sektion 19 die
+    Geeignetheitspruefung ebenfalls bestaetigt (Status ``ok``).
     """
+    status, status_text = customer_suitability_text(suitability_compliance or {})
     out: list[Any] = []
     out.append(Paragraph("Sektion 27", styles["kicker"]))
-    out.append(Paragraph("Eignungspruefung", styles["h1"]))
+    out.append(Paragraph("Eignungsprüfung", styles["h1"]))
     out.append(Spacer(1, 4 * mm))
     out.append(_hr())
     out.append(Spacer(1, 5 * mm))
 
-    # RISK-CAPACITY-REPORT-001: Beraterhinweis der Plausibilitaetspruefung
-    # Risikofaehigkeit -- unabhaengig davon, ob ein SuitabilityCheck existiert
-    # (geschuetzte Sektion, nie per HUD ausblendbar). Betragsfreier Text aus
-    # services/risk_capacity_plausibility_report.advisor_report_note.
-    rcp_block = (ss or {}).get("risk_capacity_plausibility")
-    rcp_note = (
-        str(rcp_block.get("note") or "").strip()
-        if isinstance(rcp_block, dict) else ""
-    )
-    if rcp_note:
-        out.append(Paragraph(
-            _escape(rcp_note),
-            _ar_paragraph_style(styles["caption"], color=COLOR_STATUS_NEUTRAL),
-        ))
-        out.append(Spacer(1, 4 * mm))
-    # Closure-Review PR #677: die Plausibilitaetspruefung ist eine Live-
-    # Pruefung des aktuellen Profils; zeigt die Eignungspruefung auf ein
-    # anderes Profil, werden beide nicht als zusammengehoerig dargestellt.
-    if isinstance(rcp_block, dict) and rcp_block.get("suitability_reference_match") is False:
-        from services.risk_capacity_plausibility_report import (
-            REFERENCE_MISMATCH_NOTE as RCP_REFERENCE_MISMATCH_NOTE,
-        )
-
-        out.append(Paragraph(
-            _escape(RCP_REFERENCE_MISMATCH_NOTE),
-            _ar_paragraph_style(styles["caption"], color=COLOR_STATUS_NEUTRAL),
-        ))
-        out.append(Spacer(1, 4 * mm))
+    # H9 (Owner-Vorgabe 2026-11-08): kein Plausibilitaets-/Widerspruchs-
+    # hinweis zur Risikofaehigkeit im Beratungsbericht -- Kundenangaben werden
+    # respektiert; die Pruefung bleibt intern (Evidenz + Audit).
 
     if not ss or not ss.get("has_check"):
-        out.append(_ss_empty_state(styles))
+        out.append(_ss_empty_state(styles, status=status, status_text=status_text))
         return out
 
-    out.append(_ss_summary_box(ss, styles))
+    out.append(_ss_summary_box(ss, styles, status=status))
     out.append(Spacer(1, 5 * mm))
+    if status != "ok":
+        # Der Pruefdatensatz bleibt sichtbar; die massgebende Aussage zur
+        # Pruefgrundlage ist dieselbe wie in Sektion 19.
+        out.append(Paragraph(
+            _escape(status_text),
+            _ar_paragraph_style(styles["body"], color=COLOR_INK_MUTED),
+        ))
+        out.append(Spacer(1, 4 * mm))
 
     notes = str(ss.get("result_notes") or "").strip()
     if notes:
@@ -3041,14 +3197,24 @@ def _build_suitability_summary_flowables(ss: dict, styles: dict) -> list[Any]:
 
     refs = ss.get("references") or {}
     if any(refs.values()):
-        out.append(Paragraph("Verknuepfte Datensaetze", styles["h2"]))
+        out.append(Paragraph("Verknüpfte Datensätze", styles["h2"]))
         out.append(Spacer(1, 2 * mm))
         out.append(_ss_references_table(refs, ss, styles))
 
     return out
 
 
-def _ss_summary_box(ss: dict, styles: dict) -> Table:
+# KN7 / N-928-01: «Eignung gegeben» nur, wenn Sektion 19 die Pruefung
+# bestaetigt; sonst ein Pill, das Sektion 19 nicht widerspricht.
+_SUITABILITY_STATUS_OVERRIDE_PILL = {
+    "not_required": ("nicht erforderlich",  "#E9EBEE", "#7A8395"),
+    "missing":      ("nicht gültig",        "#F0D9D9", "#9E4747"),
+    "undocumented": ("nicht dokumentiert",  "#F4EBD5", "#B59243"),
+    "degraded":     ("nicht bestätigt",     "#E9EBEE", "#7A8395"),
+}
+
+
+def _ss_summary_box(ss: dict, styles: dict, *, status: str = "ok") -> Table:
     """3-Spalten-Box: Status-Pill + Geprueft von + Pflichttyp/Datum."""
     from reportlab.lib.colors import HexColor
 
@@ -3059,6 +3225,10 @@ def _ss_summary_box(ss: dict, styles: dict) -> Table:
     pill_label, pill_fill, pill_text = _SUITABILITY_RESULT_PILL.get(
         result, ("Status unklar", "#E9EBEE", "#3B475A"),
     )
+    if result == "passed" and status != "ok":
+        pill_label, pill_fill, pill_text = _SUITABILITY_STATUS_OVERRIDE_PILL.get(
+            status, _SUITABILITY_STATUS_OVERRIDE_PILL["undocumented"],
+        )
     pill = Table(
         [[Paragraph(
             _escape(pill_label),
@@ -3105,7 +3275,7 @@ def _ss_summary_box(ss: dict, styles: dict) -> Table:
         ("BOTTOMPADDING", (0, 0), (0, 0), 6),
     ]))
     advisor_col = Table(
-        [[_cell_label("Geprueft von")], [_cell_value(advisor_name)]],
+        [[_cell_label("Geprüft von")], [_cell_value(advisor_name)]],
     )
     advisor_col.setStyle(TableStyle([
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -3150,7 +3320,7 @@ def _ss_missing_info_block(missing: list, styles: dict) -> Table:
 
     lines: list[Any] = [
         Paragraph(
-            "<b>Fehlende Informationen zum Zeitpunkt der Pruefung</b>",
+            "<b>Fehlende Informationen zum Zeitpunkt der Prüfung</b>",
             _ar_paragraph_style(
                 styles["caption"], color=HexColor("#B59243"), font=FONT_SANS_BOLD,
             ),
@@ -3181,14 +3351,14 @@ def _ss_override_workflow_block(ss: dict, styles: dict) -> Table:
     warning_at = _format_swiss_datetime(str(ss.get("warning_delivered_at") or ""))
     ack_at = _format_swiss_datetime(str(ss.get("client_acknowledged_at") or ""))
     warning_line = (
-        f"Warnung ausgehaendigt am {warning_at}"
+        f"Warnung ausgehändigt am {warning_at}"
         if ss.get("warning_delivered")
-        else "Warnung NICHT dokumentiert ausgehaendigt"
+        else "Warnung NICHT dokumentiert ausgehändigt"
     )
     ack_line = (
-        f"Kunde hat Hinweis bestaetigt am {ack_at}"
+        f"Kunde hat Hinweis bestätigt am {ack_at}"
         if ss.get("client_acknowledged")
-        else "Kundenbestaetigung NICHT dokumentiert"
+        else "Kundenbestätigung NICHT dokumentiert"
     )
 
     lines: list[Any] = [
@@ -3286,21 +3456,33 @@ def _ss_references_table(refs: dict, ss: dict, styles: dict) -> Table:
     return table
 
 
-def _ss_empty_state(styles: dict) -> Table:
+# KN7 / N-928-01: Leerzustand je Status der Pruefgrundlage (Sektion 19).
+# Text = dieselbe Kundenaussage wie Sektion 19 -> kein Widerspruch moeglich.
+_SS_EMPTY_TITLES = {
+    "ok": "Eignungsprüfung im Risikoprofil dokumentiert",
+    "missing": "Noch keine gültige Eignungsprüfung dokumentiert",
+    "not_required": "Keine Eignungsprüfung vorgesehen",
+    "undocumented": "Prüfgrundlage nicht dokumentiert",
+    "degraded": "Eignungsprüfung nicht bestätigt",
+}
+
+
+def _ss_empty_state(styles: dict, *, status: str = "undocumented", status_text: str = "") -> Table:
     """Empty-State wenn kein SuitabilityCheck zum Mandat existiert."""
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
 
     title = Paragraph(
-        "<b>Noch keine Eignungspruefung dokumentiert</b>",
+        f"<b>{_escape(_SS_EMPTY_TITLES.get(status, _SS_EMPTY_TITLES['undocumented']))}</b>",
         _ar_paragraph_style(styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD),
     )
+    if status == "ok":
+        status_text = (
+            "Die Geeignetheitsprüfung stützt sich auf das dokumentierte Risikoprofil. "
+            + status_text
+        )
     body = Paragraph(
-        _escape(
-            "Vor der Umsetzung der Anlagestrategie ist eine FINMA-konforme "
-            "Eignungspruefung (Suitability nach FIDLEG) durchzufuehren und "
-            "im System zu hinterlegen. Sie erscheint danach an dieser Stelle."
-        ),
+        _escape(status_text),
         _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
     )
     box = Table([[title], [Spacer(1, 2 * mm)], [body]], colWidths=[inner_width])
@@ -3392,7 +3574,7 @@ def _format_two_digits(value: Any) -> str:
 def _escape(text: str) -> str:
     """ReportLab Paragraph akzeptiert mini-HTML. Wir escapen die Standard-Trio."""
     return (
-        str(text)
+        customer_term(str(text))
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")

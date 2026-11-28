@@ -1,4 +1,4 @@
-# 5eyes WealthArchitekten — Schweiz-Fertigstellung + Internationalisierungs-Fahrplan
+# LB-B LB-C — Schweiz-Fertigstellung + Internationalisierungs-Fahrplan
 
 > ⚠️ **ERSETZT** durch [2026-08-04-mega-audit-standortbericht.md](./2026-08-04-mega-audit-standortbericht.md) — enthält eine deutliche Vertiefung des DACH/i18n-Abschnitts (u.a. `base_currency`-Hardcoding als funktionaler DE-Blocker, CHF-Label-Fehler in Kostenausweis/Advisory-Report, BFS-Sterbetafel ohne Jurisdiktions-Gate) sowie dieselbe RES-1/RES-2/goals-1/OPT-2-Korrektur wie im Launch-Readiness-Update.
 

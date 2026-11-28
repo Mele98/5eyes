@@ -1,6 +1,6 @@
 # Codex-Sprint U-P25 — Advisory-Report Frontend Phase 3 (Sektionen 11-15, finaler Frontend-Sprint)
 
-> **Adressat:** Codex (5eyes-Session).
+> **Adressat:** Codex (LB-B-Session).
 > **Erstellt durch:** Claude (Opus 4.7), 2026-05-25.
 > **Voraussetzung:** U-P23 + U-P24 gemerged. Dies ist der **abschliessende
 > Frontend-Sprint** — danach sind alle 15 Sektionen sichtbar.

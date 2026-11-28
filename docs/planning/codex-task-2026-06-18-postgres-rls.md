@@ -3,7 +3,7 @@
 > **Für Codex:** Dies ist deine Aufgaben-Spec. Lies sie ganz, dann planen → umsetzen →
 > adversarial testen. Ein Commit pro Task, am Ende EIN PR gegen `develop`.
 
-**Repo:** `C:\5eyes\5eyes_stage9_release_ready` (FastAPI, SQLAlchemy, pytest).
+**Repo:** `C:\LB-B\LB-B_stage9_release_ready` (FastAPI, SQLAlchemy, pytest).
 **Kontext:** `docs/planning/2026-06-12-external-access-rollout-plan.md` (§2 Defense-in-depth),
 `docs/planning/2026-06-18-roadmap-200-detailliert.md` (#33–#37, #11), ADR-007 (Multi-Tenancy).
 **Maxime (Memory):** HARTE Mandanten-Trennung ist oberste Pflicht.
