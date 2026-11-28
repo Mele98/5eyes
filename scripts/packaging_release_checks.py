@@ -291,6 +291,7 @@ def check_product_hygiene(exe: Path, unpacked_dir: Path, fail, log) -> None:
                 code = pyz.extract(module)
             except Exception as exc:  # noqa: BLE001 -- jeder unlesbare Eintrag ist ein Befund
                 fail(f'PYZ-Eintrag der Backend-EXE nicht lesbar: {module} ({type(exc).__name__}).')
+                continue
             if code is None:
                 continue
             modules += 1
@@ -306,21 +307,21 @@ def check_product_hygiene(exe: Path, unpacked_dir: Path, fail, log) -> None:
 
 
 def _code_strings(code) -> list[str]:
-    """Alle Texte eines Code-Objekts samt verschachtelter Code-Objekte."""
+    """Alle Texte eines Code-Objekts samt verschachtelter Code-Objekte und Konstanten."""
     out: list[str] = []
-    stack = [code]
+    stack: list = [code]
     while stack:
         current = stack.pop()
-        out += [current.co_filename, current.co_name, *current.co_names, *current.co_varnames]
-        for const in current.co_consts:
-            if isinstance(const, str):
-                out.append(const)
-            elif isinstance(const, bytes):
-                out.append(const.decode('utf-8', errors='replace'))
-            elif isinstance(const, (tuple, frozenset)):
-                out += [c for c in const if isinstance(c, str)]
-            elif hasattr(const, 'co_consts'):
-                stack.append(const)
+        if isinstance(current, str):
+            out.append(current)
+        elif isinstance(current, bytes):
+            out.append(current.decode('utf-8', errors='replace'))
+        elif isinstance(current, (tuple, frozenset)):
+            stack.extend(current)
+        elif hasattr(current, 'co_consts'):
+            out += [current.co_filename, current.co_name, getattr(current, 'co_qualname', ''),
+                    *current.co_names, *current.co_varnames, *current.co_freevars, *current.co_cellvars]
+            stack.extend(current.co_consts)
     return out
 
 
