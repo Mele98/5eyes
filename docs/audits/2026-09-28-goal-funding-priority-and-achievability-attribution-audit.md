@@ -490,7 +490,7 @@ Ziele.
    der Nebenzielwahrscheinlichkeit entspricht.
 4. `docs/engine-spec.md:421` sagt, opportunistische Goals würden nicht
    erzwungen.
-5. `docs/methodology/5eyes-engine-whitepaper.md:85-91` sagt, sie würden im
+5. `docs/methodology/LB-B-engine-whitepaper.md:85-91` sagt, sie würden im
    Hardness-Modus nur „mitgenommen“.
 
 Der Repro liefert dagegen `P_hard=0 < P_opportunistisch=1`.

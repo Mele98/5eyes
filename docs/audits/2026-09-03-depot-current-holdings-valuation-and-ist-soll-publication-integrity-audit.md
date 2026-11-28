@@ -686,7 +686,7 @@ Ausgeführt aus `ares-backend` mit externem Basetemp:
 
 ```powershell
 python -m pytest -q -p no:cacheprovider `
-  --basetemp C:\tmp\5eyes-depot-ist-audit-20260903 `
+  --basetemp C:\tmp\LB-B-depot-ist-audit-20260903 `
   tests/test_depot_check.py `
   tests/test_advisory_report.py `
   tests/test_advisory_report_pdf.py `

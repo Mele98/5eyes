@@ -168,7 +168,7 @@ GET /mandates/{mandate_id}/advisory-report
 
 ## Branding-Disziplin (per Memory)
 
-- Pruefpunkte-Test prüft expliziert: keine "ubs/pictet/julius bär/swiss life/3eyes"
+- Pruefpunkte-Test prüft expliziert: keine "ubs/pictet/julius bär/swiss life/LB-A"
   in den statischen Beschreibungen.
 - Statement-PM-Test zusätzlich: keine "garantiert/Garantie" (FINMA-Compliance).
 - Disclaimer-Test (von U-P21.1) prüft alle 7 FINMA-Pflichtphrasen + Branding.
@@ -212,7 +212,7 @@ GET /mandates/{mandate_id}/advisory-report
 
 ## Auswirkung
 
-- 5eyes hat ab jetzt eine **stabile, getestete API** für institutionelles
+- LB-B hat ab jetzt eine **stabile, getestete API** für institutionelles
   Wealth-Reporting.
 - Berater kann den Endpoint heute schon konsumieren (curl/Postman) und
   manuelle Reports zusammenstellen.

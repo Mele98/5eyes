@@ -280,7 +280,7 @@ Private Banking Report 2025 + CFA Performance Attribution:
 
 ### 4.3 Risiko-Punkte im Design
 
-- ⚠️ Cover-Wordmark „5eyes" + „Wealth Architects" ist Text-only. Für ein
+- ⚠️ Cover-Wordmark „LB-B" + „LB-C" ist Text-only. Für ein
   Family-Office-Niveau-Dokument fehlt ein **logo/wordmark-asset**.
 - ⚠️ Schweizer Zahl-Formatierung **inkonsistent**: backend liefert Rappen
   als Integer, Frontend muss eigene Formatter haben. Heute nur die
@@ -310,7 +310,7 @@ Architect / CIO einer Schweizer Privatbank"):
 | Wissenschaftliche Kapitalmarkttheorie | ✅ Statement-PM erwähnt | 🔴 keine Visualisierung |
 | Stochastische Optimierung | ✅ Stages 1-9 implementiert | 🔴 nicht im Report sichtbar |
 | Multi-Perioden-Logik | ✅ in Engine | 🔴 keine Cashflow-Visualisierung |
-| 3rd-eyes/iSAA-Logik | ✅ konzeptionell drin (Building Blocks) | 🔴 nicht visualisiert |
+| LB-A/iSAA-Logik | ✅ konzeptionell drin (Building Blocks) | 🔴 nicht visualisiert |
 | Editorial Layout | 🟡 Tokens da, 14 Seiten fehlen | 🟡 nur Cover |
 | Print-ready PDF | ❌ noch nicht angefangen (U-P26) | ❌ |
 | Präsentationsmodus | ❌ noch nicht angefangen | ❌ |
@@ -441,7 +441,7 @@ DANACH:
 - **Parallel** kann der Berater die echten Daten-Lücken im Test-Mandat
   schliessen (Alter, Horizont, Anlageziel-Label etc.)
 
-Wenn die Top-10-Items abgearbeitet sind, hat 5eyes einen Report der **mit den
+Wenn die Top-10-Items abgearbeitet sind, hat LB-B einen Report der **mit den
 institutionellen Vergleichs-Niveaus** (Family Office Standard, UBS GFO Report,
 Pictet Wealth Reporting) **fachlich konkurrieren kann** — die Daten-Tiefe ist
 da, der Look-Standard ist gesetzt, nur die Render-Schicht fehlt noch.

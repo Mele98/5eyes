@@ -47,7 +47,7 @@ Kontrollrunde. Er wurde gegen den unveränderten Repository-Head `b5de5c9`
 durchgeführt und verändert weder Produktcode noch Tests.
 
 Geprüft wurde nicht, welche ESG-, Themen-, Währungs- oder Heimmarktpräferenz
-wirtschaftlich sinnvoll ist. Geprüft wurde ausschließlich, ob 5eyes die vom
+wirtschaftlich sinnvoll ist. Geprüft wurde ausschließlich, ob LB-B die vom
 eigenen Schema akzeptierten und im Kundenkanal dargestellten Präferenzen mit
 genau demselben, unveränderlichen Kontext in Soll-Allokation, Produktauswahl,
 manuellen Positionen, Finalisierung, PDF, Signatur und Handoff durchsetzt.
@@ -198,7 +198,7 @@ Browser vor Strategieerzeugung
   collectAllocationPreferencesFromUI()
        |
        +-- Cache/currentPersona
-       +-- localStorage: 5eyes.allocprefs.<mandate>
+       +-- localStorage: LB-B.allocprefs.<mandate>
        +-- keine serverseitige PreferenceDecision-Version
        |
        v

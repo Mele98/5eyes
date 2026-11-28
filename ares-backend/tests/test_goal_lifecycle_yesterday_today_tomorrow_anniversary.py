@@ -38,6 +38,21 @@ from models import (  # noqa: F401
 configure_mappers()
 
 from services.optimizer.goal_liabilities import goal_to_liability
+from services.valuation_clock import bound_valuation_date
+
+
+# Fester Bewertungsstichtag ("heute"). Die Engine bezieht "heute" nur ueber
+# ``services.valuation_clock`` (ausserhalb eines Laufs die Wanduhr); mit
+# ``date.today()`` war dieser Test am 31.12. rot: "morgen" liegt dann im
+# naechsten Kalenderjahr, also korrekt in Bucket 2 (ADR-2), der Test
+# erwartete fest Bucket 1.
+AS_OF = date(2026, 6, 15)
+
+
+@pytest.fixture(autouse=True)
+def _fixed_valuation_date():
+    with bound_valuation_date(AS_OF):
+        yield
 
 
 def _make_goal(*, goal_type: str, target_date: str, goal_id: str = "g1"):
@@ -118,8 +133,7 @@ def _has_lifecycle_marker(liab) -> bool:
     ],
 )
 def test_past_present_future_boundary_needs_explicit_lifecycle(goal_type, label, offset_days):
-    today = date.today()
-    target = today + timedelta(days=offset_days)
+    target = AS_OF + timedelta(days=offset_days)
     goal = _make_goal(goal_type=goal_type, target_date=target.isoformat())
 
     liab = goal_to_liability(goal, horizon_years=10)
@@ -127,7 +141,8 @@ def test_past_present_future_boundary_needs_explicit_lifecycle(goal_type, label,
     if offset_days > 0:
         # Genuinely future (tomorrow): a real "due in ~1 year" goal. Not the
         # focus of this test, but pinned so the matrix stays self-documenting.
-        assert liab.target_year_index == 1
+        # Kalenderjahr-Bucket (ADR-2): beim Stichtag 15.6. ist das Bucket 1.
+        assert liab.target_year_index == target.year - AS_OF.year + 1 == 1
         return
 
     # gestern / heute / vor einem Jahr: alle faellig oder ueberfaellig, keines

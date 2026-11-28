@@ -2,7 +2,7 @@
 
 - **Datum:** 2026-06-12
 - **Autor:** Engine/Architektur-Audit (autonom)
-- **Baut auf:** ADR-007 (Multi-Tenancy), ADR-009 (3-Tier-Hosting), Memory `project_5eyes_external_access`, `project_5eyes_3_tier_hosting`
+- **Baut auf:** ADR-007 (Multi-Tenancy), ADR-009 (3-Tier-Hosting), Memory `project_LB-B_external_access`, `project_LB-B_3_tier_hosting`
 - **Status:** Plan zur Freigabe — Implementierung phasenweise
 
 > Ziel des Users: (1) verschiedene **Firmen-Accounts** (Treuhänder/VV) + **interne Mitarbeiter-Accounts** je Firma; (2) **externer Zugriff**, **anfangs nur Operator + Kollegen OHNE Kundendaten**, aber **architektonisch „ready"** für den echten Betrieb; (3) **harte Mandanten-Trennung** als oberste Maxime.
@@ -102,7 +102,7 @@ PostgreSQL (RLS, per-tenant key, encrypted-at-rest)  ← CH, automat. Backups + 
 
 **Setup:**
 - 1× CH-VPS, `serve_main_frontend=on`, `app_env=staging`, HTTPS via Caddy + Let's Encrypt, Cloudflare davor.
-- 2–3 **Demo-Tenants** (`5eyes-internal`, `demo-firma-a`, `demo-firma-b`) mit **ausschliesslich synthetischen** Kunden (wie Leart-Testdaten).
+- 2–3 **Demo-Tenants** (`LB-B-internal`, `demo-firma-a`, `demo-firma-b`) mit **ausschliesslich synthetischen** Kunden (wie Leart-Testdaten).
 - **Harte Daten-Klassifizierungs-Sperre (NEU):** Setting `allow_real_client_data=false` →
   - blockiert Import/Anlage von als „real" markierten Mandaten,
   - zeigt persistentes „SYNTHETIC / TEST DATA ONLY"-Banner,
@@ -142,7 +142,7 @@ PostgreSQL (RLS, per-tenant key, encrypted-at-rest)  ← CH, automat. Backups + 
 1. **CH-Hosting-Provider:** Infomaniak (Genf) vs. Exoscale (Lausanne) vs. eigener Server? (Kosten/Compliance/Komfort)
 2. **DB-Zeitpunkt:** Postgres+RLS schon in E0/E1 — oder Phase 0 noch auf SQLCipher-SQLite (schneller, reicht für wenige interne User)? *Empfehlung: Phase 0 auf SQLite, Postgres in E1 vor echten Daten.*
 3. **2FA-Methode:** TOTP-App (Google/Microsoft Authenticator) — ok? (empfohlen, kostenlos, offline)
-4. **Domain/Branding:** unter welcher Domain (z.B. `app.5eyes.ch`)?
+4. **Domain/Branding:** unter welcher Domain (z.B. `app.LB-B.ch`)?
 5. **Pentest:** vor erstem Echt-Tenant (E4) — internes Budget/Anbieter?
 
 ---

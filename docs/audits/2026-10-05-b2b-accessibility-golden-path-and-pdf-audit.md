@@ -597,7 +597,7 @@ behoben".
 
 ### Wirkung
 
-- Ohne ein solches Dokument kann 5eyes gegenueber Kunden oder Aufsicht keine
+- Ohne ein solches Dokument kann LB-B gegenueber Kunden oder Aufsicht keine
   transparente, versionierte Aussage zum eigenen Barrierefreiheitsstand
   machen; das ist unabhaengig vom tatsaechlichen technischen Reifegrad ein
   Transparenzdefizit.

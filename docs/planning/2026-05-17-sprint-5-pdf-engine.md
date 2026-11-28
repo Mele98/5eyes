@@ -2,7 +2,7 @@
 
 **Datum:** 2026-05-17
 **Status:** Spec / aktiv
-**Vorgaenger:** Standortanalyse §C.3 — letzter P1-UX-Gap zu 3eyes.
+**Vorgaenger:** Standortanalyse §C.3 — letzter P1-UX-Gap zu LB-A.
 
 ## 0. Problem
 
@@ -10,7 +10,7 @@ Aktuell: Berater drueckt Strg-P im Browser → Print-Dialog → "Save as PDF".
 Resultat: Browser-Print-Qualitaet (Header/Footer von Browser, Skalierungs-
 artefakte, keine Kontrolle ueber Seitenumbruch, keine Branding-Optionen).
 
-**3eyes liefert:** Server-seitig generierte PDF-Reports in
+**LB-A liefert:** Server-seitig generierte PDF-Reports in
 Beraterqualitaet (Header mit Logo, Footer mit Audit-Hash, gezielte
 Seitenumbrueche, Tabellen-Formatierung).
 
@@ -86,7 +86,7 @@ class PDFRenderer(Protocol):
 ### Phase 1 — Foundation (diese Session, ~2h)
 - services/pdf/base.py: Protocol + PDFContext
 - services/pdf/reportlab_renderer.py: minimaler ReportLab-Setup
-- services/pdf/styles.py: 5eyes-Designsystem (Farben, Fonts)
+- services/pdf/styles.py: LB-B-Designsystem (Farben, Fonts)
 - services/pdf/components/header.py + footer.py
 - Test: PDF-Validitaet (Magic Bytes %PDF-, PageCount >= 1)
 - **~20 Tests**
@@ -131,7 +131,7 @@ class PDFRenderer(Protocol):
 
 ## 7. Bibliotheks-Vergleich
 
-| Lib | Pro | Contra | 5eyes-Fit |
+| Lib | Pro | Contra | LB-B-Fit |
 |---|---|---|---|
 | **ReportLab** | pure-Python, stabil, voll-deterministisch, PyInstaller-OK | Code-Templates, kein HTML | ✅ |
 | WeasyPrint | HTML/CSS3 voll | GTK+/Cairo, Windows-PyInstaller-Hoelle | ❌ |

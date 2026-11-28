@@ -401,7 +401,7 @@ unveraendert — siehe `feedback_risk_profile_finma.md`):
    Portfolio die **Ableitung der SAA in konkrete Wertschriften** ist
    (Advisory-Methodik Advisory Process Schritt 4: Portfoliooptimierung nach SAA-
    Optimierung). Spalte 'Handlung' → 'Massnahme'. Customer Journey ist
-   SD → CF/Ziele → RP → SAA → PO (siehe project_5eyes_customer_journey.md).
+   SD → CF/Ziele → RP → SAA → PO (siehe project_LB-B_customer_journey.md).
 4. **§5 Review:** Subtitle in Consulting-Sprache umgeschrieben. Print-
    Button 'PDF' → 'Review drucken' (kein Versprechen).
 5. **§6 Summary/POS:** 12 Wording-Aenderungen — KPI-Tiles, Cards,
@@ -438,7 +438,7 @@ ISIN-Produkte**, nicht 'Bestand vs. Empfehlung'.
 
 Quelle: `~/Desktop/Consulting Firma/Advisory-Methodik/erklärung Advisory-Methodik.pdf`
 (Schulung Wealth-Management-Referenz, 09.04.2024). Memory:
-`project_5eyes_customer_journey.md`.
+`project_LB-B_customer_journey.md`.
 
 **Korrekturen nach Advisory-Methodik:**
 

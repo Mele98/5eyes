@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -139,7 +140,7 @@ def test_pdf_plan_solvency_line_appears_once_with_label():
     ])
     text = paragraph.getPlainText()
     assert text.count("Plan-Solvenz (alle Ziele gemeinsam)") == 1
-    assert "31%" in text
+    assert "31 %" in text  # G7: gemeinsamer Formatter
     # Ohne Planzeile (Altbewertung) wird kein Wert erfunden.
     assert make_plan_solvency_line([_goal_row("a", "X", 0.9, "erreichbar")]).getPlainText() == ""
 
@@ -167,7 +168,7 @@ def test_limiting_factor_label_exists_for_shared_bottleneck():
 
 
 def _monolith() -> str:
-    return MONOLITH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _function_body(source: str, name: str) -> str:

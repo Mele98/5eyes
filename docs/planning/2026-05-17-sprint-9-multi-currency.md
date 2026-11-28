@@ -6,7 +6,7 @@
 
 ## 0. Problem
 
-Aktuell ist 5eyes implizit **CHF-only**:
+Aktuell ist LB-B implizit **CHF-only**:
 - Mandate.base_currency existiert (default CHF), wird aber nicht in der
   Engine genutzt
 - CMA-Returns sind ohne Currency-Annotation (Annahme: CHF)
@@ -14,7 +14,7 @@ Aktuell ist 5eyes implizit **CHF-only**:
   WealthPosition existiert aber wird nur konvertiert beim Reporting)
 - Reports und Optimizer rechnen ueber alles in CHF
 
-**Konsequenz:** Berater mit EUR-Mandanten (oder USD-Kunden) kann 5eyes
+**Konsequenz:** Berater mit EUR-Mandanten (oder USD-Kunden) kann LB-B
 nicht ernsthaft nutzen — alle Returns werden CHF-bewertet.
 
 ## 1. Loesung (Phase 1 = Foundation)

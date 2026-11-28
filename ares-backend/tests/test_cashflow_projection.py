@@ -125,6 +125,11 @@ def test_cashflow_projection_empty_client_returns_zeros(session_factory, auth_cl
 
 
 def test_cashflow_projection_segments_one_off_flows(session_factory, auth_client, advisor_user):
+    # Der Endpoint beginnt die Projektion beim laufenden Kalenderjahr
+    # (``date.today().year`` in ``routers/clients.py``). Die Daten sind deshalb
+    # relativ zu diesem Jahr: fest "2026/2028/2029" stimmte nur im Jahr 2026
+    # (unter simulierter Wanduhr 2027-01-15 lag der 3a-Bezug in rows[1]).
+    year0 = datetime.date.today().year
     cid = _make_client(session_factory, advisor_user.id)
     now = _utc_now_iso()
     with session_factory() as s:
@@ -136,8 +141,8 @@ def test_cashflow_projection_segments_one_off_flows(session_factory, auth_client
             amount_rappen=5_000_000,
             frequency="einmalig",
             nature="einmalig",
-            valid_from="2028-01-01",
-            valid_until="2028-01-01",
+            valid_from=f"{year0 + 2}-01-01",
+            valid_until=f"{year0 + 2}-01-01",
             is_active=1,
             created_at=now,
             updated_at=now,
@@ -150,8 +155,8 @@ def test_cashflow_projection_segments_one_off_flows(session_factory, auth_client
             amount_rappen=2_000_000,
             frequency="jährlich",
             nature="wiederkehrend",
-            valid_from="2026-01-01",
-            valid_until="2029-12-31",
+            valid_from=f"{year0}-01-01",
+            valid_until=f"{year0 + 3}-12-31",
             is_active=1,
             created_at=now,
             updated_at=now,
@@ -162,6 +167,7 @@ def test_cashflow_projection_segments_one_off_flows(session_factory, auth_client
 
     assert resp.status_code == 200
     rows = resp.json()["years"]
+    assert [row["year"] for row in rows] == [year0, year0 + 1, year0 + 2, year0 + 3]
     assert rows[0]["recurring_income_rappen"] == 0
     assert rows[0]["capital_inflow_rappen"] == 0
     assert rows[0]["recurring_expense_rappen"] == 2_000_000
@@ -333,14 +339,36 @@ def test_non_inflation_linked_cashflow_stays_nominal(session_factory, auth_clien
     assert all(r["recurring_income_rappen"] == 10_000_000 for r in rows)
 
 
+def _add_fresh_fx(session_factory, currency, rate_x10000):
+    """CCX-P3-FX: belegter, frischer Kurs (synthetischer Testvektor, keine Fachwerte)."""
+    from models.fx_rate import FXRate
+
+    now = _utc_now_iso()
+    with session_factory() as s:
+        s.add(FXRate(id=str(uuid.uuid4()), currency=currency, rate_x10000=rate_x10000, valid_from=now,
+                     is_current=1, source="Manual", created_at=now, updated_at=now))
+        s.commit()
+
+
 def test_foreign_currency_cashflow_converted_to_chf(session_factory, auth_client, advisor_user):
-    """Ein USD-Cashflow wird zum FX-Kurs auf CHF konvertiert (Default USD=0.88 CHF)."""
+    """Ein USD-Cashflow wird mit belegtem Kurs auf die explizite Zielwaehrung CHF
+    konvertiert. CCX-P3-FX: ohne Zielwaehrung bleibt er in USD (nie still CHF),
+    ohne belegten Kurs (nur Ersatzkurs DEFAULT_FX_RATES) wird gesperrt."""
     cid = _make_client(session_factory, advisor_user.id)
     # USD 100'000 (in Cents). is_inflation_linked=0 -> reiner FX-Effekt.
     _add_cashflow_flags(session_factory, cid, 10_000_000, "Income",
                         is_inflation_linked=0, currency="USD")
 
-    rows = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=3").json()["years"]
+    native = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=3").json()
+    assert native["amount_currency"] == "USD"
+    assert native["years"][0]["recurring_income_rappen"] == 10_000_000
+    blocked = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=3&target_currency=CHF")
+    assert blocked.status_code == 409 and blocked.json()["detail"]["reason_code"] == "CCX_FX_BASIS_MISSING"
+
+    _add_fresh_fx(session_factory, "USD", 8_800)
+    rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=3&target_currency=CHF"
+    ).json()["years"]
     # 10_000_000 * 0.88 = 8_800_000 CHF-Rappen.
     assert rows[0]["recurring_income_rappen"] == 8_800_000
     assert rows[0]["income_rappen"] == 8_800_000
@@ -353,7 +381,7 @@ def test_wealth_inflow_appears_in_projection(session_factory, auth_client, advis
     cid = _make_client(session_factory, advisor_user.id)
     now = _utc_now_iso()
     with session_factory() as s:
-        s.add(WealthInflow(
+        s.add(WealthInflow(currency="CHF",
             id=str(uuid.uuid4()), client_id=cid,
             label="Erbschaft", source_type="Erbschaft",
             amount_rappen=5_000_000, expected_year=start_year + 2,
@@ -447,8 +475,9 @@ def test_indexation_false_keeps_fx_conversion_active(session_factory, auth_clien
     _add_cashflow_flags(session_factory, cid, 10_000_000, "Income",
                         is_inflation_linked=0, currency="USD")
 
+    _add_fresh_fx(session_factory, "USD", 8_800)  # synthetischer Testvektor
     rows = auth_client.get(
-        f"/clients/{cid}/cashflow-projection?horizon_years=3&indexation=false"
+        f"/clients/{cid}/cashflow-projection?horizon_years=3&indexation=false&target_currency=CHF"
     ).json()["years"]
     # FX bleibt aktiv: 10_000_000 * 0.88 = 8_800_000.
     assert rows[0]["recurring_income_rappen"] == 8_800_000
@@ -462,7 +491,7 @@ def test_indexation_false_wealth_inflow_nominal(session_factory, auth_client, ad
     _add_current_cma(session_factory, advisor_user.id, {start_year: 200})
     now = _utc_now_iso()
     with session_factory() as s:
-        s.add(WealthInflow(
+        s.add(WealthInflow(currency="CHF",
             id=str(uuid.uuid4()), client_id=cid,
             label="Rente", source_type="Rente",
             amount_rappen=5_000_000, expected_year=start_year + 5,

@@ -2,7 +2,7 @@
 
 **Datum:** 2026-05-17 (Abend)
 **Status:** Aktiv — ersetzt v1 (vormittag) als Roadmap-Anker
-**Vorgaenger:** docs/planning/2026-05-17-standortanalyse-vs-3eyes.md (v1)
+**Vorgaenger:** docs/planning/2026-05-17-standortanalyse-vs-LB-A.md (v1)
 
 ## 0. Was sich seit v1 geaendert hat
 
@@ -101,7 +101,7 @@ Nach Erledigung P0-P4 sollte gelten:
 - Berater waehlt Steuersitz CH/DE → SAA-Wirkung sichtbar (P4)
 - develop-Branch ist linear, alle Tests gruen (P2)
 
-**Nach P0-P4 ist 5eyes Demo-reif fuer ersten externen Berater-Beta-Test.**
+**Nach P0-P4 ist LB-B Demo-reif fuer ersten externen Berater-Beta-Test.**
 
 ## 7. Was NICHT machen
 

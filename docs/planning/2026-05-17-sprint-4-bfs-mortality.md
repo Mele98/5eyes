@@ -2,7 +2,7 @@
 
 **Datum:** 2026-05-17
 **Status:** Spec / aktiv
-**Vorgaenger:** Standortanalyse §A.3 — letzter P0-Compliance-Gap zu 3eyes.
+**Vorgaenger:** Standortanalyse §A.3 — letzter P0-Compliance-Gap zu LB-A.
 
 ## 0. Problem
 
@@ -14,9 +14,9 @@ Probleme:
 - Keine Unsicherheit ueber Lebensdauer (Langlebigkeitsrisiko!)
 - Cashflow-Pfade alle gleich lang → P10/P50/P90 spiegeln nur Markt-, nicht
   Lebens-Unsicherheit
-- 3eyes nutzt BFS-Sterbetafel → empirische Wahrscheinlichkeitsverteilung
+- LB-A nutzt BFS-Sterbetafel → empirische Wahrscheinlichkeitsverteilung
 
-**Allocation-Wirkung (wichtig fuer 5eyes-Scope):**
+**Allocation-Wirkung (wichtig fuer LB-B-Scope):**
 - Wer mit 95% Wahrscheinlichkeit 92 wird, braucht mehr Liquiditaet im
   Decumulation-Pfad als wer "im Schnitt 84" wird
 - Risikoprofil und Pension-Pfad muessen langlebigkeitsrobust sein

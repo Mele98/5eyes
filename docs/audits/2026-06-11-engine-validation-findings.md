@@ -1,7 +1,7 @@
 # Engine-Validierung 2026-06-11 — Befunde
 
 Multi-Agent-Validierung (Cashflow, Zielmatrix/Goals) + adversariale Verifikation.
-Fokus: Rechen-/Darstellungsfehler und 3eyes-Divergenzen.
+Fokus: Rechen-/Darstellungsfehler und LB-A-Divergenzen.
 
 ## Cashflow — GEFIXT (Commit fix(cashflow), Branch audit/engine-validation)
 - **A (kritisch, Anzeige):** IST-Summary (Total Einnahmen/Ausgaben/Saldo) annualisierte

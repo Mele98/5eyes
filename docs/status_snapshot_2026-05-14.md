@@ -1,4 +1,4 @@
-# 5eyes — Status-Snapshot 2026-05-14
+# LB-B — Status-Snapshot 2026-05-14
 
 **Zweck:** Eine einzige Seite, die zeigt, **was offen ist**, **wer dran ist**, und **in welcher Reihenfolge** gemergt werden sollte. Damit beendest du den aktuellen Sprint sauber, bevor neue UX-Arbeit beginnt.
 

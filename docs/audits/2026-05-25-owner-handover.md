@@ -203,7 +203,7 @@ Dev-URLs (lokal):
   Electron Hauptapp:      über npm start in ares-desktop/
 
 GitHub:
-  https://github.com/Mele98/5eyes
+  https://github.com/Mele98/LB-B
 ```
 
 ---

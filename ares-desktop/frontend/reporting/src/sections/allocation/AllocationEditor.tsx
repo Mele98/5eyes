@@ -334,7 +334,7 @@ export function AllocationEditor({ mandateId }: AllocationEditorProps) {
               title={draftValid ? undefined : 'Speichern gesperrt, bis alle Felder gültig sind.'}
               className="rounded bg-ink px-4 py-2 text-caption text-paper disabled:opacity-50"
             >
-              {saving ? 'Speichere…' : 'SOLL-Allokation speichern'}
+              {saving ? 'Wird gespeichert…' : 'SOLL-Allokation speichern'}
             </button>
           </div>
         </>

@@ -54,8 +54,11 @@ logger = logging.getLogger(__name__)
 
 
 COMPUTED_BY = "system:cma_data_pipeline"
-"""Wert fuer CapitalMarketAssumption.computed_by / .created_by auf von
-diesem Modul erzeugten Kandidaten-Zeilen."""
+"""Wert fuer CapitalMarketAssumption.computed_by (Herkunft, kein Fremdschluessel)
+auf von diesem Modul erzeugten Kandidaten-Zeilen. created_by ist dagegen ein
+NOT-NULL-Fremdschluessel auf users.id und traegt den ausloesenden Benutzer
+(SEED-FK-HYGIENE 2026-11-05: frueher stand die Pseudo-Kennung auch dort, womit
+jedes INSERT unter PRAGMA foreign_keys=ON scheiterte)."""
 
 
 class JurisdictionDataPipelineError(Exception):
@@ -339,6 +342,8 @@ def compute_cma_candidate_for_jurisdiction(
     db: Session,
     jurisdiction: str,
     as_of_date: str,
+    *,
+    created_by_user_id: str,
 ) -> CapitalMarketAssumption:
     """Orchestriert fetch_yield_curve_for_jurisdiction() +
     fetch_equity_pe_proxy_for_jurisdiction() zu einem NEUEN, INAKTIVEN
@@ -484,7 +489,7 @@ def compute_cma_candidate_for_jurisdiction(
         computed_by=COMPUTED_BY,
         bonds_home_ig_return_bps=bonds_home_ig_return_bps,
         equity_home_return_bps=equity_home_return_bps,
-        created_by=COMPUTED_BY,
+        created_by=created_by_user_id,
         created_at=now_iso,
         updated_at=now_iso,
     )

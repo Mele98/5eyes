@@ -6,6 +6,7 @@ sind beliebige Platzhalter, deren einzige Aufgabe ist, Domaenenregeln
 """
 from __future__ import annotations
 
+from tests.sustainability_test_support import answer_question_one_for_all_mandates  # noqa: E402
 import sqlite3
 import sys
 from datetime import date, datetime, timezone
@@ -324,9 +325,11 @@ def test_finalization_blocked_once_model_is_enforced(tmp_path):
     with SF() as s:
         advisor = s.query(User).filter(User.id == advisor_id).one()
         with pytest.raises(HTTPException) as exc:
+            answer_question_one_for_all_mandates(s)  # Nachtrag 1: Pflichtfrage
             finalize_recommendation(
                 mandate_id=mid, run_id=run_id, request=_FakeRequest(),
                 db=s, current_user=advisor,
+                confirm_valuations_current=True,
             )
     assert exc.value.status_code == 422
     assert exc.value.detail["reason_code"] == svc.CMA_POLICY_MISSING

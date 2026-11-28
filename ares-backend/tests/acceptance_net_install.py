@@ -48,6 +48,12 @@ with SessionLocal() as session:
     seed_default_tax_parameter_sets(session)
     session.commit()
 with SessionLocal() as session:
+    # EXE-P (H-187): TESTWERT -- die Vorlage-Policy traegt im Produkt kein
+    # Gebuehrenmodell mehr; die Abnahme rechnet mit dem TEST-Gebuehrenmodell
+    # aus tests/conftest.py (byte-gleich zum frueheren Default).
+    import json as _json
+    import services.portfolio_engine_house_matrix as _hm
+    _hm.RUNTIME_SEED_FEE_MODEL_JSON = _json.dumps(dict(default_advisory_fee_bps=75))  # TESTWERT
     ensure_runtime_reference_data(session, {advisor!r}, "CH")
     session.commit()
 with SessionLocal() as session:

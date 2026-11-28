@@ -68,10 +68,11 @@ def test_unknown_codes_are_not_normalised_or_rejected():
 # Statische Nachweise
 # --------------------------------------------------------------------------
 
+# C-COMP-02: services/cost_disclosure.py loest keine Jurisdiktion mehr auf (Kosten
+# nur aus der gebundenen Evidenz, keine Universums-Konditionen).
 CONVERTED_MODULES = (
     "routers/allocation.py",
     "routers/wealth.py",
-    "services/cost_disclosure.py",
     "services/manual_target_allocation.py",
     "services/portfolio_engine.py",
     "services/preference_snapshot.py",
@@ -154,9 +155,8 @@ def test_ch_literal_ratchet_only_sinks():
 # --------------------------------------------------------------------------
 
 EXPECTED_RESOLVE_PACK_SITES = {
-    "routers/allocation.py": 2,
+    "routers/allocation.py": 3,  # H9 Nachtrag 2: GET ist-projection-basis (resolve_pack(mandate).code wie Allokationspfad)
     "routers/wealth.py": 1,
-    "services/cost_disclosure.py": 1,
     "services/manual_target_allocation.py": 1,
     "services/portfolio_engine.py": 6,
     "services/preference_snapshot.py": 1,

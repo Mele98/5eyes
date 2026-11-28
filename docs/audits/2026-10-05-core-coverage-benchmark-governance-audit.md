@@ -20,7 +20,7 @@ Dieser Audit beantwortet die im Reconciliation-Dokument
 `2026-10-05-core-function-audit-coverage-and-release-readiness-reconciliation.md`
 (Abschnitt 4, Auftrag `CORE-COVERAGE-001`) offen gelassene Frage: Wie viele
 voneinander unabhängige Code-Konstruktionen eines „Benchmarks" existieren
-tatsächlich im 5eyes-Backend, was verwenden sie je als Input, und gibt es
+tatsächlich im LB-B-Backend, was verwenden sie je als Input, und gibt es
 einen Test, der zwei dieser Konstruktionen gegeneinander validiert?
 
 Er ergänzt, ersetzt aber nicht:

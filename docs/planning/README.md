@@ -30,11 +30,11 @@ Claude soll moeglichst nicht direkt auf Produktivcode arbeiten, sondern ueber:
 
 ## Standardablauf
 
-1. Claude erstellt einen Plan mit [CLAUDE_SPEC_TEMPLATE.md](C:/5eyes/5eyes_stage9_release_ready/docs/planning/CLAUDE_SPEC_TEMPLATE.md).
+1. Claude erstellt einen Plan mit [CLAUDE_SPEC_TEMPLATE.md](C:/LB-B/LB-B_stage9_release_ready/docs/planning/CLAUDE_SPEC_TEMPLATE.md).
 2. Die Spezifikation landet in `docs/planning/<datum>-<slug>.md` oder in einem GitHub Issue.
 3. Codex startet mit `scripts/start_codex_branch.ps1` einen sauberen `codex/...`-Branch.
 4. Codex setzt die Aufgabe um und prueft sie gegen die Akzeptanzkriterien.
-5. Claude reviewed Diff, PR oder die von Codex verlinkten Dateien mit [REVIEW_CHECKLIST.md](C:/5eyes/5eyes_stage9_release_ready/docs/planning/REVIEW_CHECKLIST.md).
+5. Claude reviewed Diff, PR oder die von Codex verlinkten Dateien mit [REVIEW_CHECKLIST.md](C:/LB-B/LB-B_stage9_release_ready/docs/planning/REVIEW_CHECKLIST.md).
 6. Merge geht nach `develop`.
 7. `main` wird erst aktualisiert, wenn der Integrationsstand stabil ist.
 
@@ -54,9 +54,9 @@ Claude sollte pro Block genau diese Punkte liefern:
 
 ## PowerShell-Helfer
 
-- [start_codex_branch.ps1](C:/5eyes/5eyes_stage9_release_ready/scripts/start_codex_branch.ps1)
+- [start_codex_branch.ps1](C:/LB-B/LB-B_stage9_release_ready/scripts/start_codex_branch.ps1)
   - erzeugt einen sauberen `codex/...`-Branch
-- [new_claude_spec.ps1](C:/5eyes/5eyes_stage9_release_ready/scripts/new_claude_spec.ps1)
+- [new_claude_spec.ps1](C:/LB-B/LB-B_stage9_release_ready/scripts/new_claude_spec.ps1)
   - legt eine neue Spezifikation aus dem Template an
 
 ## Wichtige Regel

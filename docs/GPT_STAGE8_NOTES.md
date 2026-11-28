@@ -11,7 +11,7 @@
 - It now:
   - loads `.env` values into the Electron process if present,
   - probes `APP_HOST`/`APP_PORT`,
-  - verifies that the service on that port is really the expected 5Eyes backend,
+  - verifies that the service on that port is really the expected LB-B backend,
   - reuses it only if the app identity matches,
   - otherwise picks a free localhost port and starts the bundled backend there.
 - The selected backend runtime is exposed through `preload.js`.

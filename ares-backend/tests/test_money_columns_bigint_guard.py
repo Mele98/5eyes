@@ -183,7 +183,7 @@ def test_cashflow_amount_beyond_64_bit_is_rejected(field):
 def test_wealth_inflow_amount_beyond_64_bit_is_rejected():
     from schemas.wealth import WealthInflowCreate, WealthInflowUpdate  # noqa: PLC0415
 
-    base = {"label": "Erbe", "source_type": "Erbschaft", "expected_year": 2030}
+    base = {"label": "Erbe", "source_type": "Erbschaft", "currency": "CHF", "expected_year": 2030}
     with pytest.raises(ValidationError):
         WealthInflowCreate(**base, amount_rappen=_TOO_LARGE)
     with pytest.raises(ValidationError):

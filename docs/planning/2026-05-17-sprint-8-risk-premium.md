@@ -2,7 +2,7 @@
 
 **Datum:** 2026-05-17 (Nacht)
 **Status:** Spec / aktiv
-**Vorgaenger:** Standortanalyse §B.6 — letzter Engine-Tiefe-Gap zu 3eyes.
+**Vorgaenger:** Standortanalyse §B.6 — letzter Engine-Tiefe-Gap zu LB-A.
 
 ## 0. Problem
 
@@ -14,13 +14,13 @@ Das ignoriert die fundamentale Beziehung: **Risiko-Asset-Returns sind das
 Risiko-Premium ueber dem risikofreien Zins.**
 
 Bei Zinsaenderungen:
-- Heute (5eyes): RE-Return bleibt 400 bps egal wo Zinsen stehen
+- Heute (LB-B): RE-Return bleibt 400 bps egal wo Zinsen stehen
 - Realitaet: bei 4% risk-free + 200 bps Premium = 6% RE-Return
   bei 1% risk-free + 200 bps Premium = 3% RE-Return
 
 Konsequenz: Aktuelle Engine ueberbewertet RE/Alts in Niedrigzins-Phasen.
 
-**3eyes-Aequivalent:** Risikopraemien-Aufbau ueber Yield-Curve (NS).
+**LB-A-Aequivalent:** Risikopraemien-Aufbau ueber Yield-Curve (NS).
 
 **Allocation-Wirkung:**
 - Bei Zinsanstieg: RE und Alts werden relativ attraktiver

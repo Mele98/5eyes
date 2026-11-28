@@ -329,3 +329,31 @@ def test_ledger_file_is_untouched_by_restores_atomic_copy(tmp_path: Path):
     assert ledger_path.exists()
     assert ledger_path.read_text(encoding="utf-8") == sentinel_content
     assert ledger_path.stat().st_mtime == sentinel_mtime
+
+
+def test_restore_backup_reapplies_erasure_on_target_despite_configured_database_url(tmp_path: Path, monkeypatch):
+    """C-T1-01: eine gesetzte DATABASE_URL darf die Wiederanwendung nicht auf
+    eine andere Datenbank umlenken; nur das Restore-Ziel wird bearbeitet."""
+    import hashlib
+
+    from config import settings
+
+    db_path = tmp_path / "live.db"
+    _build_app_db(db_path)
+    _seed_client(db_path)
+    decoy = tmp_path / "decoy" / "konfiguriert.db"
+    decoy.parent.mkdir()
+    _build_app_db(decoy)
+    _seed_client(decoy)
+    decoy_before = hashlib.sha256(decoy.read_bytes()).hexdigest()
+
+    pre_erasure_backup = backup_database(target_dir=tmp_path / "backups", source_db_path=db_path)
+    _erase_client(db_path, reason="Kunde verlangt Loeschung nach DSG Art. 32.")
+
+    monkeypatch.setattr(settings, "database_url", f"sqlite:///{decoy.as_posix()}", raising=False)
+    result = restore_backup(backup_path=pre_erasure_backup.path, target_db_path=db_path)
+
+    assert result["erasure_reapply"]["reapplied"] == [CLIENT_ID]
+    assert _client_row(db_path).erased_at is not None
+    assert _client_row(decoy).erased_at is None
+    assert hashlib.sha256(decoy.read_bytes()).hexdigest() == decoy_before

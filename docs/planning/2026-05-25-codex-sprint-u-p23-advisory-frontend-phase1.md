@@ -1,6 +1,6 @@
 # Codex-Sprint U-P23 — Advisory-Report Frontend Phase 1 + 3 Audit-Bugs
 
-> **Adressat:** Codex (5eyes-Session).
+> **Adressat:** Codex (LB-B-Session).
 > **Erstellt durch:** Claude (Opus 4.7), 2026-05-25, nach Audit
 > `docs/audits/2026-05-25-advisory-report-audit.md`.
 > **User-Direktiven:** Berater hat ausdrücklich gewünscht (Originalton):
@@ -311,7 +311,7 @@ gemerged, rebase B-E auf neuen develop.
 
 ## Wichtig / Verboten
 
-- **Keine Dritt-Marken** (UBS, Pictet, Julius Bär, Swiss Life, 3eyes,
+- **Keine Dritt-Marken** (UBS, Pictet, Julius Bär, Swiss Life, LB-A,
   PPC Metrics) in Code / Texten / Tests. Memory-Regel.
 - **Keine Garantieversprechen**, kein „garantiert" in Customer-facing
   Texten. FINMA-Compliance.

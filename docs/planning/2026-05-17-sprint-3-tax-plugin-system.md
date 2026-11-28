@@ -28,13 +28,13 @@ Engine-Integration) hat der User klargestellt:
   Tabelle, kein TaxCalculationLog, kein Tarif-Versioning, kein Multi-Tenant
 
 **Rationale:** Echte WM-Tax-Engine ist ein separates Produkt (TaxCalc,
-Avalara). 5eyes braucht Tax NUR damit Asset-Allocation-Optimierung die
+Avalara). LB-B braucht Tax NUR damit Asset-Allocation-Optimierung die
 echten Tax-Drag-Effekte beruecksichtigen kann (Yield- vs Capital-Gain-
 Strategie, CH-Anleihen vs CH-Aktien).
 
 ## 0. Vision & Scope
 
-5eyes soll **in Zukunft als Wealth-Management-System** nutzbar sein:
+LB-B soll **in Zukunft als Wealth-Management-System** nutzbar sein:
 nicht nur fuer Schweizer Finanzberater, sondern fuer Vermoegensverwalter in
 **jedem Land der Welt** (CH, EU, Asien, USA, Naher Osten, ...).
 
@@ -220,7 +220,7 @@ CREATE TABLE tax_jurisdictions (
     regime_class TEXT NOT NULL,           -- 'CHTaxRegime' (Registry-Lookup)
     display_name TEXT NOT NULL,           -- 'Schweiz — Zuerich'
     local_currency TEXT NOT NULL,         -- 'CHF', 'EUR', 'USD'
-    is_seed BOOLEAN NOT NULL DEFAULT 0,   -- vom 5eyes-Team vs. Berater-eigen
+    is_seed BOOLEAN NOT NULL DEFAULT 0,   -- vom LB-B-Team vs. Berater-eigen
     notes TEXT,                           -- Quellen, Annahmen
     created_at TIMESTAMP NOT NULL,
     created_by TEXT,
@@ -432,7 +432,7 @@ tests/tax/
 
 **UI-Disclaimer (Pflicht-Anzeige im Steuersitz-Editor):**
 
-> Die in 5eyes hinterlegten Steuersaetze sind **Schaetzwerte** zu
+> Die in LB-B hinterlegten Steuersaetze sind **Schaetzwerte** zu
 > Planungszwecken. Sie ersetzen **keine** persoenliche Steuerberatung.
 > Tatsaechliche Steuern haengen ab von individuellen Faktoren (Einkommen,
 > Familienstand, Abzuege, Stiftungen, etc.), die hier vereinfacht abgebildet

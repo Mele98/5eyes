@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +18,7 @@ HTML_PATH = BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html"
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def test_portfolio_header_hat_kostenausweis_button():
@@ -105,4 +106,4 @@ def test_modal_rendert_warnings_bei_pending():
     fn_start = text.find("function renderCostDisclosure(")
     block = text[fn_start:fn_start + 2000]
     assert "warnings.length" in block
-    assert "Annahmen und Datenqualitaet" in block
+    assert "Annahmen und Datenqualität" in block

@@ -49,12 +49,12 @@ gh auth status   # muss "Logged in" zeigen
 
 ```powershell
 # Workspace _develop_security
-cd C:\5eyes\5eyes_stage9_release_ready_develop_security
+cd C:\LB-B\LB-B_stage9_release_ready_develop_security
 git push origin codex/audit-master
 git push origin codex/stochastic-optimizer
 
 # Workspace _release_ready (Codex' uncommitted Files VORHER absprechen!)
-cd C:\5eyes\5eyes_stage9_release_ready
+cd C:\LB-B\LB-B_stage9_release_ready
 git status   # 31 Files? -> Codex muss zuerst committen oder stashen
 # Wenn Codex commited hat:
 git push origin codex/rp-ueberarbeitung
@@ -63,7 +63,7 @@ git push origin codex/rp-ueberarbeitung
 ### 2. PR audit-master → develop
 
 ```powershell
-cd C:\5eyes\5eyes_stage9_release_ready_develop_security
+cd C:\LB-B\LB-B_stage9_release_ready_develop_security
 gh pr create --base develop --head codex/audit-master `
   --title "Audit-Master: Z1-Z9 + B1-B6 + W2.5 + Security + F23" `
   --body-file docs/planning/audit-master-pr-summary.md
@@ -86,7 +86,7 @@ gh pr create --base develop --head codex/stochastic-optimizer `
 ### 4. Rebase rp-ueberarbeitung auf develop
 
 ```powershell
-cd C:\5eyes\5eyes_stage9_release_ready
+cd C:\LB-B\LB-B_stage9_release_ready
 git fetch origin
 git checkout codex/rp-ueberarbeitung
 git rebase origin/develop
@@ -109,7 +109,7 @@ Codex implementiert Phase 6 FE nach `2026-05-06-phase6-fe-implementation-patch.m
 Branch von `codex/rp-ueberarbeitung` (mit `-FromCurrent` Flag).
 
 ```powershell
-cd C:\5eyes\5eyes_stage9_release_ready
+cd C:\LB-B\LB-B_stage9_release_ready
 .\scripts\start_codex_branch.ps1 -Slug "fe-optimizer-panel" -FromCurrent
 # Patch anwenden (3 Edits in ares.html + Mock in desktop-api.js)
 # Manueller Smoke-Test (siehe scripts/smoke_test_phase6_optimizer.ps1)
@@ -144,10 +144,10 @@ git push --force-with-lease origin develop
 ```
 
 Bundle-Backups existieren bereits:
-- `C:\5eyes\audit-master-backup-2026-05-05.bundle`
+- `C:\LB-B\audit-master-backup-2026-05-05.bundle`
 
 ## Was NICHT in diesem Plan ist
 
 - Code-Review der einzelnen Commits (separate PR-Reviews)
 - CI-Pipeline-Tuning (sollte vor dem ersten Merge stabil laufen)
-- Production-Deployment (nicht Scope von 5eyes-Desktop-App)
+- Production-Deployment (nicht Scope von LB-B-Desktop-App)

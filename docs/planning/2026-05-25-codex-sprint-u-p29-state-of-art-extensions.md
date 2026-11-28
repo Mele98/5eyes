@@ -1,9 +1,9 @@
 # Codex-Sprint U-P29 — State-of-the-art-Ergänzungen für Advisory-Report
 
-> **Adressat:** Codex (5eyes-Session).
+> **Adressat:** Codex (LB-B-Session).
 > **Erstellt durch:** Claude (Opus 4.7), 2026-05-25.
 > **Voraussetzung:** U-P21 (Backend), U-P23/U-P24/U-P25 (Frontend), U-P26 (PDF)
-> fertig. Dieser Sprint bringt 5eyes auf das Niveau Family-Office-Reporting
+> fertig. Dieser Sprint bringt LB-B auf das Niveau Family-Office-Reporting
 > (UBS GFO Report, Pictet, PPC Metrics) — siehe Audit §4.2.
 > **Größenordnung:** ~25-35 Stunden über 5 PRs.
 
