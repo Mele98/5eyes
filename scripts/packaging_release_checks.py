@@ -294,7 +294,10 @@ def check_product_hygiene(exe: Path, unpacked_dir: Path, fail, log) -> None:
             if code is None:
                 continue
             modules += 1
-            hits = brand_ids('\n'.join([module, *_code_strings(code)]))
+            # Konstanten koennen einzelne Surrogate enthalten (z. B. Emoji-Haelften
+            # in Bibliotheken): vor dem Hashen in gueltiges UTF-8 bringen.
+            joined_text = '\n'.join([module, *_code_strings(code)])
+            hits = brand_ids(joined_text.encode('utf-8', errors='replace').decode('utf-8'))
             if hits:
                 fail(f'Altname gefunden im Bytecode der Backend-EXE: {module} (Marken-ID {sorted(hits)}).')
     if not modules:
